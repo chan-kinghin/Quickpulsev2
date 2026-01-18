@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPulse V2 - 同步管理</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: { slate: { 950: '#0a0a0b' } },
+                    fontFamily: { sans: ['Geist', 'Noto Sans SC', 'system-ui'] }
+                }
+            }
+        };
+    </script>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body class="bg-slate-950 min-h-screen" x-data="authGuard()">
+    <div x-data="syncPanel()" x-init="init()">
+        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4">
+            <div class="flex items-center justify-between max-w-4xl mx-auto">
+                <div class="flex items-center gap-4">
+                    <a href="/dashboard.html" class="text-slate-400 hover:text-slate-50 transition">
+                        <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                    </a>
+                    <h1 class="text-xl font-semibold text-slate-50">同步管理</h1>
+                </div>
+                <button @click="api.logout()" class="text-slate-400 hover:text-slate-50 text-sm transition">
+                    退出登录
+                </button>
+            </div>
+        </header>
+
+        <main class="max-w-4xl mx-auto px-6 py-8">
+            <div class="bg-slate-900 border border-slate-800 rounded p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-slate-50">同步状态</h2>
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full animate-pulse"
+                              :class="status.is_running ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                        <span class="text-sm" :class="status.is_running ? 'text-amber-400' : 'text-emerald-400'"
+                              x-text="status.is_running ? '同步中...' : '空闲'"></span>
+                    </div>
+                </div>
+
+                <div x-show="status.is_running" class="mb-4">
+                    <div class="h-2 bg-slate-800 rounded overflow-hidden">
+                        <div class="h-full bg-emerald-500 transition-all duration-300"
+                             :style="`width: ${status.progress || 0}%`"></div>
+                    </div>
+                    <p class="text-sm text-slate-400 mt-2" x-text="status.current_task || '处理中...'"></p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <span class="text-slate-500">上次同步</span>
+                        <p class="text-slate-200 mt-1" x-text="status.last_sync || '从未同步'"></p>
+                    </div>
+                    <div>
+                        <span class="text-slate-500">同步记录数</span>
+                        <p class="text-slate-200 mt-1" x-text="status.records_synced || '-'"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded p-6 mb-6">
+                <h2 class="text-lg font-semibold text-slate-50 mb-4">手动同步</h2>
+                <div class="flex gap-4 items-end">
+                    <div class="flex-1">
+                        <label class="block text-sm text-slate-400 mb-2">同步天数</label>
+                        <input type="number" x-model="daysBack" min="1" max="90"
+                               class="w-full bg-slate-800 border border-slate-700 text-slate-50 px-4 py-3 rounded focus:outline-none glow-emerald transition">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="force-sync" x-model="forceSync"
+                               class="w-4 h-4 bg-slate-800 border border-slate-700 rounded">
+                        <label for="force-sync" class="text-sm text-slate-400">强制刷新</label>
+                    </div>
+                    <button @click="triggerSync()" :disabled="status.is_running || loading"
+                            class="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-slate-950 font-medium rounded transition">
+                        <span x-text="loading ? '触发中...' : '开始同步'"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded p-6 mb-6">
+                <h2 class="text-lg font-semibold text-slate-50 mb-4">自动同步计划</h2>
+                <div class="text-slate-400 text-sm">
+                    <p>每日自动同步时间: <span class="text-slate-200">07:00, 12:00, 16:00, 18:00</span></p>
+                </div>
+            </div>
+
+            <div x-show="error" x-transition
+                 class="p-4 bg-rose-500/10 border border-rose-500/30 rounded text-rose-400 mb-6">
+                <span x-text="error"></span>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/sync.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

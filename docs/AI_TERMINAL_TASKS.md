@@ -5,28 +5,45 @@
 
 ---
 
+## ✅ IMPLEMENTATION STATUS: COMPLETE
+
+**Last Updated**: 2026-01-18
+
+All tasks across all 4 terminals have been implemented. Key implementation notes:
+
+| Terminal | Tasks | Status | Notes |
+|----------|-------|--------|-------|
+| T1: Foundation | 11 tasks | ✅ Complete | Config, Database, Kingdee Client |
+| T2: Data Readers | 11 tasks | ✅ Complete | Consolidated via factory pattern |
+| T3: Sync & API | 10 tasks | ✅ Complete | Full sync service + REST API |
+| T4: Frontend & Docker | 9 tasks | ✅ Complete | Dark theme UI + Docker deploy |
+
+**Architecture Improvements**: Readers were consolidated from 9 separate files into a factory pattern (`src/readers/factory.py`) for reduced duplication.
+
+---
+
 ## Quick Start Guide
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        PARALLEL DEVELOPMENT TIMELINE                        │
+│                    PARALLEL DEVELOPMENT TIMELINE (COMPLETE)                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Terminal 1: ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  Terminal 1: ████████████████████████████████████████████████████████████ ✅│
 │              Foundation (config, db, client)                                │
-│              START IMMEDIATELY                                              │
+│              COMPLETE                                                       │
 │                                                                             │
-│  Terminal 2: ░░░░░░░░░░░░████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│              Data Readers (8 readers)                                       │
-│              WAIT for T1 to complete KingdeeClient                          │
+│  Terminal 2: ████████████████████████████████████████████████████████████ ✅│
+│              Data Readers (9 readers via factory)                           │
+│              COMPLETE                                                       │
 │                                                                             │
-│  Terminal 3: ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████████████████████████████░  │
+│  Terminal 3: ████████████████████████████████████████████████████████████ ✅│
 │              Sync Service + API                                             │
-│              WAIT for T1 + T2 to complete                                   │
+│              COMPLETE                                                       │
 │                                                                             │
-│  Terminal 4: ████████████████████████████████████████████████████████████░  │
+│  Terminal 4: ████████████████████████████████████████████████████████████ ✅│
 │              Frontend + Docker                                              │
-│              START IMMEDIATELY (parallel with T1)                           │
+│              COMPLETE                                                       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -69,7 +86,7 @@ dev = ["pytest>=7.4.0", "pytest-asyncio>=0.23.0"]
 pip install -e .
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -88,7 +105,7 @@ __version__ = "0.1.0"
 python -c "import src; print(src.__version__)"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -141,7 +158,7 @@ class SyncError(QuickPulseError):
 python -c "from src.exceptions import KingdeeError; print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -172,7 +189,7 @@ python -c "from src.exceptions import KingdeeError; print('OK')"
 python -c "from src.config import Config; c = Config(); print(c.kingdee.server_url)"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -188,7 +205,7 @@ from src.kingdee.client import KingdeeClient
 __all__ = ["KingdeeClient"]
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -217,7 +234,7 @@ class KingdeeClient:
 python -c "from src.kingdee.client import KingdeeClient; print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -261,7 +278,7 @@ class Database:
 python -c "from src.database.connection import Database; print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -281,7 +298,7 @@ python -c "from src.database.connection import Database; print('OK')"
 - `idx_po_synced` on `synced_at`
 - `idx_bom_mo` on `mo_bill_no`
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -311,7 +328,7 @@ python -c "from src.database.connection import Database; print('OK')"
 }
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -352,7 +369,7 @@ __all__ = [
 python -c "from src.models import MTOStatusResponse, SyncTriggerRequest; print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -394,7 +411,7 @@ def setup_logging(log_level: str = "INFO", log_file: Path = None):
 python -c "from src.logging_config import setup_logging; logger = setup_logging(); logger.info('Test'); print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -420,7 +437,7 @@ print('T1 Complete - All imports successful')
 
 > **Priority**: HIGH
 > **Dependencies**: Wait for Terminal 1 to complete T1-6 (KingdeeClient)
-> **Total Tasks**: 10
+> **Total Tasks**: 11
 
 ### T2-1: Create src/readers/__init__.py
 
@@ -438,6 +455,7 @@ from src.readers.purchase_receipt import PurchaseReceiptReader
 from src.readers.subcontracting_order import SubcontractingOrderReader
 from src.readers.material_picking import MaterialPickingReader
 from src.readers.sales_delivery import SalesDeliveryReader
+from src.readers.sales_order import SalesOrderReader
 
 __all__ = [
     "BaseReader",
@@ -449,10 +467,11 @@ __all__ = [
     "SubcontractingOrderReader",
     "MaterialPickingReader",
     "SalesDeliveryReader",
+    "SalesOrderReader",
 ]
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -489,7 +508,7 @@ class BaseReader(ABC, Generic[T]):
     async def fetch_by_bill_no(self, bill_no: str) -> list[T]: ...
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -521,7 +540,7 @@ class BaseReader(ABC, Generic[T]):
 
 **Model Fields**: bill_no, mto_number, workshop, material_code, material_name, specification, aux_attributes, qty, status, create_date
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -551,7 +570,7 @@ class BaseReader(ABC, Generic[T]):
 
 **Key**: `FMaterialType` determines receipt source (1=自制, 2=外购, 3=委外)
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -578,7 +597,7 @@ class BaseReader(ABC, Generic[T]):
 
 **Purpose**: 自制品 (self-made) receipt quantities
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -606,7 +625,7 @@ class BaseReader(ABC, Generic[T]):
 
 **Purpose**: 外购 order quantities and cumulative receipt
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -645,7 +664,7 @@ async def fetch_subcontracting_receipts(self, mto_number: str) -> list[T]:
     # Filter: FBillTypeID.FNumber='RKD02_SYS'
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -673,7 +692,7 @@ async def fetch_subcontracting_receipts(self, mto_number: str) -> list[T]:
 
 **Purpose**: 委外 order quantities
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -701,7 +720,7 @@ async def fetch_subcontracting_receipts(self, mto_number: str) -> list[T]:
 
 **Purpose**: Material picking (actual consumption)
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -728,7 +747,42 @@ async def fetch_subcontracting_receipts(self, mto_number: str) -> list[T]:
 
 **Purpose**: Sales delivery quantities
 
-- [ ] Done
+- [x] Done
+
+---
+
+### T2-11: Create src/readers/sales_order.py (SAL_SaleOrder)
+
+**File**: `src/readers/sales_order.py`
+
+**Form ID**: `SAL_SaleOrder`
+
+**Field Keys**:
+```python
+[
+    "FBillNo",
+    "FSaleOrderEntry_FMtoNo",
+    "FCustomerID.FNumber",
+    "FCustomerID.FName",
+    "FSaleOrderEntry_FMaterialId.FNumber",
+    "FSaleOrderEntry_FMaterialId.FName",
+    "FSaleOrderEntry_FQty",
+    "FSaleOrderEntry_FDeliveryDate",
+    "FDate",
+    "FDocumentStatus"
+]
+```
+
+**MTO Field**: `FSaleOrderEntry_FMtoNo`
+
+**Purpose**: Customer info (who ordered), delivery dates (when needed)
+
+**Key Fields for Dashboard**:
+- `FCustomerID.FName` - Customer name
+- `FSaleOrderEntry_FDeliveryDate` - Required delivery date
+- `FDocumentStatus` - Order status
+
+- [x] Done
 
 ---
 
@@ -747,9 +801,10 @@ from src.readers import (
     PurchaseReceiptReader,
     SubcontractingOrderReader,
     MaterialPickingReader,
-    SalesDeliveryReader
+    SalesDeliveryReader,
+    SalesOrderReader
 )
-print('T2 Complete - All 8 readers imported')
+print('T2 Complete - All 9 readers imported')
 "
 ```
 
@@ -775,7 +830,7 @@ from src.sync.progress import SyncProgress
 __all__ = ["SyncService", "SyncScheduler", "SyncProgress"]
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -848,7 +903,7 @@ class SyncProgress:
         return SyncProgressData()
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -877,7 +932,7 @@ class SyncService:
         # Yield (chunk_start, chunk_end) tuples
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -906,7 +961,7 @@ class SyncScheduler:
         # Run sync
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -922,7 +977,7 @@ from src.query.mto_handler import MTOQueryHandler
 __all__ = ["MTOQueryHandler"]
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -947,7 +1002,7 @@ class MTOQueryHandler:
 
 **Use**: `asyncio.gather()` for parallel receipt queries
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -960,7 +1015,7 @@ class MTOQueryHandler:
 """FastAPI routes and routers."""
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -998,7 +1053,7 @@ async def get_sync_history(limit: int = 10):
     # Return recent sync history from database
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1025,7 +1080,7 @@ async def export_mto_excel(mto_number: str):
     # Generate and return Excel file
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1088,7 +1143,7 @@ uvicorn src.main:app --reload
 # Visit http://localhost:8000
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1157,7 +1212,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 python -c "from src.api.routers.auth import router, get_current_user; print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1199,7 +1254,7 @@ async def get_mto_status(request: Request, mto_number: str, ...):
 python -c "from src.api.middleware.rate_limit import limiter; print('OK')"
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1245,7 +1300,7 @@ TOKEN=$(curl -X POST http://localhost:8000/api/auth/token \
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/mto/AK2510034
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1430,7 +1485,7 @@ body {
 }
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1529,7 +1584,7 @@ const api = {
 window.api = api;
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1624,7 +1679,7 @@ window.api = api;
 </html>
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1681,7 +1736,7 @@ window.loginForm = loginForm;
 window.authGuard = authGuard;
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -1841,7 +1896,7 @@ window.authGuard = authGuard;
 </html>
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2013,7 +2068,7 @@ function mtoSearch() {
 window.mtoSearch = mtoSearch;
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2142,7 +2197,7 @@ window.mtoSearch = mtoSearch;
 </div>
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2251,7 +2306,7 @@ window.mtoSearch = mtoSearch;
 </div>
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2389,7 +2444,7 @@ window.mtoSearch = mtoSearch;
 </html>
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2472,7 +2527,7 @@ function syncPanel() {
 window.syncPanel = syncPanel;
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2494,7 +2549,7 @@ window.syncPanel = syncPanel;
 </div>
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2513,7 +2568,7 @@ window.syncPanel = syncPanel;
 2. Click "导出" button
 3. Verify Excel file downloads with format `MTO_{number}_{timestamp}.xlsx`
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2546,7 +2601,7 @@ window.syncPanel = syncPanel;
 - `aria-live="polite"` region for status updates
 - Skip link for keyboard navigation
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -2647,7 +2702,7 @@ networks:
     name: quickpulse-dev
 ```
 
-- [ ] Done
+- [x] Done
 
 ---
 

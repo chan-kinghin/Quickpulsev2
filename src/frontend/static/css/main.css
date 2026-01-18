@@ -1,0 +1,188 @@
+:root {
+    --slate-950: #0a0a0b;
+    --slate-900: #111113;
+    --slate-800: #1e1e21;
+    --slate-700: #2d2d31;
+    --slate-600: #4a4a50;
+    --slate-500: #6b7280;
+    --slate-400: #9ca3af;
+    --slate-300: #c9cdd4;
+    --slate-200: #e2e8f0;
+    --slate-50: #f8fafc;
+    --emerald-500: #10b981;
+    --emerald-400: #34d399;
+    --sky-500: #0ea5e9;
+    --sky-400: #38bdf8;
+    --violet-500: #8b5cf6;
+    --violet-400: #a78bfa;
+    --amber-500: #f59e0b;
+    --rose-500: #f43f5e;
+    --rose-400: #fb7185;
+    --font-sans: 'Geist', 'Noto Sans SC', system-ui, sans-serif;
+    --font-mono: 'Geist Mono', 'SFMono-Regular', Consolas, monospace;
+    --radius-sm: 2px;
+    --radius-md: 4px;
+}
+
+body {
+    font-family: var(--font-sans);
+    background: var(--slate-950);
+    color: var(--slate-50);
+}
+
+.row-overpick {
+    background: repeating-linear-gradient(
+        -45deg,
+        rgb(254 205 211 / 0.1) 0px,
+        rgb(254 205 211 / 0.1) 4px,
+        transparent 4px,
+        transparent 8px
+    );
+    border-left: 3px solid var(--rose-500);
+}
+
+.badge-self-made {
+    background: rgb(16 185 129 / 0.2);
+    color: var(--emerald-400);
+    border: 1px solid rgb(16 185 129 / 0.3);
+}
+
+.badge-purchased {
+    background: rgb(14 165 233 / 0.2);
+    color: var(--sky-400);
+    border: 1px solid rgb(14 165 233 / 0.3);
+}
+
+.badge-subcontracted {
+    background: rgb(139 92 246 / 0.2);
+    color: var(--violet-400);
+    border: 1px solid rgb(139 92 246 / 0.3);
+}
+
+.glow-emerald:focus {
+    box-shadow: 0 0 0 2px var(--slate-950), 0 0 0 4px var(--emerald-500);
+}
+
+.bg-dots {
+    background-image: radial-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+.skeleton {
+    background: linear-gradient(90deg, var(--slate-800) 25%, var(--slate-700) 50%, var(--slate-800) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+@keyframes shake {
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+    20%,
+    60% {
+        transform: translateX(-6px);
+    }
+    40%,
+    80% {
+        transform: translateX(6px);
+    }
+}
+
+.animate-shake {
+    animation: shake 0.4s ease-in-out;
+}
+
+@media print {
+    body {
+        background: white;
+        color: black;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+@media (max-width: 767px) {
+    .bom-table {
+        display: none;
+    }
+
+    .bom-cards {
+        display: block;
+    }
+
+    .bom-card {
+        background: var(--slate-900);
+        border: 1px solid var(--slate-800);
+        border-radius: var(--radius-md);
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .bom-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--slate-800);
+    }
+
+    .bom-card-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+    }
+
+    .bom-card-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .bom-card-label {
+        font-size: 0.75rem;
+        color: var(--slate-500);
+    }
+
+    .bom-card-value {
+        font-size: 0.875rem;
+        color: var(--slate-200);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .touch-target {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+@media (min-width: 768px) {
+    .bom-table {
+        display: block;
+    }
+
+    .bom-cards {
+        display: none;
+    }
+}

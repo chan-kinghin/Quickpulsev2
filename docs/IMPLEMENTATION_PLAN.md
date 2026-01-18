@@ -1231,6 +1231,7 @@ class BaseReader(ABC, Generic[T]):
 | SubcontractingOrderReader | SUB_POORDER | FTreeEntity_FMtoNo, FQty, FStockInQty, FNoStockInQty | 委外 order info |
 | MaterialPickingReader | PRD_PickMtrl | FEntity_FMTONO, FAppQty, FActualQty | Actual picking |
 | SalesDeliveryReader | SAL_OUTSTOCK | FSAL_OUTSTOCKENTRY_FMTONO, FRealQty | Sales delivery |
+| SalesOrderReader | SAL_SaleOrder | FMtoNo, FCustomerID, FDeliveryDate | Customer info, delivery dates |
 
 #### 2.3 Production Order Reader Example
 
@@ -1693,6 +1694,7 @@ Quickpulsev2/
 │   │   ├── production_order.py   # PRD_MO
 │   │   ├── production_bom.py     # PRD_PPBOM
 │   │   ├── production_receipt.py # PRD_INSTOCK
+│   │   ├── sales_order.py        # SAL_SaleOrder
 │   │   ├── purchase_order.py     # PUR_PurchaseOrder
 │   │   ├── purchase_receipt.py   # STK_InStock
 │   │   ├── subcontracting_order.py # SUB_POORDER
@@ -2071,3 +2073,106 @@ tests/
    | Default sync days | 90 days | Covers last 3 months |
    | Config storage | JSON file | sync_config.json, supports hot reload |
    | Frontend framework | Alpine.js | Consistent with existing frontend |
+
+---
+
+## 11. Implementation Status (Updated 2026-01-18)
+
+### Phase 1: Foundation ✅ COMPLETE
+
+| Component | File(s) | Status |
+|-----------|---------|--------|
+| Project Setup | `pyproject.toml` | ✅ Complete |
+| Package Init | `src/__init__.py` | ✅ Complete |
+| Exceptions | `src/exceptions.py` | ✅ Complete |
+| Configuration | `src/config.py` | ✅ Complete |
+| Kingdee Client | `src/kingdee/client.py` | ✅ Complete |
+| Database Connection | `src/database/connection.py` | ✅ Complete |
+| Database Schema | `src/database/schema.sql` | ✅ Complete |
+| Sync Config | `sync_config.json` | ✅ Complete |
+| Pydantic Models | `src/models/mto_status.py`, `src/models/sync.py` | ✅ Complete |
+| Logging | `src/logging_config.py` | ✅ Complete |
+
+### Phase 2: Data Readers ✅ COMPLETE
+
+| Reader | Form ID | Status | Notes |
+|--------|---------|--------|-------|
+| ProductionOrderReader | PRD_MO | ✅ Complete | Via factory pattern |
+| ProductionBOMReader | PRD_PPBOM | ✅ Complete | Via factory pattern |
+| ProductionReceiptReader | PRD_INSTOCK | ✅ Complete | Via factory pattern |
+| PurchaseOrderReader | PUR_PurchaseOrder | ✅ Complete | Via factory pattern |
+| PurchaseReceiptReader | STK_InStock | ✅ Complete | Via factory pattern |
+| SubcontractingOrderReader | SUB_POORDER | ✅ Complete | Via factory pattern |
+| MaterialPickingReader | PRD_PickMtrl | ✅ Complete | Via factory pattern |
+| SalesDeliveryReader | SAL_OUTSTOCK | ✅ Complete | Via factory pattern |
+| SalesOrderReader | SAL_SaleOrder | ✅ Complete | Via factory pattern |
+
+**Implementation Note**: Instead of 9 separate reader files, readers were consolidated into:
+- `src/readers/factory.py` - Generic reader class with declarative configuration
+- `src/readers/models.py` - Pydantic models for each reader
+
+### Phase 3: Sync & API ✅ COMPLETE
+
+| Component | File(s) | Status |
+|-----------|---------|--------|
+| Sync Service | `src/sync/sync_service.py` | ✅ Complete |
+| Sync Scheduler | `src/sync/scheduler.py` | ✅ Complete |
+| Sync Progress | `src/sync/progress.py` | ✅ Complete |
+| MTO Handler | `src/query/mto_handler.py` | ✅ Complete |
+| MTO API Routes | `src/api/routers/mto.py` | ✅ Complete |
+| Sync API Routes | `src/api/routers/sync.py` | ✅ Complete |
+| Auth Routes | `src/api/routers/auth.py` | ✅ Complete |
+| Rate Limiting | `src/api/middleware/rate_limit.py` | ✅ Complete |
+| Main App | `src/main.py` | ✅ Complete |
+
+### Phase 4: Frontend & Docker ✅ COMPLETE
+
+| Component | File(s) | Status |
+|-----------|---------|--------|
+| Login Page | `src/frontend/index.html` | ✅ Complete |
+| Dashboard | `src/frontend/dashboard.html` | ✅ Complete |
+| Sync Panel | `src/frontend/sync.html` | ✅ Complete |
+| Static Assets | `src/frontend/static/` | ✅ Complete |
+| Docker Prod | `docker/Dockerfile` | ✅ Complete |
+| Docker Dev | `docker/Dockerfile.dev` | ✅ Complete |
+| Docker Compose | `docker-compose.yml` | ✅ Complete |
+| Docker Dev Compose | `docker-compose.dev.yml` | ✅ Complete |
+
+### Verification Checklist
+
+#### Phase 1 ✅
+- [x] `python -c "from src.config import Config"` imports without error
+- [x] `python -c "from src.kingdee.client import KingdeeClient"` imports without error
+- [x] Database schema includes all required tables
+
+#### Phase 2 ✅
+- [x] All 9 readers implemented via factory pattern
+- [x] Readers support `fetch_by_mto()`, `fetch_by_date_range()`, `fetch_by_bill_no()` methods
+
+#### Phase 3 ✅
+- [x] `GET /api/mto/{mto_number}` returns `MTOStatusResponse`
+- [x] `POST /api/sync/trigger` triggers background sync
+- [x] `GET /api/sync/status` returns current sync status
+- [x] JWT authentication implemented
+- [x] Rate limiting enabled (30 req/min for MTO, 60 req/min for search)
+
+#### Phase 4 ✅
+- [x] Frontend pages created (login, dashboard, sync)
+- [x] Docker production build configured
+- [x] Docker development build with hot reload
+- [x] Health check endpoint `/health` available
+
+### Architecture Improvements Made
+
+1. **Factory Pattern for Readers**: Consolidated 9 reader files into a single `factory.py` with declarative `ReaderConfig` definitions
+2. **Lifespan Dependency Injection**: All services initialized via FastAPI's `lifespan` context manager
+3. **Type-safe Generic Reader**: `GenericReader[T]` provides full type inference for each reader
+4. **Parallel Receipt Fetching**: `asyncio.gather()` used in `MTOQueryHandler` for concurrent API calls
+
+### Remaining Work (Optional Enhancements)
+
+- [ ] Add comprehensive test suite (`tests/`)
+- [ ] Implement real-time inventory lookup (F_QWJI_JSKC field)
+- [ ] Add Excel export with openpyxl (current uses CSV with .xlsx extension)
+- [ ] Production Nginx reverse proxy configuration
+- [ ] CI/CD pipeline setup

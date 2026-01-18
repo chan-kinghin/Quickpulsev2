@@ -1,0 +1,23 @@
+{
+  "auto_sync": {
+    "enabled": true,
+    "schedule": [
+      "07:00",
+      "12:00",
+      "16:00",
+      "18:00"
+    ],
+    "days_back": 90
+  },
+  "manual_sync": {
+    "default_days": 90,
+    "max_days": 365,
+    "min_days": 1
+  },
+  "performance": {
+    "chunk_days": 7,
+    "batch_size": 1000,
+    "parallel_chunks": 2,
+    "retry_count": 3
+  }
+}
