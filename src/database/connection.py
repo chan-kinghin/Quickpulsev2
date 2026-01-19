@@ -23,9 +23,22 @@ class Database:
         schema_path = Path(__file__).parent / "schema.sql"
         schema = schema_path.read_text(encoding="utf-8")
         await self._connection.executescript(schema)
+        await self._apply_migrations()
         await self._connection.commit()
 
+    async def _apply_migrations(self) -> None:
+        """Apply schema migrations for cache table enhancements."""
+        # Note: mto_number column doesn't exist in cached_production_bom yet
+        # It's extracted from raw_data JSON in cache_reader.py
+        # Index on mto_number would require schema migration first
+        pass
+
     async def execute(self, query: str, params=None):
+        async with self._connection.execute(query, params or []) as cursor:
+            return await cursor.fetchall()
+
+    async def execute_read(self, query: str, params=None):
+        """Execute a read query and return all results."""
         async with self._connection.execute(query, params or []) as cursor:
             return await cursor.fetchall()
 

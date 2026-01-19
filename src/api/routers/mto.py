@@ -3,6 +3,7 @@
 import csv
 from typing import List
 from io import StringIO
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
@@ -18,11 +19,17 @@ router = APIRouter(prefix="/api", tags=["mto"])
 async def get_mto_status(
     request: Request,
     mto_number: str,
+    use_cache: bool = Query(True, description="Use cached data if available and fresh"),
     current_user: str = Depends(get_current_user),
 ):
+    """Get MTO status with optional cache-first strategy.
+
+    - use_cache=true (default): Returns cached data if fresh (<1 hour), much faster
+    - use_cache=false: Always fetch real-time data from Kingdee API
+    """
     handler = request.app.state.mto_handler
     try:
-        return await handler.get_status(mto_number)
+        return await handler.get_status(mto_number, use_cache=use_cache)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -66,11 +73,13 @@ async def search_mto(
 async def export_mto_excel(
     request: Request,
     mto_number: str,
+    use_cache: bool = Query(False, description="Use cached data (default: false for exports)"),
     current_user: str = Depends(get_current_user),
 ):
+    """Export MTO status to CSV. Uses live data by default for accuracy."""
     handler = request.app.state.mto_handler
     try:
-        status = await handler.get_status(mto_number)
+        status = await handler.get_status(mto_number, use_cache=use_cache)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -112,8 +121,12 @@ async def export_mto_excel(
         )
 
     filename = f"MTO_{mto_number}.csv"
+    # RFC 5987 encoding for non-ASCII filename compatibility
+    filename_encoded = quote(filename, safe='')
     return Response(
         content=output.getvalue().encode("utf-8-sig"),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{filename_encoded}"
+        },
     )

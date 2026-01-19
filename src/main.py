@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.middleware.rate_limit import setup_rate_limiting
-from src.api.routers import auth, mto, sync
+from src.api.routers import auth, cache, mto, sync
 from src.config import Config
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
+from src.query.cache_reader import CacheReader
 from src.query.mto_handler import MTOQueryHandler
 from src.readers import (
     MaterialPickingReader,
@@ -56,6 +60,15 @@ async def lifespan(app: FastAPI):
 
     progress = SyncProgress(config.reports_dir / "sync_status.json")
     sync_service = SyncService(readers=readers, db=db, progress=progress)
+
+    # Note: mto_handler callback will be registered after creation below
+
+    # Initialize cache reader with configured TTL
+    cache_ttl = config.sync.query_cache.ttl_minutes
+    cache_reader = CacheReader(db, ttl_minutes=cache_ttl) if config.sync.query_cache.enabled else None
+
+    # Initialize MTO handler with memory cache configuration
+    memory_cfg = config.sync.memory_cache
     mto_handler = MTOQueryHandler(
         production_order_reader=readers["production_order"],
         production_bom_reader=readers["production_bom"],
@@ -66,7 +79,37 @@ async def lifespan(app: FastAPI):
         material_picking_reader=readers["material_picking"],
         sales_delivery_reader=readers["sales_delivery"],
         sales_order_reader=readers["sales_order"],
+        cache_reader=cache_reader,
+        memory_cache_enabled=memory_cfg.enabled,
+        memory_cache_size=memory_cfg.max_size,
+        memory_cache_ttl=memory_cfg.ttl_seconds,
     )
+
+    # Register callback to clear memory cache after sync completes
+    sync_service.add_post_sync_callback(mto_handler.clear_memory_cache)
+
+    # Warm cache on startup with recently synced MTOs
+    if memory_cfg.enabled and memory_cfg.warm_on_startup:
+        try:
+            recent_mtos = await db.execute_read(
+                """
+                SELECT DISTINCT mto_number
+                FROM cached_production_orders
+                ORDER BY synced_at DESC
+                LIMIT ?
+                """,
+                [memory_cfg.warm_count],
+            )
+            if recent_mtos:
+                mto_list = [row[0] for row in recent_mtos if row[0]]
+                warm_result = await mto_handler.warm_cache(mto_list)
+                logger.info(
+                    "Startup cache warming: %d MTOs warmed, %d failed",
+                    warm_result.get("warmed", 0),
+                    warm_result.get("failed", 0),
+                )
+        except Exception as exc:
+            logger.warning("Startup cache warming failed: %s", exc)
 
     loop = asyncio.get_running_loop()
     scheduler = SyncScheduler(config.sync, sync_service, loop=loop)
@@ -94,6 +137,7 @@ app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static"
 app.include_router(auth.router)
 app.include_router(sync.router)
 app.include_router(mto.router)
+app.include_router(cache.router)
 
 
 @app.get("/")

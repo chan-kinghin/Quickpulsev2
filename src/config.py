@@ -89,12 +89,32 @@ class PerformanceConfig(BaseSettings):
     retry_count: int = Field(3, ge=1, le=5, description="Retry count")
 
 
+class QueryCacheConfig(BaseSettings):
+    """Query Cache Configuration for MTO lookups"""
+
+    enabled: bool = Field(True, description="Enable cache-first queries")
+    ttl_minutes: int = Field(60, ge=1, le=1440, description="Cache TTL in minutes")
+    fallback_on_stale: bool = Field(True, description="Fallback to live API if cache stale")
+
+
+class MemoryCacheConfig(BaseSettings):
+    """In-Memory Cache Configuration for sub-10ms query responses"""
+
+    enabled: bool = Field(True, description="Enable in-memory L1 cache")
+    max_size: int = Field(2000, ge=100, le=10000, description="Max cached MTO entries")
+    ttl_seconds: int = Field(1800, ge=60, le=7200, description="Cache TTL in seconds")
+    warm_on_startup: bool = Field(True, description="Pre-load cache on startup")
+    warm_count: int = Field(100, ge=0, le=500, description="Number of MTOs to warm on startup")
+
+
 class SyncConfig(BaseSettings):
     """Complete Sync Configuration"""
 
     auto_sync: AutoSyncConfig = Field(default_factory=AutoSyncConfig)
     manual_sync: ManualSyncConfig = Field(default_factory=ManualSyncConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
+    query_cache: QueryCacheConfig = Field(default_factory=QueryCacheConfig)
+    memory_cache: MemoryCacheConfig = Field(default_factory=MemoryCacheConfig)
 
     _config_path: str = "sync_config.json"
 
@@ -122,6 +142,8 @@ class SyncConfig(BaseSettings):
         self.auto_sync = new_config.auto_sync
         self.manual_sync = new_config.manual_sync
         self.performance = new_config.performance
+        self.query_cache = new_config.query_cache
+        self.memory_cache = new_config.memory_cache
 
 
 class Config:

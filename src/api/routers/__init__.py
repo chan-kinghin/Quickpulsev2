@@ -1,4 +1,4 @@
 """Router module exports."""
-from src.api.routers import auth, mto, sync
+from src.api.routers import auth, cache, mto, sync
 
-__all__ = ["auth", "mto", "sync"]
+__all__ = ["auth", "cache", "mto", "sync"]

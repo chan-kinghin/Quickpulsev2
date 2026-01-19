@@ -1,16 +1,22 @@
-"""Handler for MTO status lookups."""
+"""Handler for MTO status lookups with cache-first strategy."""
 
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+import logging
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import IntEnum
-from typing import Callable
+from threading import Lock
+from typing import Callable, Optional, TYPE_CHECKING
+
+from cachetools import TTLCache
 
 from src.models.mto_status import ChildItem, MTOStatusResponse, ParentItem
+
+logger = logging.getLogger(__name__)
 from src.readers import (
     MaterialPickingReader,
     ProductionBOMReader,
@@ -22,6 +28,9 @@ from src.readers import (
     SalesOrderReader,
     SubcontractingOrderReader,
 )
+
+if TYPE_CHECKING:
+    from src.query.cache_reader import CacheReader
 
 ZERO = Decimal("0")
 
@@ -87,7 +96,13 @@ class MaterialTypeData:
 
 
 class MTOQueryHandler:
-    """Handler for MTO number lookups."""
+    """Handler for MTO number lookups with three-tier cache strategy.
+
+    Cache tiers:
+    - L1 (Memory): TTLCache for sub-10ms response on hot queries
+    - L2 (SQLite): Persistent cache for ~100ms response
+    - L3 (Kingdee): Live API fallback, 1-5s response
+    """
 
     def __init__(
         self,
@@ -100,6 +115,10 @@ class MTOQueryHandler:
         material_picking_reader: MaterialPickingReader,
         sales_delivery_reader: SalesDeliveryReader,
         sales_order_reader: SalesOrderReader,
+        cache_reader: Optional["CacheReader"] = None,
+        memory_cache_enabled: bool = True,
+        memory_cache_size: int = 600,
+        memory_cache_ttl: int = 300,
     ):
         self._readers = {
             "production_order": production_order_reader,
@@ -114,17 +133,192 @@ class MTOQueryHandler:
         }
         # Store client reference for aux property lookups
         self._client = production_order_reader.client
+        # L2: SQLite cache reader
+        self._cache_reader = cache_reader
 
-    async def get_status(self, mto_number: str) -> MTOStatusResponse:
+        # L1: In-memory TTLCache for sub-10ms responses
+        self._memory_cache_enabled = memory_cache_enabled
+        if memory_cache_enabled:
+            self._memory_cache: TTLCache = TTLCache(
+                maxsize=memory_cache_size, ttl=memory_cache_ttl
+            )
+            self._cache_lock = Lock()
+        else:
+            self._memory_cache = None
+            self._cache_lock = None
+
+        # Cache statistics
+        self._memory_hits = 0
+        self._memory_misses = 0
+        self._sqlite_hits = 0
+        self._sqlite_misses = 0
+
+        # Query frequency tracking for smart cache warming
+        self._query_counter: Counter = Counter()
+
+    async def get_status(
+        self, mto_number: str, use_cache: bool = True
+    ) -> MTOStatusResponse:
+        """Get MTO status with three-tier cache strategy.
+
+        Args:
+            mto_number: The MTO number to query
+            use_cache: If True, try caches before live API (default: True)
+
+        Returns:
+            MTOStatusResponse with data_source metadata
+
+        Cache tiers checked in order:
+        1. L1 (Memory): ~1-5ms - TTLCache for hot queries
+        2. L2 (SQLite): ~100ms - Persistent cache
+        3. L3 (Kingdee): ~1-5s - Live API
+        """
+        # Track query frequency for smart cache warming
+        self._query_counter[mto_number] += 1
+
+        # L1: Check in-memory cache first (sub-10ms response)
+        if use_cache and self._memory_cache is not None:
+            with self._cache_lock:
+                if mto_number in self._memory_cache:
+                    self._memory_hits += 1
+                    logger.debug("L1 memory cache hit for MTO %s", mto_number)
+                    return self._memory_cache[mto_number]
+                self._memory_misses += 1
+
+        # L2: Try SQLite cache if enabled and cache reader available
+        result = None
+        if use_cache and self._cache_reader:
+            result = await self._try_cache(mto_number)
+            if result:
+                self._sqlite_hits += 1
+                logger.debug("L2 SQLite cache hit for MTO %s", mto_number)
+            else:
+                self._sqlite_misses += 1
+
+        # L3: Fallback to live Kingdee API
+        if not result:
+            result = await self._fetch_live(mto_number)
+
+        # Populate L1 cache with result
+        if use_cache and self._memory_cache is not None and result:
+            with self._cache_lock:
+                self._memory_cache[mto_number] = result
+
+        return result
+
+    async def _try_cache(self, mto_number: str) -> Optional[MTOStatusResponse]:
+        """Attempt to build response from cache using all 9 data sources.
+
+        Returns None if any critical data source (orders, BOM) is missing or stale.
+        Uses the same aggregation logic as _fetch_live for consistent results.
+        """
+        # First, fetch production orders (critical - determines if MTO exists)
+        orders_result = await self._cache_reader.get_production_orders(mto_number)
+        if not orders_result.data or not orders_result.is_fresh:
+            return None  # Cache miss or stale
+
+        prod_orders = orders_result.data
+        bill_nos = [order.bill_no for order in prod_orders]
+
+        # Fetch all other cache data in parallel
+        (
+            bom_result,
+            purchase_orders_result,
+            subcontract_orders_result,
+            prod_receipts_result,
+            purchase_receipts_result,
+            material_picks_result,
+            sales_delivery_result,
+            sales_orders_result,
+        ) = await asyncio.gather(
+            self._cache_reader.get_production_bom(bill_nos),
+            self._cache_reader.get_purchase_orders(mto_number),
+            self._cache_reader.get_subcontracting_orders(mto_number),
+            self._cache_reader.get_production_receipts(mto_number),
+            self._cache_reader.get_purchase_receipts(mto_number),
+            self._cache_reader.get_material_picking(mto_number),
+            self._cache_reader.get_sales_delivery(mto_number),
+            self._cache_reader.get_sales_orders(mto_number),
+        )
+
+        # BOM is critical - return None if missing
+        if not bom_result.data:
+            return None
+
+        # Aggregate BOM entries (self-made items only)
+        raw_bom_entries = bom_result.data
+        bom_entries = self._aggregate_bom_entries(raw_bom_entries)
+
+        # Extract data from cache results
+        prod_receipts = prod_receipts_result.data
+        purchase_orders = purchase_orders_result.data
+        purchase_receipts = purchase_receipts_result.data
+        subcontract_orders = subcontract_orders_result.data
+        material_picks = material_picks_result.data
+        sales_deliveries = sales_delivery_result.data
+        sales_orders = sales_orders_result.data
+
+        # Build material type lookup table (same as live path)
+        type_data = self._build_material_type_data(
+            prod_receipts, purchase_orders, purchase_receipts, subcontract_orders
+        )
+
+        # Build common aggregations
+        pick_request = _sum_by_material(material_picks, "app_qty")
+        pick_actual = _sum_by_material(material_picks, "actual_qty")
+        delivered = _sum_by_material(sales_deliveries, "real_qty")
+
+        # For cache, we use aux_attributes from the stored data directly
+        # (no BD_FLEXSITEMDETAILV lookup - that's already resolved in raw_data)
+        aux_descriptions: dict[int, str] = {}
+
+        # Get sales order info (customer, delivery date)
+        sales_order = sales_orders[0] if sales_orders else None
+        parent = self._build_parent(prod_orders[0], sales_order)
+
+        # Build children list:
+        # 1. Self-made items from BOM
+        children = [
+            self._build_child(entry, type_data, pick_request, pick_actual, delivered, aux_descriptions)
+            for entry in bom_entries
+        ]
+
+        # 2. Purchased items directly from purchase orders
+        purchased_children = self._build_purchased_children(
+            purchase_orders, pick_request, pick_actual, delivered, aux_descriptions
+        )
+        children.extend(purchased_children)
+
+        # 3. Subcontracted items directly from subcontracting orders
+        subcontract_children = self._build_subcontract_children(
+            subcontract_orders, purchase_receipts, pick_request, pick_actual, delivered
+        )
+        children.extend(subcontract_children)
+
+        # Calculate cache age in seconds (SQLite uses UTC)
+        cache_age = None
+        if orders_result.synced_at:
+            cache_age = int((datetime.utcnow() - orders_result.synced_at).total_seconds())
+
+        return MTOStatusResponse(
+            mto_number=mto_number,
+            parent=parent,
+            children=children,
+            query_time=datetime.now(),
+            data_source="cache",
+            cache_age_seconds=cache_age,
+        )
+
+    async def _fetch_live(self, mto_number: str) -> MTOStatusResponse:
+        """Fetch data from live Kingdee API."""
         prod_orders = await self._readers["production_order"].fetch_by_mto(mto_number)
         if not prod_orders:
             raise ValueError(f"No production orders found for MTO {mto_number}")
 
-        raw_bom_entries = []
-        for order in prod_orders:
-            raw_bom_entries.extend(
-                await self._readers["production_bom"].fetch_by_bill_no(order.bill_no)
-            )
+        # Fetch BOM entries for all orders in a single batched query
+        # This is much faster than sequential fetch_by_bill_no calls
+        bill_nos = [order.bill_no for order in prod_orders]
+        raw_bom_entries = await self._readers["production_bom"].fetch_by_bill_nos(bill_nos)
 
         # Aggregate BOM entries (self-made items only)
         bom_entries = self._aggregate_bom_entries(raw_bom_entries)
@@ -198,6 +392,7 @@ class MTOQueryHandler:
             parent=parent,
             children=children,
             query_time=datetime.now(),
+            data_source="live",
         )
 
     def _build_material_type_data(
@@ -432,6 +627,136 @@ class MTOQueryHandler:
             inventory_qty=ZERO,
             receipt_source=source,
         )
+
+    # -------------------------------------------------------------------------
+    # Cache Management Methods
+    # -------------------------------------------------------------------------
+
+    def get_cache_stats(self) -> dict:
+        """Get cache statistics for monitoring.
+
+        Returns:
+            dict with cache hit rates, sizes, and configuration
+        """
+        total_memory = self._memory_hits + self._memory_misses
+        total_sqlite = self._sqlite_hits + self._sqlite_misses
+
+        stats = {
+            "memory_cache": {
+                "enabled": self._memory_cache_enabled,
+                "hits": self._memory_hits,
+                "misses": self._memory_misses,
+                "hit_rate": self._memory_hits / total_memory if total_memory > 0 else 0.0,
+                "size": len(self._memory_cache) if self._memory_cache else 0,
+                "max_size": self._memory_cache.maxsize if self._memory_cache else 0,
+                "ttl_seconds": self._memory_cache.ttl if self._memory_cache else 0,
+            },
+            "sqlite_cache": {
+                "enabled": self._cache_reader is not None,
+                "hits": self._sqlite_hits,
+                "misses": self._sqlite_misses,
+                "hit_rate": self._sqlite_hits / total_sqlite if total_sqlite > 0 else 0.0,
+            },
+        }
+        return stats
+
+    def clear_memory_cache(self) -> int:
+        """Clear the in-memory cache.
+
+        Call this after sync completes to ensure fresh data.
+
+        Returns:
+            Number of entries cleared
+        """
+        if self._memory_cache is None:
+            return 0
+
+        with self._cache_lock:
+            count = len(self._memory_cache)
+            self._memory_cache.clear()
+            logger.info("Cleared %d entries from memory cache", count)
+            return count
+
+    def invalidate_mto(self, mto_number: str) -> bool:
+        """Invalidate a specific MTO from memory cache.
+
+        Args:
+            mto_number: The MTO number to invalidate
+
+        Returns:
+            True if entry was found and removed, False otherwise
+        """
+        if self._memory_cache is None:
+            return False
+
+        with self._cache_lock:
+            if mto_number in self._memory_cache:
+                del self._memory_cache[mto_number]
+                logger.debug("Invalidated MTO %s from memory cache", mto_number)
+                return True
+            return False
+
+    def reset_stats(self) -> None:
+        """Reset cache statistics counters."""
+        self._memory_hits = 0
+        self._memory_misses = 0
+        self._sqlite_hits = 0
+        self._sqlite_misses = 0
+        logger.info("Reset cache statistics")
+
+    async def warm_cache(self, mto_numbers: list[str]) -> dict:
+        """Pre-load MTOs into memory cache.
+
+        Call this on startup or after sync to pre-populate the cache
+        with frequently-accessed MTOs for faster first queries.
+
+        Args:
+            mto_numbers: List of MTO numbers to warm
+
+        Returns:
+            dict with warming statistics
+        """
+        if self._memory_cache is None:
+            return {"status": "disabled", "warmed": 0, "failed": 0}
+
+        warmed = 0
+        failed = 0
+        for mto in mto_numbers:
+            try:
+                await self.get_status(mto, use_cache=True)
+                warmed += 1
+            except Exception as exc:
+                logger.debug("Cache warming failed for MTO %s: %s", mto, exc)
+                failed += 1
+
+        logger.info("Cache warming complete: %d warmed, %d failed", warmed, failed)
+        return {"status": "success", "warmed": warmed, "failed": failed}
+
+    def get_hot_mtos(self, top_n: int = 100) -> list[str]:
+        """Return most frequently queried MTOs.
+
+        Use this to get a list of MTOs for cache warming based on
+        actual query patterns.
+
+        Args:
+            top_n: Number of top MTOs to return (default: 100)
+
+        Returns:
+            List of MTO numbers sorted by query frequency
+        """
+        return [mto for mto, _ in self._query_counter.most_common(top_n)]
+
+    def get_query_stats(self) -> dict:
+        """Get query frequency statistics.
+
+        Returns:
+            dict with query pattern information
+        """
+        return {
+            "total_unique_mtos": len(self._query_counter),
+            "total_queries": sum(self._query_counter.values()),
+            "top_10_mtos": self._query_counter.most_common(10),
+        }
 
 
 def _sum_by_material(records, field: str) -> dict[str, Decimal]:

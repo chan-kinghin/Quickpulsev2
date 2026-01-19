@@ -19,5 +19,17 @@
     "batch_size": 1000,
     "parallel_chunks": 2,
     "retry_count": 3
+  },
+  "query_cache": {
+    "enabled": true,
+    "ttl_minutes": 60,
+    "fallback_on_stale": true
+  },
+  "memory_cache": {
+    "enabled": true,
+    "max_size": 2000,
+    "ttl_seconds": 1800,
+    "warm_on_startup": true,
+    "warm_count": 100
   }
 }
