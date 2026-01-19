@@ -95,7 +95,16 @@ class KingdeeClient:
 
             # SDK returns JSON string, need to parse it
             if isinstance(response, str):
-                response = json.loads(response)
+                try:
+                    response = json.loads(response)
+                except json.JSONDecodeError as e:
+                    # Log the first 200 chars for debugging
+                    preview = response[:200] if len(response) > 200 else response
+                    logger.error("Kingdee returned invalid JSON for %s: %s... Error: %s", form_id, preview, e)
+                    raise KingdeeQueryError(f"Query {form_id} returned invalid JSON response") from e
+            elif isinstance(response, bytes):
+                logger.error("Kingdee returned bytes instead of JSON for %s", form_id)
+                raise KingdeeQueryError(f"Query {form_id} returned unexpected binary response")
 
             # Handle SDK error responses (dict with 'Result' key)
             if isinstance(response, dict):
@@ -224,6 +233,41 @@ class KingdeeClient:
     ) -> list[dict]:
         """Query by MTO number."""
         filter_string = f"{mto_field}='{mto_number}'"
+        return await self.query_all(
+            form_id=form_id,
+            field_keys=field_keys,
+            filter_string=filter_string,
+        )
+
+    async def query_by_mto_numbers(
+        self,
+        form_id: str,
+        field_keys: list[str],
+        mto_field: str,
+        mto_numbers: list[str],
+    ) -> list[dict]:
+        """Query by multiple MTO numbers using IN clause.
+
+        This is much more efficient than calling query_by_mto repeatedly
+        as it uses a single API call with an IN clause.
+
+        Args:
+            form_id: Kingdee form identifier
+            field_keys: Fields to return
+            mto_field: Field name for MTO number (varies by form)
+            mto_numbers: List of MTO numbers to query
+
+        Returns:
+            List of records matching any of the MTO numbers
+        """
+        if not mto_numbers:
+            return []
+
+        # Escape single quotes and build IN clause
+        escaped = [mto.replace("'", "''") for mto in mto_numbers]
+        in_clause = ",".join(f"'{mto}'" for mto in escaped)
+        filter_string = f"{mto_field} IN ({in_clause})"
+
         return await self.query_all(
             form_id=form_id,
             field_keys=field_keys,

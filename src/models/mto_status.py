@@ -44,6 +44,14 @@ class MTOStatusResponse(BaseModel):
     parent: ParentItem = Field(..., serialization_alias="parent_item")
     children: list[ChildItem] = Field(..., serialization_alias="child_items")
     query_time: datetime
+    data_source: str = Field(
+        default="live",
+        description="Data source: 'cache' for cached data, 'live' for real-time API",
+    )
+    cache_age_seconds: Optional[int] = Field(
+        default=None,
+        description="Age of cached data in seconds (only present when data_source='cache')",
+    )
 
 
 class MTOSummary(BaseModel):

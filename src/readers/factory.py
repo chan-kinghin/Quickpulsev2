@@ -173,6 +173,33 @@ class GenericReader(Generic[T]):
         )
         return [self.to_model(record) for record in raw_records]
 
+    async def fetch_by_mtos(
+        self, mto_numbers: list[str], mto_field: Optional[str] = None
+    ) -> list[T]:
+        """Query by multiple MTO numbers in a single batched query.
+
+        This is much more efficient than calling fetch_by_mto repeatedly
+        as it uses a single API call with an IN clause.
+
+        Args:
+            mto_numbers: List of MTO numbers to query
+            mto_field: Optional override for MTO field name (uses config default)
+
+        Returns:
+            List of models matching any of the MTO numbers
+        """
+        if not mto_numbers:
+            return []
+
+        field = mto_field or self.config.mto_field
+        raw_records = await self.client.query_by_mto_numbers(
+            form_id=self.form_id,
+            field_keys=self.field_keys,
+            mto_field=field,
+            mto_numbers=mto_numbers,
+        )
+        return [self.to_model(record) for record in raw_records]
+
 
 # =============================================================================
 # Reader Configurations
@@ -299,13 +326,14 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
 
 SALES_ORDER_CONFIG = ReaderConfig(
     form_id="SAL_SaleOrder",
-    mto_field="FSaleOrderEntry_FMtoNo",
+    # Corrected: FMtoNo without FSaleOrderEntry_ prefix
+    mto_field="FMtoNo",
     model_class=SalesOrderModel,
     field_mappings={
         "bill_no": FieldMapping("FBillNo"),
-        "mto_number": FieldMapping("FSaleOrderEntry_FMtoNo"),
+        "mto_number": FieldMapping("FMtoNo"),
         "customer_name": FieldMapping("FCustId.FName"),
-        "delivery_date": FieldMapping("FSaleOrderEntry_FDeliveryDate", _optional_str),
+        "delivery_date": FieldMapping("FDeliveryDate", _optional_str),
     },
 )
 

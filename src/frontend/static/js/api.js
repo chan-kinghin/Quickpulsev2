@@ -37,13 +37,33 @@ const api = {
         }
 
         if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.detail || `HTTP ${response.status}`);
+            const contentType = response.headers.get('content-type') || '';
+            let errorMessage = `HTTP ${response.status}`;
+
+            if (contentType.includes('application/json')) {
+                const error = await response.json().catch(() => ({}));
+                errorMessage = error.detail || errorMessage;
+            } else {
+                const text = await response.text().catch(() => '');
+                if (text) {
+                    errorMessage = text.length > 200 ? text.substring(0, 200) + '...' : text;
+                }
+            }
+            throw new Error(errorMessage);
         }
 
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/vnd')) {
+        const contentType = response.headers.get('content-type') || '';
+
+        // Binary/downloadable response types
+        const blobTypes = ['text/csv', 'application/vnd', 'application/octet-stream',
+                          'application/pdf', 'application/zip', 'image/'];
+        if (blobTypes.some(type => contentType.includes(type))) {
             return response.blob();
+        }
+
+        // Plain text responses
+        if (contentType.includes('text/plain')) {
+            return response.text();
         }
 
         return response.json();
@@ -65,7 +85,17 @@ const api = {
         });
 
         if (!response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.detail || '用户名或密码错误');
+            }
             throw new Error('用户名或密码错误');
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            throw new Error('服务器响应格式错误');
         }
 
         const data = await response.json();

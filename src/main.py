@@ -59,7 +59,12 @@ async def lifespan(app: FastAPI):
     }
 
     progress = SyncProgress(config.reports_dir / "sync_status.json")
-    sync_service = SyncService(readers=readers, db=db, progress=progress)
+    sync_service = SyncService(
+        readers=readers,
+        db=db,
+        progress=progress,
+        parallel_chunks=config.sync.performance.parallel_chunks,
+    )
 
     # Note: mto_handler callback will be registered after creation below
 
