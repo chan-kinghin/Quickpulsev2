@@ -144,12 +144,19 @@ CREATE TABLE IF NOT EXISTS cached_sales_orders (
     id INTEGER PRIMARY KEY,
     bill_no TEXT NOT NULL,
     mto_number TEXT NOT NULL,
+    material_code TEXT NOT NULL,
+    material_name TEXT,
+    specification TEXT,
+    aux_attributes TEXT,
+    aux_prop_id INTEGER DEFAULT 0,
     customer_name TEXT,
     delivery_date TEXT,
+    qty REAL DEFAULT 0,
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_salo_mto ON cached_sales_orders(mto_number);
+CREATE INDEX IF NOT EXISTS idx_salo_material ON cached_sales_orders(material_code);
 CREATE INDEX IF NOT EXISTS idx_salo_mto_synced ON cached_sales_orders(mto_number, synced_at DESC);
 
 -- Sync history

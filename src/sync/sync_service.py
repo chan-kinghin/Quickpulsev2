@@ -966,7 +966,9 @@ class SyncService:
 
         rows = [
             (
-                r.bill_no, r.mto_number, r.customer_name, r.delivery_date,
+                r.bill_no, r.mto_number, r.material_code, r.material_name,
+                r.specification, r.aux_attributes, r.aux_prop_id,
+                r.customer_name, r.delivery_date, float(r.qty),
                 model_to_json(r),
             )
             for r in records
@@ -975,9 +977,11 @@ class SyncService:
         await self.db.executemany(
             f"""
             INSERT INTO {TABLE_SALES_ORDERS} (
-                bill_no, mto_number, customer_name, delivery_date, raw_data, synced_at
+                bill_no, mto_number, material_code, material_name, specification,
+                aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
+                raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             rows,
         )
@@ -1173,16 +1177,22 @@ class SyncService:
                 mto_numbers,
             )
         rows = [
-            (r.bill_no, r.mto_number, r.customer_name, r.delivery_date,
+            (r.bill_no, r.mto_number, r.material_code, r.material_name,
+             r.specification, r.aux_attributes, r.aux_prop_id,
+             r.customer_name, r.delivery_date, float(r.qty),
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_SALES_ORDERS} (
-                bill_no, mto_number, customer_name, delivery_date, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number) DO UPDATE SET
-                customer_name=excluded.customer_name, delivery_date=excluded.delivery_date,
+                bill_no, mto_number, material_code, material_name, specification,
+                aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
+                raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                material_name=excluded.material_name, specification=excluded.specification,
+                aux_attributes=excluded.aux_attributes, customer_name=excluded.customer_name,
+                delivery_date=excluded.delivery_date, qty=excluded.qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
         )

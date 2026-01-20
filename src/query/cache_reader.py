@@ -194,14 +194,16 @@ class CacheReader:
         """Get cached sales orders (客户/交期) for MTO number."""
         rows = await self.db.execute_read(
             """
-            SELECT bill_no, mto_number, customer_name, delivery_date, raw_data, synced_at
+            SELECT bill_no, mto_number, material_code, material_name, specification,
+                   aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
+                   raw_data, synced_at
             FROM cached_sales_orders
             WHERE mto_number = ?
             """,
             [mto_number],
         )
         return self._build_cache_result(
-            rows, self._row_to_sales_order, synced_at_index=5
+            rows, self._row_to_sales_order, synced_at_index=11
         )
 
     def _build_cache_result(
@@ -367,10 +369,22 @@ class CacheReader:
         )
 
     def _row_to_sales_order(self, row: tuple) -> SalesOrderModel:
-        """Convert database row to SalesOrderModel."""
+        """Convert database row to SalesOrderModel.
+
+        Row columns:
+        0: bill_no, 1: mto_number, 2: material_code, 3: material_name,
+        4: specification, 5: aux_attributes, 6: aux_prop_id, 7: customer_name,
+        8: delivery_date, 9: qty, 10: raw_data, 11: synced_at
+        """
         return SalesOrderModel(
             bill_no=row[0] or "",
             mto_number=row[1] or "",
-            customer_name=row[2] or "",
-            delivery_date=row[3] if row[3] else None,
+            material_code=row[2] or "",
+            material_name=row[3] or "",
+            specification=row[4] or "",
+            aux_attributes=row[5] or "",
+            aux_prop_id=row[6] or 0,
+            customer_name=row[7] or "",
+            delivery_date=row[8] if row[8] else None,
+            qty=Decimal(str(row[9] or 0)),
         )
