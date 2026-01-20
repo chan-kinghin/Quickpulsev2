@@ -1,4 +1,4 @@
-"""Handler for MTO status lookups with cache-first strategy."""
+"""Handler for MTO status lookups with config-driven material class logic."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from datetime import datetime
 from decimal import Decimal
 from enum import IntEnum
 from threading import Lock
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from cachetools import TTLCache
 
+from src.mto_config import MTOConfig
 from src.models.mto_status import ChildItem, MTOStatusResponse, ParentItem
 
 logger = logging.getLogger(__name__)
@@ -35,44 +36,6 @@ if TYPE_CHECKING:
 ZERO = Decimal("0")
 
 
-@dataclass
-class _AggregatedBOMEntry:
-    """Wrapper for aggregated BOM entry with summed quantities."""
-
-    _base: object  # Original entry for metadata
-    need_qty: Decimal
-    picked_qty: Decimal
-    no_picked_qty: Decimal
-
-    @property
-    def material_code(self) -> str:
-        return self._base.material_code
-
-    @property
-    def material_name(self) -> str:
-        return self._base.material_name
-
-    @property
-    def specification(self) -> str:
-        return self._base.specification
-
-    @property
-    def aux_attributes(self) -> str:
-        return self._base.aux_attributes
-
-    @property
-    def mto_number(self) -> str:
-        return self._base.mto_number
-
-    @property
-    def material_type(self) -> int:
-        return self._base.material_type
-
-    @property
-    def aux_prop_id(self) -> int:
-        return self._base.aux_prop_id
-
-
 class MaterialType(IntEnum):
     """Material type codes from Kingdee."""
 
@@ -85,18 +48,13 @@ class MaterialType(IntEnum):
         return {1: "自制", 2: "外购", 3: "委外"}.get(self.value, "未知")
 
 
-@dataclass
-class MaterialTypeData:
-    """Aggregated quantity data for a material type."""
-
-    order_qty: dict[str, Decimal]
-    receipt_qty: dict[str, Decimal]
-    remain_qty: dict[str, Decimal]
-    receipt_source: str
-
-
 class MTOQueryHandler:
-    """Handler for MTO number lookups with three-tier cache strategy.
+    """Handler for MTO number lookups with config-driven material class logic.
+
+    Data source strategy by material code pattern:
+    - 07.xx.xxx (成品): Source from SAL_SaleOrder, receipts from PRD_INSTOCK
+    - 05.xx.xxx (自制): Source from PRD_MO, receipts from PRD_INSTOCK
+    - 03.xx.xxx (外购): Source from PUR_PurchaseOrder (has built-in stock_in_qty)
 
     Cache tiers:
     - L1 (Memory): TTLCache for sub-10ms response on hot queries
@@ -116,6 +74,7 @@ class MTOQueryHandler:
         sales_delivery_reader: SalesDeliveryReader,
         sales_order_reader: SalesOrderReader,
         cache_reader: Optional["CacheReader"] = None,
+        mto_config: Optional[MTOConfig] = None,
         memory_cache_enabled: bool = True,
         memory_cache_size: int = 600,
         memory_cache_ttl: int = 300,
@@ -133,6 +92,10 @@ class MTOQueryHandler:
         }
         # Store client reference for aux property lookups
         self._client = production_order_reader.client
+
+        # Load MTO configuration (material class mappings)
+        self._mto_config = mto_config or MTOConfig()
+
         # L2: SQLite cache reader
         self._cache_reader = cache_reader
 
@@ -207,98 +170,94 @@ class MTOQueryHandler:
         return result
 
     async def _try_cache(self, mto_number: str) -> Optional[MTOStatusResponse]:
-        """Attempt to build response from cache using all 9 data sources.
+        """Attempt to build response from cache.
 
-        Returns None if any critical data source (orders, BOM) is missing or stale.
-        Uses the same aggregation logic as _fetch_live for consistent results.
+        Uses config-driven logic to build children from cached data.
+        Returns None if critical data is missing or stale.
         """
-        # First, fetch production orders (critical - determines if MTO exists)
-        orders_result = await self._cache_reader.get_production_orders(mto_number)
-        if not orders_result.data or not orders_result.is_fresh:
-            return None  # Cache miss or stale
-
-        prod_orders = orders_result.data
-        bill_nos = [order.bill_no for order in prod_orders]
-
-        # Fetch all other cache data in parallel
+        # Fetch all cache data in parallel
         (
-            bom_result,
+            sales_orders_result,
+            prod_orders_result,
             purchase_orders_result,
-            subcontract_orders_result,
             prod_receipts_result,
             purchase_receipts_result,
             material_picks_result,
             sales_delivery_result,
-            sales_orders_result,
         ) = await asyncio.gather(
-            self._cache_reader.get_production_bom(bill_nos),
+            self._cache_reader.get_sales_orders(mto_number),
+            self._cache_reader.get_production_orders(mto_number),
             self._cache_reader.get_purchase_orders(mto_number),
-            self._cache_reader.get_subcontracting_orders(mto_number),
             self._cache_reader.get_production_receipts(mto_number),
             self._cache_reader.get_purchase_receipts(mto_number),
             self._cache_reader.get_material_picking(mto_number),
             self._cache_reader.get_sales_delivery(mto_number),
-            self._cache_reader.get_sales_orders(mto_number),
         )
 
-        # BOM is critical - return None if missing
-        if not bom_result.data:
+        # Need at least one source form to have data
+        has_data = (
+            sales_orders_result.data
+            or prod_orders_result.data
+            or purchase_orders_result.data
+        )
+        if not has_data:
             return None
 
-        # Aggregate BOM entries (self-made items only)
-        raw_bom_entries = bom_result.data
-        bom_entries = self._aggregate_bom_entries(raw_bom_entries)
-
         # Extract data from cache results
-        prod_receipts = prod_receipts_result.data
-        purchase_orders = purchase_orders_result.data
-        purchase_receipts = purchase_receipts_result.data
-        subcontract_orders = subcontract_orders_result.data
-        material_picks = material_picks_result.data
-        sales_deliveries = sales_delivery_result.data
-        sales_orders = sales_orders_result.data
+        sales_orders = sales_orders_result.data or []
+        prod_orders = prod_orders_result.data or []
+        purchase_orders = purchase_orders_result.data or []
+        prod_receipts = prod_receipts_result.data or []
+        purchase_receipts = purchase_receipts_result.data or []
+        material_picks = material_picks_result.data or []
+        sales_deliveries = sales_delivery_result.data or []
 
-        # Build material type lookup table (same as live path)
-        type_data = self._build_material_type_data(
-            prod_receipts, purchase_orders, purchase_receipts, subcontract_orders
-        )
-
-        # Build common aggregations
+        # Build aggregation lookups
         pick_request = _sum_by_material(material_picks, "app_qty")
         pick_actual = _sum_by_material(material_picks, "actual_qty")
-        delivered = _sum_by_material(sales_deliveries, "real_qty")
+        delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
+        receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
 
-        # For cache, we use aux_attributes from the stored data directly
-        # (no BD_FLEXSITEMDETAILV lookup - that's already resolved in raw_data)
+        # For cache, aux_attributes are already resolved
         aux_descriptions: dict[int, str] = {}
 
-        # Get sales order info (customer, delivery date)
-        sales_order = sales_orders[0] if sales_orders else None
-        parent = self._build_parent(prod_orders[0], sales_order)
+        # Build children from source forms based on material class
+        children = []
 
-        # Build children list:
-        # 1. Self-made items from BOM
-        children = [
-            self._build_child(entry, type_data, pick_request, pick_actual, delivered, aux_descriptions)
-            for entry in bom_entries
-        ]
+        # 07.xx.xxx from Sales Orders
+        for so in sales_orders:
+            if so.material_code.startswith("07."):
+                child = self._build_sales_child(
+                    so, receipt_by_material, delivered_by_material,
+                    pick_request, pick_actual, aux_descriptions
+                )
+                children.append(child)
 
-        # 2. Purchased items directly from purchase orders
-        purchased_children = self._build_purchased_children(
-            purchase_orders, pick_request, pick_actual, delivered, aux_descriptions
-        )
-        children.extend(purchased_children)
+        # 05.xx.xxx from Production Orders
+        for po in prod_orders:
+            if po.material_code.startswith("05."):
+                child = self._build_production_child(
+                    po, prod_receipts, material_picks, aux_descriptions
+                )
+                children.append(child)
 
-        # 3. Subcontracted items directly from subcontracting orders
-        subcontract_children = self._build_subcontract_children(
-            subcontract_orders, purchase_receipts, pick_request, pick_actual, delivered
-        )
-        children.extend(subcontract_children)
+        # 03.xx.xxx from Purchase Orders
+        for pur in purchase_orders:
+            if pur.material_code.startswith("03."):
+                child = self._build_purchase_child(
+                    pur, pick_request, pick_actual, aux_descriptions
+                )
+                children.append(child)
 
-        # Calculate cache age in seconds (SQLite uses UTC)
+        # Build parent from first available sales order
+        parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
+
+        # Calculate cache age
         cache_age = None
-        if orders_result.synced_at:
-            cache_age = int((datetime.utcnow() - orders_result.synced_at).total_seconds())
+        for result in [sales_orders_result, prod_orders_result, purchase_orders_result]:
+            if result.synced_at:
+                cache_age = int((datetime.utcnow() - result.synced_at).total_seconds())
+                break
 
         return MTOStatusResponse(
             mto_number=mto_number,
@@ -310,82 +269,93 @@ class MTOQueryHandler:
         )
 
     async def _fetch_live(self, mto_number: str) -> MTOStatusResponse:
-        """Fetch data from live Kingdee API."""
-        prod_orders = await self._readers["production_order"].fetch_by_mto(mto_number)
-        if not prod_orders:
-            raise ValueError(f"No production orders found for MTO {mto_number}")
+        """Fetch data from live Kingdee API using config-driven logic.
 
-        # Fetch BOM entries for all orders in a single batched query
-        # This is much faster than sequential fetch_by_bill_no calls
-        bill_nos = [order.bill_no for order in prod_orders]
-        raw_bom_entries = await self._readers["production_bom"].fetch_by_bill_nos(bill_nos)
+        Queries source forms directly based on material code class:
+        - 07.xx.xxx → SAL_SaleOrder
+        - 05.xx.xxx → PRD_MO
+        - 03.xx.xxx → PUR_PurchaseOrder
 
-        # Aggregate BOM entries (self-made items only)
-        bom_entries = self._aggregate_bom_entries(raw_bom_entries)
-
-        # Fetch all data in parallel
+        Each record from source form becomes a separate row (no aggregation).
+        """
+        # Fetch all source forms and receipt data in parallel
         (
-            prod_receipts,
+            sales_orders,
+            prod_orders,
             purchase_orders,
+            prod_receipts,
             purchase_receipts,
-            subcontract_orders,
             material_picks,
             sales_deliveries,
-            sales_orders,
         ) = await asyncio.gather(
-            self._readers["production_receipt"].fetch_by_mto(mto_number),
+            self._readers["sales_order"].fetch_by_mto(mto_number),
+            self._readers["production_order"].fetch_by_mto(mto_number),
             self._readers["purchase_order"].fetch_by_mto(mto_number),
+            self._readers["production_receipt"].fetch_by_mto(mto_number),
             self._readers["purchase_receipt"].fetch_by_mto(mto_number),
-            self._readers["subcontracting_order"].fetch_by_mto(mto_number),
             self._readers["material_picking"].fetch_by_mto(mto_number),
             self._readers["sales_delivery"].fetch_by_mto(mto_number),
-            self._readers["sales_order"].fetch_by_mto(mto_number),
         )
 
-        # Build material type lookup table (for self-made items receipt matching)
-        type_data = self._build_material_type_data(
-            prod_receipts, purchase_orders, purchase_receipts, subcontract_orders
-        )
-
-        # Build common aggregations
+        # Build aggregation lookups for receipts/deliveries
+        # Key: (material_code, aux_prop_id) for variant-aware matching
+        delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
+        receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         pick_request = _sum_by_material(material_picks, "app_qty")
         pick_actual = _sum_by_material(material_picks, "actual_qty")
-        delivered = _sum_by_material(sales_deliveries, "real_qty")
 
         # Collect aux_prop_ids for lookup
-        aux_prop_ids = []
-        for entry in raw_bom_entries:
-            if hasattr(entry, "aux_prop_id") and entry.aux_prop_id:
-                aux_prop_ids.append(entry.aux_prop_id)
-        for po in purchase_orders:
-            if hasattr(po, "aux_prop_id") and po.aux_prop_id:
-                aux_prop_ids.append(po.aux_prop_id)
+        aux_prop_ids = set()
+        for so in sales_orders:
+            if hasattr(so, "aux_prop_id") and so.aux_prop_id:
+                aux_prop_ids.add(so.aux_prop_id)
+        for pur in purchase_orders:
+            if hasattr(pur, "aux_prop_id") and pur.aux_prop_id:
+                aux_prop_ids.add(pur.aux_prop_id)
+        for pr in prod_receipts:
+            if hasattr(pr, "aux_prop_id") and pr.aux_prop_id:
+                aux_prop_ids.add(pr.aux_prop_id)
+        for sd in sales_deliveries:
+            if hasattr(sd, "aux_prop_id") and sd.aux_prop_id:
+                aux_prop_ids.add(sd.aux_prop_id)
 
         # Lookup aux property descriptions from BD_FLEXSITEMDETAILV
-        aux_descriptions = await self._client.lookup_aux_properties(aux_prop_ids)
+        aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
 
-        # Get sales order info (customer, delivery date)
-        sales_order = sales_orders[0] if sales_orders else None
-        parent = self._build_parent(prod_orders[0], sales_order)
+        # Build children from source forms based on material class
+        children = []
 
-        # Build children list:
-        # 1. Self-made items from BOM
-        children = [
-            self._build_child(entry, type_data, pick_request, pick_actual, delivered, aux_descriptions)
-            for entry in bom_entries
-        ]
+        # 07.xx.xxx (成品) from Sales Orders
+        for so in sales_orders:
+            if so.material_code.startswith("07."):
+                child = self._build_sales_child(
+                    so, receipt_by_material, delivered_by_material,
+                    pick_request, pick_actual, aux_descriptions
+                )
+                children.append(child)
 
-        # 2. Purchased items directly from purchase orders (not from BOM)
-        purchased_children = self._build_purchased_children(
-            purchase_orders, pick_request, pick_actual, delivered, aux_descriptions
-        )
-        children.extend(purchased_children)
+        # 05.xx.xxx (自制) from Production Orders
+        for po in prod_orders:
+            if po.material_code.startswith("05."):
+                child = self._build_production_child(
+                    po, prod_receipts, material_picks, aux_descriptions
+                )
+                children.append(child)
 
-        # 3. Subcontracted items directly from subcontracting orders (not from BOM)
-        subcontract_children = self._build_subcontract_children(
-            subcontract_orders, purchase_receipts, pick_request, pick_actual, delivered
-        )
-        children.extend(subcontract_children)
+        # 03.xx.xxx (外购) from Purchase Orders
+        for pur in purchase_orders:
+            if pur.material_code.startswith("03."):
+                child = self._build_purchase_child(
+                    pur, pick_request, pick_actual, aux_descriptions
+                )
+                children.append(child)
+
+        # Build parent from first available sales order
+        parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
+
+        # Check if we have any data
+        if not children and not sales_orders and not prod_orders and not purchase_orders:
+            raise ValueError(f"No data found for MTO {mto_number}")
 
         return MTOStatusResponse(
             mto_number=mto_number,
@@ -395,237 +365,170 @@ class MTOQueryHandler:
             data_source="live",
         )
 
-    def _build_material_type_data(
-        self, prod_receipts, purchase_orders, purchase_receipts, subcontract_orders
-    ) -> dict[int, MaterialTypeData]:
-        """Build lookup table for material type-specific quantities."""
-        # Split purchase receipts by bill type
-        purchase_only = [r for r in purchase_receipts if r.bill_type_number == "RKD01_SYS"]
-        subcontract_only = [r for r in purchase_receipts if r.bill_type_number == "RKD02_SYS"]
-
-        return {
-            MaterialType.SELF_MADE: MaterialTypeData(
-                order_qty={},  # Uses BOM need_qty directly
-                receipt_qty=_sum_by_material(prod_receipts, "real_qty"),
-                remain_qty={},
-                receipt_source="PRD_INSTOCK",
-            ),
-            MaterialType.PURCHASED: MaterialTypeData(
-                order_qty=_sum_by_material(purchase_orders, "order_qty"),
-                receipt_qty=_sum_by_material(purchase_only, "real_qty"),
-                remain_qty=_sum_by_material(purchase_orders, "remain_stock_in_qty"),
-                receipt_source="STK_InStock(RKD01_SYS)",
-            ),
-            MaterialType.SUBCONTRACTED: MaterialTypeData(
-                order_qty=_sum_by_material(subcontract_orders, "order_qty"),
-                receipt_qty=_sum_by_material(subcontract_only, "real_qty"),
-                remain_qty=_sum_by_material(subcontract_orders, "no_stock_in_qty"),
-                receipt_source="STK_InStock(RKD02_SYS)",
-            ),
-        }
-
-    def _build_parent(self, order, sales_order=None) -> ParentItem:
-        return ParentItem(
-            mto_number=order.mto_number,
-            customer_name=sales_order.customer_name if sales_order else "",
-            delivery_date=sales_order.delivery_date if sales_order else None,
-        )
-
-    def _aggregate_bom_entries(self, entries: list) -> list:
-        """Aggregate BOM entries by (material_code, aux_attributes, mto_number).
-
-        Business rule: The unique identifier for a BOM item is the combination of:
-        - 物料编码 (material_code)
-        - 辅助属性 (aux_attributes) - e.g., color, size variants
-        - 计划跟踪号 (mto_number)
-
-        Same material_code with different aux_attributes (e.g., "蓝色款" vs "红色款")
-        are different SKUs and should NOT be merged.
-        """
-        if not entries:
-            return []
-
-        aggregated: dict[tuple[str, str, str], dict] = {}
-        for entry in entries:
-            # Use (material_code, aux_attributes, mto_number) as composite key
-            key = (entry.material_code, entry.aux_attributes, entry.mto_number)
-            if key not in aggregated:
-                # First occurrence - store the entry data
-                aggregated[key] = {
-                    "entry": entry,
-                    "need_qty": entry.need_qty,
-                    "picked_qty": entry.picked_qty,
-                    "no_picked_qty": entry.no_picked_qty,
-                }
-            else:
-                # Subsequent occurrences - accumulate quantities
-                aggregated[key]["need_qty"] += entry.need_qty
-                aggregated[key]["picked_qty"] += entry.picked_qty
-                aggregated[key]["no_picked_qty"] += entry.no_picked_qty
-                # Keep the latest entry for other fields
-                aggregated[key]["entry"] = entry
-
-        # Convert back to entry-like objects with aggregated quantities
-        return [
-            _AggregatedBOMEntry(
-                data["entry"],
-                data["need_qty"],
-                data["picked_qty"],
-                data["no_picked_qty"],
-            )
-            for data in aggregated.values()
-        ]
-
-    def _build_purchased_children(
-        self, purchase_orders, pick_request, pick_actual, delivered, aux_descriptions: dict[int, str]
-    ) -> list[ChildItem]:
-        """Build ChildItem list from purchase orders (外购件).
-
-        Business rule: Purchased items come directly from PUR_PurchaseOrder,
-        not from BOM. They are linked by MTO number.
-        """
-        # Aggregate by (material_code, aux_prop_id, mto_number) to avoid duplicates
-        # Note: aux_prop_id distinguishes different variants of the same material
-        aggregated: dict[tuple[str, int, str], dict] = {}
-        for po in purchase_orders:
-            aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
-            key = (po.material_code, aux_prop_id, po.mto_number)
-            if key not in aggregated:
-                aggregated[key] = {
-                    "po": po,
-                    "aux_prop_id": aux_prop_id,
-                    "order_qty": po.order_qty,
-                    "stock_in_qty": po.stock_in_qty,
-                    "remain_qty": po.remain_stock_in_qty,
-                }
-            else:
-                aggregated[key]["order_qty"] += po.order_qty
-                aggregated[key]["stock_in_qty"] += po.stock_in_qty
-                aggregated[key]["remain_qty"] += po.remain_stock_in_qty
-                aggregated[key]["po"] = po  # Keep latest for metadata
-
-        children = []
-        for data in aggregated.values():
-            po = data["po"]
-            code = po.material_code
-            aux_prop_id = data["aux_prop_id"]
-            # Get aux_attributes from lookup, fallback to model's aux_attributes
-            aux_attrs = aux_descriptions.get(aux_prop_id, "") or po.aux_attributes
-            children.append(ChildItem(
-                material_code=code,
-                material_name=po.material_name,
-                specification=po.specification,
-                aux_attributes=aux_attrs,
-                material_type=MaterialType.PURCHASED,
-                material_type_name="外购",
-                required_qty=data["order_qty"],  # For purchased, required = order qty
-                picked_qty=ZERO,  # Not applicable for purchased items
-                unpicked_qty=ZERO,
-                order_qty=data["order_qty"],
-                receipt_qty=data["stock_in_qty"],
-                unreceived_qty=data["remain_qty"],
-                pick_request_qty=pick_request.get(code, ZERO),
-                pick_actual_qty=pick_actual.get(code, ZERO),
-                delivered_qty=delivered.get(code, ZERO),
-                inventory_qty=ZERO,
-                receipt_source="PUR_PurchaseOrder",
-            ))
-        return children
-
-    def _build_subcontract_children(
-        self, subcontract_orders, purchase_receipts, pick_request, pick_actual, delivered
-    ) -> list[ChildItem]:
-        """Build ChildItem list from subcontracting orders (委外件).
-
-        Business rule: Subcontracted items come directly from subcontracting orders,
-        not from BOM. They are linked by MTO number.
-        """
-        # Filter subcontracting receipts
-        subcontract_receipts = [r for r in purchase_receipts if r.bill_type_number == "RKD02_SYS"]
-        receipt_by_material = _sum_by_material(subcontract_receipts, "real_qty")
-
-        # Aggregate by (material_code, mto_number)
-        aggregated: dict[tuple[str, str], dict] = {}
-        for so in subcontract_orders:
-            key = (so.material_code, so.mto_number)
-            if key not in aggregated:
-                aggregated[key] = {
-                    "so": so,
-                    "order_qty": so.order_qty,
-                    "stock_in_qty": so.stock_in_qty,
-                    "no_stock_in_qty": so.no_stock_in_qty,
-                }
-            else:
-                aggregated[key]["order_qty"] += so.order_qty
-                aggregated[key]["stock_in_qty"] += so.stock_in_qty
-                aggregated[key]["no_stock_in_qty"] += so.no_stock_in_qty
-                aggregated[key]["so"] = so
-
-        children = []
-        for data in aggregated.values():
-            so = data["so"]
-            code = so.material_code
-            children.append(ChildItem(
-                material_code=code,
-                material_name="",  # SubcontractingOrderModel doesn't have name
-                specification="",
-                aux_attributes="",
-                material_type=MaterialType.SUBCONTRACTED,
-                material_type_name="委外",
-                required_qty=data["order_qty"],
-                picked_qty=ZERO,
-                unpicked_qty=ZERO,
-                order_qty=data["order_qty"],
-                receipt_qty=receipt_by_material.get(code, data["stock_in_qty"]),
-                unreceived_qty=data["no_stock_in_qty"],
-                pick_request_qty=pick_request.get(code, ZERO),
-                pick_actual_qty=pick_actual.get(code, ZERO),
-                delivered_qty=delivered.get(code, ZERO),
-                inventory_qty=ZERO,
-                receipt_source="SUB_POORDER",
-            ))
-        return children
-
-    def _build_child(
-        self, entry, type_data: dict[int, MaterialTypeData], pick_request, pick_actual, delivered,
-        aux_descriptions: dict[int, str]
+    def _build_sales_child(
+        self,
+        sales_order,
+        receipt_by_material: dict[tuple[str, int], Decimal],
+        delivered_by_material: dict[tuple[str, int], Decimal],
+        pick_request: dict[str, Decimal],
+        pick_actual: dict[str, Decimal],
+        aux_descriptions: dict[int, str],
     ) -> ChildItem:
-        code = entry.material_code
-        mat_type = entry.material_type
-        data = type_data.get(mat_type)
+        """Build ChildItem for 07.xx.xxx (成品) from SAL_SaleOrder.
 
-        if data:
-            # Self-made uses BOM need_qty as order_qty
-            order_qty = entry.need_qty if mat_type == MaterialType.SELF_MADE else data.order_qty.get(code, ZERO)
-            receipt_qty = data.receipt_qty.get(code, ZERO)
-            unreceived = data.remain_qty.get(code, order_qty - receipt_qty)
-            source = data.receipt_source
-        else:
-            order_qty = receipt_qty = unreceived = ZERO
-            source = ""
+        Column mappings (from config):
+        - 需求量 (required_qty): SAL_SaleOrder.qty (销售数量)
+        - 已领量 (picked_qty): SAL_OUTSTOCK.real_qty (实发数量)
+        - 未领量 (unpicked_qty): 需求量 - 已领量
+        - 订单数量 (order_qty): = 需求量
+        - 入库量 (receipt_qty): PRD_INSTOCK.real_qty (实收数量)
+        - 未入库量 (unreceived_qty): 订单数量 - 入库量
+        """
+        code = sales_order.material_code
+        aux_prop_id = getattr(sales_order, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(sales_order, "aux_attributes", "")
 
-        # Get aux_attributes from lookup, fallback to entry's aux_attributes
-        aux_prop_id = getattr(entry, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or entry.aux_attributes
+        # Get quantities using (material_code, aux_prop_id) as key
+        key = (code, aux_prop_id)
+        required_qty = sales_order.qty
+        picked_qty = delivered_by_material.get(key, ZERO)
+        receipt_qty = receipt_by_material.get(key, ZERO)
 
         return ChildItem(
             material_code=code,
-            material_name=entry.material_name,
-            specification=entry.specification,
+            material_name=getattr(sales_order, "material_name", ""),
+            specification=getattr(sales_order, "specification", ""),
             aux_attributes=aux_attrs,
-            material_type=mat_type,
-            material_type_name=MaterialType(mat_type).display_name if mat_type in (1, 2, 3) else "未知",
-            required_qty=entry.need_qty,
-            picked_qty=entry.picked_qty,
-            unpicked_qty=entry.no_picked_qty,
-            order_qty=order_qty,
+            material_type=1,  # 成品 treated as 自制
+            material_type_name="成品",
+            required_qty=required_qty,
+            picked_qty=picked_qty,  # 已领量 = 出库量 for finished goods
+            unpicked_qty=required_qty - picked_qty,
+            order_qty=required_qty,
             receipt_qty=receipt_qty,
-            unreceived_qty=unreceived,
-            pick_request_qty=pick_request.get(code, ZERO),
-            pick_actual_qty=pick_actual.get(code, ZERO),
-            delivered_qty=delivered.get(code, ZERO),
+            unreceived_qty=required_qty - receipt_qty,
+            pick_request_qty=ZERO,  # Not applicable for finished goods
+            pick_actual_qty=ZERO,
+            delivered_qty=picked_qty,
             inventory_qty=ZERO,
-            receipt_source=source,
+            receipt_source="PRD_INSTOCK",
+        )
+
+    def _build_production_child(
+        self,
+        prod_order,
+        prod_receipts: list,
+        material_picks: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 05.xx.xxx (自制) from PRD_MO.
+
+        Column mappings (from config):
+        - 需求量 (required_qty): PRD_MO.qty
+        - 已领量 (picked_qty): PRD_PickMtrl.actual_qty
+        - 未领量 (unpicked_qty): PRD_PickMtrl.app_qty - actual_qty
+        - 订单数量 (order_qty): = 需求量
+        - 入库量 (receipt_qty): PRD_INSTOCK.real_qty
+        - 未入库量 (unreceived_qty): 订单数量 - 入库量
+        """
+        code = prod_order.material_code
+        aux_prop_id = 0  # Production orders typically don't have aux_prop_id
+        aux_attrs = getattr(prod_order, "aux_attributes", "")
+
+        required_qty = prod_order.qty
+
+        # Match receipts by material_code
+        receipt_qty = sum(
+            r.real_qty for r in prod_receipts
+            if r.material_code == code
+        )
+
+        # Match material picks by material_code
+        pick_actual_total = sum(
+            p.actual_qty for p in material_picks
+            if p.material_code == code
+        )
+        pick_app_total = sum(
+            p.app_qty for p in material_picks
+            if p.material_code == code
+        )
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(prod_order, "material_name", ""),
+            specification=getattr(prod_order, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.SELF_MADE,
+            material_type_name="自制",
+            required_qty=required_qty,
+            picked_qty=pick_actual_total,
+            unpicked_qty=pick_app_total - pick_actual_total if pick_app_total > pick_actual_total else ZERO,
+            order_qty=required_qty,
+            receipt_qty=receipt_qty,
+            unreceived_qty=required_qty - receipt_qty,
+            pick_request_qty=pick_app_total,
+            pick_actual_qty=pick_actual_total,
+            delivered_qty=ZERO,
+            inventory_qty=ZERO,
+            receipt_source="PRD_INSTOCK",
+        )
+
+    def _build_purchase_child(
+        self,
+        purchase_order,
+        pick_request: dict[str, Decimal],
+        pick_actual: dict[str, Decimal],
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 03.xx.xxx (外购) from PUR_PurchaseOrder.
+
+        Column mappings (from config):
+        - 需求量 (required_qty): PUR_PurchaseOrder.order_qty (采购数量)
+        - 已领量 (picked_qty): PRD_PickMtrl.actual_qty
+        - 未领量 (unpicked_qty): 需求量 - 已领量
+        - 订单数量 (order_qty): = 需求量
+        - 入库量 (receipt_qty): PUR_PurchaseOrder.stock_in_qty (累计入库数量)
+        - 未入库量 (unreceived_qty): PUR_PurchaseOrder.remain_stock_in_qty (剩余入库数量)
+        """
+        code = purchase_order.material_code
+        aux_prop_id = getattr(purchase_order, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(purchase_order, "aux_attributes", "")
+
+        required_qty = purchase_order.order_qty
+        picked_qty = pick_actual.get(code, ZERO)
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(purchase_order, "material_name", ""),
+            specification=getattr(purchase_order, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.PURCHASED,
+            material_type_name="外购",
+            required_qty=required_qty,
+            picked_qty=picked_qty,
+            unpicked_qty=required_qty - picked_qty if required_qty > picked_qty else ZERO,
+            order_qty=required_qty,
+            receipt_qty=purchase_order.stock_in_qty,
+            unreceived_qty=purchase_order.remain_stock_in_qty,
+            pick_request_qty=pick_request.get(code, ZERO),
+            pick_actual_qty=picked_qty,
+            delivered_qty=ZERO,
+            inventory_qty=ZERO,
+            receipt_source="PUR_PurchaseOrder",
+        )
+
+    def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
+        """Build ParentItem from sales order information."""
+        if sales_order:
+            return ParentItem(
+                mto_number=mto_number,
+                customer_name=getattr(sales_order, "customer_name", ""),
+                delivery_date=getattr(sales_order, "delivery_date", None),
+            )
+        return ParentItem(
+            mto_number=mto_number,
+            customer_name="",
+            delivery_date=None,
         )
 
     # -------------------------------------------------------------------------
@@ -765,5 +668,21 @@ def _sum_by_material(records, field: str) -> dict[str, Decimal]:
     for r in records:
         code = getattr(r, "material_code", "")
         if code:
-            totals[code] += getattr(r, field)
+            totals[code] += getattr(r, field, ZERO)
+    return totals
+
+
+def _sum_by_material_and_aux(records, field: str) -> dict[tuple[str, int], Decimal]:
+    """Sum a field by (material_code, aux_prop_id) for variant-aware matching.
+
+    This ensures different variants (colors, sizes) of the same material
+    are tracked separately.
+    """
+    totals: dict[tuple[str, int], Decimal] = defaultdict(lambda: ZERO)
+    for r in records:
+        code = getattr(r, "material_code", "")
+        aux_prop_id = getattr(r, "aux_prop_id", 0) or 0
+        if code:
+            key = (code, aux_prop_id)
+            totals[key] += getattr(r, field, ZERO)
     return totals

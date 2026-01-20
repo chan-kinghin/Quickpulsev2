@@ -1,0 +1,161 @@
+{
+  "material_classes": [
+    {
+      "id": "finished_goods",
+      "pattern": "^07\\.",
+      "display_name": "成品",
+      "material_type": 1,
+      "source_form": "SAL_SaleOrder",
+      "mto_field": "FMtoNo",
+      "columns": {
+        "required_qty": {
+          "source": "SAL_SaleOrder",
+          "field": "qty"
+        },
+        "picked_qty": {
+          "source": "SAL_OUTSTOCK",
+          "field": "real_qty",
+          "match_by": ["material_code", "aux_attributes"]
+        },
+        "unpicked_qty": {
+          "calculated": "required_qty - picked_qty"
+        },
+        "order_qty": {
+          "source": "SAL_SaleOrder",
+          "field": "qty"
+        },
+        "receipt_qty": {
+          "source": "PRD_INSTOCK",
+          "field": "real_qty",
+          "match_by": ["material_code", "aux_attributes"]
+        },
+        "unreceived_qty": {
+          "calculated": "order_qty - receipt_qty"
+        }
+      },
+      "item_fields": {
+        "material_code": "FMaterialId.FNumber",
+        "material_name": "FMaterialId.FName",
+        "specification": "FMaterialId.FSpecification",
+        "aux_attributes": "FAuxPropId",
+        "bill_no": "FBillNo",
+        "qty": "FQty"
+      }
+    },
+    {
+      "id": "self_made",
+      "pattern": "^05\\.",
+      "display_name": "自制",
+      "material_type": 1,
+      "source_form": "PRD_MO",
+      "mto_field": "FMTONo",
+      "columns": {
+        "required_qty": {
+          "source": "PRD_MO",
+          "field": "qty"
+        },
+        "picked_qty": {
+          "source": "PRD_PickMtrl",
+          "field": "actual_qty",
+          "match_by": ["material_code"]
+        },
+        "unpicked_qty": {
+          "source": "PRD_PickMtrl",
+          "field": "app_qty",
+          "subtract": "actual_qty",
+          "match_by": ["material_code"]
+        },
+        "order_qty": {
+          "source": "PRD_MO",
+          "field": "qty"
+        },
+        "receipt_qty": {
+          "source": "PRD_INSTOCK",
+          "field": "real_qty",
+          "match_by": ["material_code"]
+        },
+        "unreceived_qty": {
+          "calculated": "order_qty - receipt_qty"
+        }
+      },
+      "item_fields": {
+        "material_code": "FMaterialId.FNumber",
+        "material_name": "FMaterialId.FName",
+        "specification": "FMaterialId.FSpecification",
+        "bill_no": "FBillNo",
+        "qty": "FQty"
+      }
+    },
+    {
+      "id": "purchased",
+      "pattern": "^03\\.",
+      "display_name": "外购",
+      "material_type": 2,
+      "source_form": "PUR_PurchaseOrder",
+      "mto_field": "FMtoNo",
+      "columns": {
+        "required_qty": {
+          "source": "PUR_PurchaseOrder",
+          "field": "order_qty"
+        },
+        "picked_qty": {
+          "source": "PRD_PickMtrl",
+          "field": "actual_qty",
+          "match_by": ["material_code"]
+        },
+        "unpicked_qty": {
+          "calculated": "required_qty - picked_qty"
+        },
+        "order_qty": {
+          "source": "PUR_PurchaseOrder",
+          "field": "order_qty"
+        },
+        "receipt_qty": {
+          "source": "PUR_PurchaseOrder",
+          "field": "stock_in_qty"
+        },
+        "unreceived_qty": {
+          "source": "PUR_PurchaseOrder",
+          "field": "remain_stock_in_qty"
+        }
+      },
+      "item_fields": {
+        "material_code": "FMaterialId.FNumber",
+        "material_name": "FMaterialId.FName",
+        "specification": "FMaterialId.FSpecification",
+        "aux_attributes": "FAuxPropId",
+        "bill_no": "FBillNo",
+        "qty": "FQty"
+      }
+    }
+  ],
+  "receipt_sources": {
+    "PRD_INSTOCK": {
+      "form_id": "PRD_INSTOCK",
+      "mto_field": "FMtoNo",
+      "qty_field": "FRealQty",
+      "material_field": "FMaterialId.FNumber",
+      "link_field": "FMoBillNo"
+    },
+    "STK_InStock": {
+      "form_id": "STK_InStock",
+      "mto_field": "FMtoNo",
+      "qty_field": "FRealQty",
+      "material_field": "FMaterialId.FNumber",
+      "link_field": "FPOOrderNo"
+    },
+    "SAL_OUTSTOCK": {
+      "form_id": "SAL_OUTSTOCK",
+      "mto_field": "FMTONO",
+      "qty_field": "FRealQty",
+      "material_field": "FMaterialId.FNumber"
+    },
+    "PRD_PickMtrl": {
+      "form_id": "PRD_PickMtrl",
+      "mto_field": "FMTONO",
+      "qty_field": "FActualQty",
+      "app_qty_field": "FAppQty",
+      "material_field": "FMaterialId.FNumber"
+    }
+  }
+}

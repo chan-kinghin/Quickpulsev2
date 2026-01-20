@@ -252,6 +252,8 @@ PRODUCTION_RECEIPT_CONFIG = ReaderConfig(
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "real_qty": FieldMapping("FRealQty", _decimal),
         "must_qty": FieldMapping("FMustQty", _decimal),
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),
+        "mo_bill_no": FieldMapping("FMoBillNo"),
     },
 )
 
@@ -321,6 +323,7 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "real_qty": FieldMapping("FRealQty", _decimal),
         "must_qty": FieldMapping("FMustQty", _decimal),
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),
     },
 )
 
@@ -332,8 +335,13 @@ SALES_ORDER_CONFIG = ReaderConfig(
     field_mappings={
         "bill_no": FieldMapping("FBillNo"),
         "mto_number": FieldMapping("FMtoNo"),
+        "material_code": FieldMapping("FMaterialId.FNumber"),
+        "material_name": FieldMapping("FMaterialId.FName"),
+        "specification": FieldMapping("FMaterialId.FSpecification"),
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),
         "customer_name": FieldMapping("FCustId.FName"),
         "delivery_date": FieldMapping("FDeliveryDate", _optional_str),
+        "qty": FieldMapping("FQty", _decimal),
     },
 )
 

@@ -1,4 +1,4 @@
-"""Tests for src/query/mto_handler.py - Core business logic."""
+"""Tests for src/query/mto_handler.py - Config-driven MTO query logic."""
 
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -8,10 +8,16 @@ import pytest
 from src.query.mto_handler import (
     MaterialType,
     MTOQueryHandler,
-    _AggregatedBOMEntry,
     _sum_by_material,
+    _sum_by_material_and_aux,
 )
-from src.readers.models import ProductionBOMModel
+from src.readers.models import (
+    ProductionOrderModel,
+    PurchaseOrderModel,
+    SalesOrderModel,
+    ProductionReceiptModel,
+    SalesDeliveryModel,
+)
 
 
 class TestMaterialType:
@@ -28,12 +34,6 @@ class TestMaterialType:
         assert MaterialType.SELF_MADE.display_name == "自制"
         assert MaterialType.PURCHASED.display_name == "外购"
         assert MaterialType.SUBCONTRACTED.display_name == "委外"
-
-    def test_display_name_unknown(self):
-        """Test display name for unknown type returns empty."""
-        # MaterialType is IntEnum, so accessing value outside enum still works
-        # but display_name will return "未知" for unknown types in handler
-        pass  # This is handled in handler, not enum
 
 
 class TestSumByMaterial:
@@ -79,165 +79,38 @@ class TestSumByMaterial:
         assert "" not in result
 
 
-class TestAggregatedBOMEntry:
-    """Tests for _AggregatedBOMEntry dataclass."""
+class TestSumByMaterialAndAux:
+    """Tests for _sum_by_material_and_aux helper."""
 
-    def test_aggregated_entry_properties(self):
-        """Test that aggregated entry forwards properties correctly."""
-        base_entry = ProductionBOMModel(
-            mo_bill_no="MO001",
-            mto_number="AK001",
-            material_code="C001",
-            material_name="Part",
-            specification="Spec",
-            aux_attributes="Blue",
-            aux_prop_id=1001,
-            material_type=2,
-            need_qty=Decimal("10"),
-            picked_qty=Decimal("5"),
-            no_picked_qty=Decimal("5"),
-        )
-
-        aggregated = _AggregatedBOMEntry(
-            _base=base_entry,
-            need_qty=Decimal("30"),
-            picked_qty=Decimal("15"),
-            no_picked_qty=Decimal("15"),
-        )
-
-        # Base properties are forwarded
-        assert aggregated.material_code == "C001"
-        assert aggregated.material_name == "Part"
-        assert aggregated.specification == "Spec"
-        assert aggregated.aux_attributes == "Blue"
-        assert aggregated.aux_prop_id == 1001
-        assert aggregated.material_type == 2
-        assert aggregated.mto_number == "AK001"
-
-        # Quantities are from aggregation
-        assert aggregated.need_qty == Decimal("30")
-        assert aggregated.picked_qty == Decimal("15")
-        assert aggregated.no_picked_qty == Decimal("15")
-
-
-class TestBOMEntryAggregation:
-    """Tests for BOM entry aggregation logic."""
-
-    def create_handler(self, mock_readers):
-        """Create MTOQueryHandler with mock readers."""
-        return MTOQueryHandler(
-            production_order_reader=mock_readers["production_order"],
-            production_bom_reader=mock_readers["production_bom"],
-            production_receipt_reader=mock_readers["production_receipt"],
-            purchase_order_reader=mock_readers["purchase_order"],
-            purchase_receipt_reader=mock_readers["purchase_receipt"],
-            subcontracting_order_reader=mock_readers["subcontracting_order"],
-            material_picking_reader=mock_readers["material_picking"],
-            sales_delivery_reader=mock_readers["sales_delivery"],
-            sales_order_reader=mock_readers["sales_order"],
-        )
-
-    def test_aggregate_empty_entries(self, mock_readers):
-        """Test aggregation with empty list."""
-        handler = self.create_handler(mock_readers)
-        result = handler._aggregate_bom_entries([])
-        assert result == []
-
-    def test_aggregate_single_entry(self, mock_readers, sample_bom_entries):
-        """Test aggregation with single entry (no merging needed)."""
-        handler = self.create_handler(mock_readers)
-        result = handler._aggregate_bom_entries([sample_bom_entries[0]])
-
-        assert len(result) == 1
-        assert result[0].material_code == "C001"
-        assert result[0].need_qty == Decimal("50")
-
-    def test_aggregate_different_materials(self, mock_readers, sample_bom_entries):
-        """Test entries with different materials stay separate."""
-        handler = self.create_handler(mock_readers)
-        result = handler._aggregate_bom_entries(sample_bom_entries)
-
-        # 3 different materials -> 3 entries
-        assert len(result) == 3
-
-    def test_aggregate_same_material_different_aux(self, mock_readers):
-        """Test that same material with different aux_attributes stays separate."""
-        handler = self.create_handler(mock_readers)
-
-        entries = [
-            ProductionBOMModel(
-                mo_bill_no="MO001",
-                mto_number="AK001",
-                material_code="C001",
-                material_name="Part",
-                specification="",
-                aux_attributes="Blue",  # Different aux
-                material_type=1,
-                need_qty=Decimal("10"),
-                picked_qty=Decimal("5"),
-                no_picked_qty=Decimal("5"),
-            ),
-            ProductionBOMModel(
-                mo_bill_no="MO001",
-                mto_number="AK001",
-                material_code="C001",
-                material_name="Part",
-                specification="",
-                aux_attributes="Red",  # Different aux
-                material_type=1,
-                need_qty=Decimal("20"),
-                picked_qty=Decimal("10"),
-                no_picked_qty=Decimal("10"),
-            ),
+    def test_sum_by_material_and_aux_basic(self):
+        """Test summing quantities by (material_code, aux_prop_id) tuple."""
+        records = [
+            MagicMock(material_code="M001", aux_prop_id=1, real_qty=Decimal("10")),
+            MagicMock(material_code="M001", aux_prop_id=1, real_qty=Decimal("20")),
+            MagicMock(material_code="M001", aux_prop_id=2, real_qty=Decimal("5")),  # Different aux
+            MagicMock(material_code="M002", aux_prop_id=1, real_qty=Decimal("15")),
         ]
 
-        result = handler._aggregate_bom_entries(entries)
+        result = _sum_by_material_and_aux(records, "real_qty")
 
-        # Should NOT merge - different aux_attributes
-        assert len(result) == 2
+        assert result[("M001", 1)] == Decimal("30")
+        assert result[("M001", 2)] == Decimal("5")
+        assert result[("M002", 1)] == Decimal("15")
 
-    def test_aggregate_same_material_same_aux(self, mock_readers):
-        """Test that identical keys get merged."""
-        handler = self.create_handler(mock_readers)
-
-        entries = [
-            ProductionBOMModel(
-                mo_bill_no="MO001",
-                mto_number="AK001",
-                material_code="C001",
-                material_name="Part",
-                specification="",
-                aux_attributes="Blue",
-                material_type=1,
-                need_qty=Decimal("10"),
-                picked_qty=Decimal("5"),
-                no_picked_qty=Decimal("5"),
-            ),
-            ProductionBOMModel(
-                mo_bill_no="MO002",  # Different MO but same key
-                mto_number="AK001",
-                material_code="C001",
-                material_name="Part",
-                specification="",
-                aux_attributes="Blue",  # Same aux
-                material_type=1,
-                need_qty=Decimal("20"),
-                picked_qty=Decimal("10"),
-                no_picked_qty=Decimal("10"),
-            ),
+    def test_sum_by_material_and_aux_zero_aux(self):
+        """Test with aux_prop_id=0 (no variant)."""
+        records = [
+            MagicMock(material_code="M001", aux_prop_id=0, real_qty=Decimal("10")),
+            MagicMock(material_code="M001", aux_prop_id=0, real_qty=Decimal("5")),
         ]
 
-        result = handler._aggregate_bom_entries(entries)
+        result = _sum_by_material_and_aux(records, "real_qty")
 
-        # Should merge - same (material_code, aux_attributes, mto_number)
-        assert len(result) == 1
-        assert result[0].need_qty == Decimal("30")
-        assert result[0].picked_qty == Decimal("15")
-        assert result[0].no_picked_qty == Decimal("15")
+        assert result[("M001", 0)] == Decimal("15")
 
 
 class TestMTOQueryHandler:
-    """Tests for MTOQueryHandler.get_status method."""
+    """Tests for MTOQueryHandler.get_status method with config-driven logic."""
 
     def create_handler(self, mock_readers, cache_reader=None):
         """Create MTOQueryHandler with mock readers."""
@@ -255,133 +128,197 @@ class TestMTOQueryHandler:
         )
 
     @pytest.mark.asyncio
-    async def test_get_status_no_orders_raises(self, mock_readers):
-        """Test ValueError when no production orders found."""
+    async def test_get_status_no_data_raises(self, mock_readers):
+        """Test ValueError when no data found for MTO."""
+        # Mock all source forms to return empty
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
 
         handler = self.create_handler(mock_readers)
 
-        with pytest.raises(ValueError, match="No production orders found"):
+        with pytest.raises(ValueError, match="No data found for MTO"):
             await handler.get_status("NONEXISTENT", use_cache=False)
 
     @pytest.mark.asyncio
-    async def test_get_status_live_api(
-        self,
-        mock_readers,
-        sample_production_order,
-        sample_bom_entries,
-        sample_production_receipts,
-        sample_purchase_orders,
-        sample_purchase_receipts,
-        sample_subcontracting_orders,
+    async def test_get_status_sales_order_07_class(
+        self, mock_readers, sample_sales_orders, sample_production_receipts, sample_sales_deliveries
     ):
-        """Test get_status from live API."""
+        """Test get_status with 07.xx.xxx items from SAL_SaleOrder."""
         # Setup mocks
-        mock_readers["production_order"].fetch_by_mto = AsyncMock(
-            return_value=[sample_production_order]
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
+            return_value=sample_sales_orders
         )
-        mock_readers["production_bom"].fetch_by_bill_nos = AsyncMock(
-            return_value=sample_bom_entries
-        )
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
             return_value=sample_production_receipts
         )
-        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
-            return_value=sample_purchase_orders
-        )
-        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(
-            return_value=sample_purchase_receipts
-        )
-        mock_readers["subcontracting_order"].fetch_by_mto = AsyncMock(
-            return_value=sample_subcontracting_orders
-        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
-        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
-        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
-
-        # Mock aux property lookup
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(
+            return_value=sample_sales_deliveries
+        )
         mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
-            return_value={1001: "Blue Model"}
+            return_value={1001: "蓝色款", 1002: "红色款"}
         )
 
         handler = self.create_handler(mock_readers)
 
-        result = await handler.get_status("AK2510034", use_cache=False)
+        result = await handler.get_status("AS2509076", use_cache=False)
 
-        assert result.mto_number == "AK2510034"
+        assert result.mto_number == "AS2509076"
         assert result.data_source == "live"
-        assert result.parent.mto_number == "AK2510034"
-        # Check children exist (exact count depends on material types)
+        # Should have 2 children (2 separate sales order rows, no aggregation)
+        assert len(result.children) == 2
+        # First child
+        assert result.children[0].material_code == "07.02.037"
+        assert result.children[0].required_qty == Decimal("2016")
+        assert result.children[0].material_type_name == "成品"
+        # Second child (different order)
+        assert result.children[1].material_code == "07.02.037"
+        assert result.children[1].required_qty == Decimal("1")
+
+    @pytest.mark.asyncio
+    async def test_get_status_purchase_order_03_class(
+        self, mock_readers, sample_purchase_orders
+    ):
+        """Test get_status with 03.xx.xxx items from PUR_PurchaseOrder."""
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
+            return_value=sample_purchase_orders
+        )
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+
+        result = await handler.get_status("AS2509076", use_cache=False)
+
+        assert result.mto_number == "AS2509076"
+        # Should have children from purchase orders
         assert len(result.children) >= 1
+        for child in result.children:
+            assert child.material_code.startswith("03.")
+            assert child.material_type_name == "外购"
+            # Purchase orders use their own stock_in_qty for receipt
+            assert child.receipt_source == "PUR_PurchaseOrder"
+
+    @pytest.mark.asyncio
+    async def test_get_status_production_order_05_class(
+        self, mock_readers, sample_production_order_05
+    ):
+        """Test get_status with 05.xx.xxx items from PRD_MO."""
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[sample_production_order_05]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+
+        result = await handler.get_status("AS2509076", use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "05.01.001"
+        assert child.material_type_name == "自制"
+        assert child.receipt_source == "PRD_INSTOCK"
 
     @pytest.mark.asyncio
     async def test_get_status_cache_miss_fallback_to_live(
-        self, mock_readers, sample_production_order, sample_bom_entries
+        self, mock_readers, sample_sales_orders
     ):
         """Test cache miss falls back to live API."""
         from src.query.cache_reader import CacheResult
 
         mock_cache = MagicMock()
+        # Mock all cache methods to return empty (cache miss)
+        mock_cache.get_sales_orders = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
         mock_cache.get_production_orders = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
+        mock_cache.get_purchase_orders = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
+        mock_cache.get_production_receipts = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
+        mock_cache.get_purchase_receipts = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
+        mock_cache.get_material_picking = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
+        mock_cache.get_sales_delivery = AsyncMock(
             return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
         )
 
         # Setup live API mocks
-        mock_readers["production_order"].fetch_by_mto = AsyncMock(
-            return_value=[sample_production_order]
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
+            return_value=sample_sales_orders
         )
-        mock_readers["production_bom"].fetch_by_bill_nos = AsyncMock(
-            return_value=sample_bom_entries
-        )
-        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
-        mock_readers["subcontracting_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
-        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
             return_value={}
         )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 
-        result = await handler.get_status("AK2510034", use_cache=True)
+        result = await handler.get_status("AS2509076", use_cache=True)
 
         assert result.data_source == "live"
-        mock_cache.get_production_orders.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_status_cache_hit(
-        self, mock_readers, sample_production_order, sample_bom_entries
+        self, mock_readers, sample_sales_orders
     ):
         """Test cache hit returns cached data."""
         from datetime import datetime
-
         from src.query.cache_reader import CacheResult
 
         mock_cache = MagicMock()
         synced_at = datetime.utcnow()
 
-        # Mock all cache methods - they're all called in _try_cache
+        # Mock cache to return sales orders (cache hit)
+        mock_cache.get_sales_orders = AsyncMock(
+            return_value=CacheResult(
+                data=sample_sales_orders,
+                synced_at=synced_at,
+                is_fresh=True,
+            )
+        )
         mock_cache.get_production_orders = AsyncMock(
-            return_value=CacheResult(
-                data=[sample_production_order],
-                synced_at=synced_at,
-                is_fresh=True,
-            )
-        )
-        mock_cache.get_production_bom = AsyncMock(
-            return_value=CacheResult(
-                data=sample_bom_entries,
-                synced_at=synced_at,
-                is_fresh=True,
-            )
-        )
-        mock_cache.get_purchase_orders = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
-        mock_cache.get_subcontracting_orders = AsyncMock(
+        mock_cache.get_purchase_orders = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
         mock_cache.get_production_receipts = AsyncMock(
@@ -396,56 +333,175 @@ class TestMTOQueryHandler:
         mock_cache.get_sales_delivery = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
-        mock_cache.get_sales_orders = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
-        )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 
-        result = await handler.get_status("AK2510034", use_cache=True)
+        result = await handler.get_status("AS2509076", use_cache=True)
 
         assert result.data_source == "cache"
         assert result.cache_age_seconds is not None
 
     @pytest.mark.asyncio
     async def test_get_status_use_cache_false_skips_cache(
-        self, mock_readers, sample_production_order, sample_bom_entries
+        self, mock_readers, sample_sales_orders
     ):
         """Test use_cache=False skips cache lookup."""
         from datetime import datetime
-
         from src.query.cache_reader import CacheResult
 
         mock_cache = MagicMock()
-        mock_cache.get_production_orders = AsyncMock(
+        mock_cache.get_sales_orders = AsyncMock(
             return_value=CacheResult(
-                data=[sample_production_order],
+                data=sample_sales_orders,
                 synced_at=datetime.utcnow(),
                 is_fresh=True,
             )
         )
 
         # Setup live API mocks
-        mock_readers["production_order"].fetch_by_mto = AsyncMock(
-            return_value=[sample_production_order]
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
+            return_value=sample_sales_orders
         )
-        mock_readers["production_bom"].fetch_by_bill_nos = AsyncMock(
-            return_value=sample_bom_entries
-        )
-        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
-        mock_readers["subcontracting_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
-        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
             return_value={}
         )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 
-        result = await handler.get_status("AK2510034", use_cache=False)
+        result = await handler.get_status("AS2509076", use_cache=False)
 
         assert result.data_source == "live"
-        mock_cache.get_production_orders.assert_not_called()
+        mock_cache.get_sales_orders.assert_not_called()
+
+
+# Test fixtures
+@pytest.fixture
+def mock_readers():
+    """Create mock reader instances."""
+    readers = {}
+    for name in [
+        "production_order",
+        "production_bom",
+        "production_receipt",
+        "purchase_order",
+        "purchase_receipt",
+        "subcontracting_order",
+        "material_picking",
+        "sales_delivery",
+        "sales_order",
+    ]:
+        mock = MagicMock()
+        mock.client = MagicMock()
+        mock.client.lookup_aux_properties = AsyncMock(return_value={})
+        readers[name] = mock
+    return readers
+
+
+@pytest.fixture
+def sample_sales_orders():
+    """Sample sales orders for 07.xx.xxx (成品) testing."""
+    return [
+        SalesOrderModel(
+            bill_no="SO001",
+            mto_number="AS2509076",
+            material_code="07.02.037",
+            material_name="成品A",
+            specification="规格1",
+            aux_attributes="",
+            aux_prop_id=1001,
+            customer_name="客户A",
+            delivery_date="2025-03-01",
+            qty=Decimal("2016"),
+        ),
+        SalesOrderModel(
+            bill_no="SO002",
+            mto_number="AS2509076",
+            material_code="07.02.037",
+            material_name="成品A",
+            specification="规格1",
+            aux_attributes="",
+            aux_prop_id=1001,  # Same variant, different order
+            customer_name="客户A",
+            delivery_date="2025-03-01",
+            qty=Decimal("1"),
+        ),
+    ]
+
+
+@pytest.fixture
+def sample_production_receipts():
+    """Sample production receipts for matching."""
+    return [
+        ProductionReceiptModel(
+            mto_number="AS2509076",
+            material_code="07.02.037",
+            real_qty=Decimal("2016"),
+            must_qty=Decimal("2016"),
+            aux_prop_id=1001,
+            mo_bill_no="MO001",
+        ),
+        ProductionReceiptModel(
+            mto_number="AS2509076",
+            material_code="07.02.037",
+            real_qty=Decimal("1"),
+            must_qty=Decimal("1"),
+            aux_prop_id=1001,
+            mo_bill_no="MO002",
+        ),
+    ]
+
+
+@pytest.fixture
+def sample_sales_deliveries():
+    """Sample sales deliveries for matching."""
+    return [
+        SalesDeliveryModel(
+            mto_number="AS2509076",
+            material_code="07.02.037",
+            real_qty=Decimal("2016"),
+            must_qty=Decimal("2016"),
+            aux_prop_id=1001,
+        ),
+    ]
+
+
+@pytest.fixture
+def sample_purchase_orders():
+    """Sample purchase orders for 03.xx.xxx (外购) testing."""
+    return [
+        PurchaseOrderModel(
+            bill_no="PO001",
+            mto_number="AS2509076",
+            material_code="03.01.001",
+            material_name="外购件A",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            order_qty=Decimal("100"),
+            stock_in_qty=Decimal("80"),
+            remain_stock_in_qty=Decimal("20"),
+        ),
+    ]
+
+
+@pytest.fixture
+def sample_production_order_05():
+    """Sample production order for 05.xx.xxx (自制) testing."""
+    return ProductionOrderModel(
+        bill_no="MO003",
+        mto_number="AS2509076",
+        workshop="车间A",
+        material_code="05.01.001",
+        material_name="自制件A",
+        specification="",
+        aux_attributes="",
+        qty=Decimal("50"),
+        status="审核",
+        create_date="2025-01-15",
+    )

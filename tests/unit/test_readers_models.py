@@ -318,10 +318,12 @@ class TestSalesOrderModel:
         model = SalesOrderModel(
             bill_no="SAL001",
             mto_number="AK001",
+            material_code="07.02.037",
             customer_name="Customer A",
         )
         assert model.bill_no == "SAL001"
         assert model.mto_number == "AK001"
+        assert model.material_code == "07.02.037"
         assert model.customer_name == "Customer A"
         assert model.delivery_date is None
 
@@ -330,6 +332,7 @@ class TestSalesOrderModel:
         model = SalesOrderModel(
             bill_no="SAL001",
             mto_number="AK001",
+            material_code="07.02.037",
             customer_name="Customer A",
             delivery_date="2025-02-01",
         )

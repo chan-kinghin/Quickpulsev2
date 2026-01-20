@@ -44,6 +44,8 @@ class ProductionReceiptModel(BaseModel):
     material_code: str
     real_qty: Decimal
     must_qty: Decimal
+    aux_prop_id: int = 0  # For matching by aux_attributes
+    mo_bill_no: str = ""  # Link to production order
 
 
 class PurchaseOrderModel(BaseModel):
@@ -99,6 +101,7 @@ class SalesDeliveryModel(BaseModel):
     material_code: str
     real_qty: Decimal
     must_qty: Decimal
+    aux_prop_id: int = 0  # For matching by aux_attributes
 
 
 class SalesOrderModel(BaseModel):
@@ -106,5 +109,11 @@ class SalesOrderModel(BaseModel):
 
     bill_no: str
     mto_number: str
+    material_code: str
+    material_name: str = ""
+    specification: str = ""
+    aux_attributes: str = ""
+    aux_prop_id: int = 0
     customer_name: str
     delivery_date: Optional[str] = None
+    qty: Decimal = Decimal("0")  # 销售数量

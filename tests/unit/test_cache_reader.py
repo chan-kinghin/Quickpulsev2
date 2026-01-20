@@ -289,8 +289,8 @@ class TestCacheReaderRowConversion:
             "Spec",  # specification
             "Blue",  # aux_attributes
             100,  # qty
-            '{"status": "Approved", "create_date": "2025-01-15"}',  # raw_data
-            "2025-01-15T10:00:00",  # synced_at
+            "Approved",  # status
+            "2025-01-15",  # create_date
         )
 
         model = reader._row_to_order(row)
@@ -315,8 +315,8 @@ class TestCacheReaderRowConversion:
             None,  # specification
             None,  # aux_attributes
             None,  # qty
-            None,  # raw_data
-            None,  # synced_at
+            None,  # status
+            None,  # create_date
         )
 
         model = reader._row_to_order(row)
@@ -332,14 +332,16 @@ class TestCacheReaderRowConversion:
 
         row = (
             "MO0001",  # mo_bill_no
+            "AK001",  # mto_number
             "C001",  # material_code
             "Part",  # material_name
+            "Spec",  # specification
+            "Blue",  # aux_attributes
+            1001,  # aux_prop_id
             1,  # material_type
             50,  # need_qty
             30,  # picked_qty
             20,  # no_picked_qty
-            '{"mto_number": "AK001", "specification": "Spec", "aux_attributes": "Blue", "aux_prop_id": 1001}',  # raw_data
-            "2025-01-15T10:00:00",  # synced_at
         )
 
         model = reader._row_to_bom(row)
@@ -352,26 +354,28 @@ class TestCacheReaderRowConversion:
         assert model.aux_attributes == "Blue"
         assert model.aux_prop_id == 1001
 
-    def test_row_to_bom_invalid_json(self):
-        """Test _row_to_bom with invalid JSON in raw_data."""
+    def test_row_to_bom_with_null_values(self):
+        """Test _row_to_bom with null values."""
         mock_db = MagicMock()
         reader = CacheReader(mock_db, ttl_minutes=60)
 
         row = (
-            "MO0001",
-            "C001",
-            "Part",
-            1,
-            50,
-            30,
-            20,
-            "invalid json",  # Invalid JSON
-            "2025-01-15T10:00:00",
+            "MO0001",  # mo_bill_no
+            None,  # mto_number
+            "C001",  # material_code
+            None,  # material_name
+            None,  # specification
+            None,  # aux_attributes
+            None,  # aux_prop_id
+            1,  # material_type
+            50,  # need_qty
+            30,  # picked_qty
+            20,  # no_picked_qty
         )
 
         model = reader._row_to_bom(row)
 
-        # Should not crash, use defaults
+        # Should handle nulls gracefully
         assert model.mto_number == ""
         assert model.specification == ""
         assert model.aux_prop_id == 0
