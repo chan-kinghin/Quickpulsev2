@@ -841,6 +841,7 @@ class SyncService:
         rows = [
             (
                 r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+                getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
                 model_to_json(r),
             )
             for r in records
@@ -849,9 +850,9 @@ class SyncService:
         await self.db.executemany(
             f"""
             INSERT INTO {TABLE_PRODUCTION_RECEIPTS} (
-                mto_number, material_code, real_qty, must_qty, raw_data, synced_at
+                mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             rows,
         )
@@ -936,6 +937,7 @@ class SyncService:
         rows = [
             (
                 r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+                getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
                 model_to_json(r),
             )
             for r in records
@@ -944,9 +946,9 @@ class SyncService:
         await self.db.executemany(
             f"""
             INSERT INTO {TABLE_SALES_DELIVERY} (
-                mto_number, material_code, real_qty, must_qty, raw_data, synced_at
+                mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             rows,
         )
@@ -1068,14 +1070,15 @@ class SyncService:
             )
         rows = [
             (r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+             getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_PRODUCTION_RECEIPTS} (
-                mto_number, material_code, real_qty, must_qty, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(mto_number, material_code) DO UPDATE SET
+                mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(mto_number, material_code, aux_prop_id) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
@@ -1151,14 +1154,15 @@ class SyncService:
             )
         rows = [
             (r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+             getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_SALES_DELIVERY} (
-                mto_number, material_code, real_qty, must_qty, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(mto_number, material_code) DO UPDATE SET
+                mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(mto_number, material_code, aux_prop_id) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,

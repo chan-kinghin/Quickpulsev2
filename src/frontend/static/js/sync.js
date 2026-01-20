@@ -7,7 +7,7 @@ function syncPanel() {
             last_sync: null,
             records_synced: null
         },
-        daysBack: 7,
+        daysBack: 30,  // Default fallback, will be overwritten by config
         forceSync: false,
         loading: false,
         error: null,
@@ -15,8 +15,20 @@ function syncPanel() {
 
         async init() {
             console.log('Sync Panel initialized');
+            await this.fetchConfig();
             await this.fetchStatus();
             this.startPolling();
+        },
+
+        async fetchConfig() {
+            try {
+                const config = await api.get('/sync/config');
+                if (config.manual_sync_default_days) {
+                    this.daysBack = config.manual_sync_default_days;
+                }
+            } catch (err) {
+                console.error('Failed to fetch sync config:', err);
+            }
         },
 
         async fetchStatus() {

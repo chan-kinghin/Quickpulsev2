@@ -12,6 +12,7 @@ services:
       - ./src:/app/src
       - ./data:/app/data
       - ./reports:/app/reports
+      - ./config:/app/config
       - ./sync_config.json:/app/sync_config.json
       - ./conf.ini:/app/conf.ini
     environment:
