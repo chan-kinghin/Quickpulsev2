@@ -31,6 +31,7 @@ ON cached_material_picking(mto_number, material_code, ppbom_bill_no);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sald_unique
 ON cached_sales_delivery(mto_number, material_code);
 
--- cached_sales_orders: Unique on bill + MTO
+-- cached_sales_orders: Unique on bill + MTO + material + aux variant
+-- Multiple lines per sales order can have same MTO but different materials/variants
 CREATE UNIQUE INDEX IF NOT EXISTS idx_salo_unique
-ON cached_sales_orders(bill_no, mto_number);
+ON cached_sales_orders(bill_no, mto_number, material_code, aux_prop_id);
