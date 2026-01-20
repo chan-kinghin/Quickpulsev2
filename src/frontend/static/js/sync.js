@@ -39,17 +39,21 @@ function syncPanel() {
         },
 
         async triggerSync() {
+            console.log('triggerSync called', { daysBack: this.daysBack, forceSync: this.forceSync });
             this.loading = true;
             this.error = null;
 
             try {
-                await api.post('/sync/trigger', {
+                console.log('Calling api.post /sync/trigger...');
+                const result = await api.post('/sync/trigger', {
                     days_back: parseInt(this.daysBack, 10),
                     force: this.forceSync
                 });
+                console.log('Sync trigger result:', result);
 
                 await this.fetchStatus();
             } catch (err) {
+                console.error('Sync trigger error:', err);
                 this.error = err.message;
             } finally {
                 this.loading = false;
