@@ -29,10 +29,34 @@ logger = logging.getLogger(__name__)
 class KingdeeClient:
     """K3Cloud SDK Wrapper"""
 
+    # Error messages that indicate session expiration
+    SESSION_EXPIRED_INDICATORS = [
+        "Fail to verify thirty passport",  # Typo in Kingdee error for "third party"
+        "Fail to verify third party passport",
+        "当前尝试登录的数据中心无法获取到",
+        "会话已过期",
+        "session expired",
+        "login timeout",
+    ]
+
     def __init__(self, config: "KingdeeConfig"):
         self.config = config
         self._sdk: Optional[K3CloudApiSdk] = None
         self._lock = asyncio.Lock()
+
+    def _is_session_expired_error(self, error_message: str) -> bool:
+        """Check if error indicates session expiration."""
+        error_lower = str(error_message).lower()
+        return any(
+            indicator.lower() in error_lower
+            for indicator in self.SESSION_EXPIRED_INDICATORS
+        )
+
+    async def _reset_sdk(self) -> None:
+        """Reset SDK instance to force re-authentication."""
+        async with self._lock:
+            self._sdk = None
+            logger.info("Kingdee SDK session reset, will re-authenticate on next request")
 
     async def _get_sdk(self) -> K3CloudApiSdk:
         """Get or create SDK instance (thread-safe)."""
@@ -56,6 +80,7 @@ class KingdeeClient:
         filter_string: str = "",
         limit: int = 2000,
         start_row: int = 0,
+        _retry_count: int = 0,
     ) -> list[dict]:
         """
         Execute Query API call.
@@ -66,6 +91,7 @@ class KingdeeClient:
             filter_string: Filter condition (SQL WHERE format)
             limit: Max records to return
             start_row: Starting row (for pagination)
+            _retry_count: Internal retry counter (do not set manually)
 
         Returns:
             List of records, each record is a field-to-value dict
@@ -162,7 +188,25 @@ class KingdeeClient:
             return valid_rows
 
         except Exception as exc:
-            logger.error("Kingdee query failed: %s, error: %s", form_id, exc)
+            error_msg = str(exc)
+            logger.error("Kingdee query failed: %s, error: %s", form_id, error_msg)
+
+            # Check if this is a session expiration error and retry once
+            if self._is_session_expired_error(error_msg) and _retry_count < 1:
+                logger.warning(
+                    "Kingdee session expired for %s, resetting SDK and retrying...",
+                    form_id
+                )
+                await self._reset_sdk()
+                return await self.query(
+                    form_id=form_id,
+                    field_keys=field_keys,
+                    filter_string=filter_string,
+                    limit=limit,
+                    start_row=start_row,
+                    _retry_count=_retry_count + 1,
+                )
+
             raise KingdeeQueryError(f"Query {form_id} failed: {exc}") from exc
 
     async def query_all(
