@@ -43,6 +43,7 @@ class KingdeeClient:
         self.config = config
         self._sdk: Optional[K3CloudApiSdk] = None
         self._lock = asyncio.Lock()
+        self._reset_in_progress = False
 
     def _is_session_expired_error(self, error_message: str) -> bool:
         """Check if error indicates session expiration."""
@@ -52,11 +53,26 @@ class KingdeeClient:
             for indicator in self.SESSION_EXPIRED_INDICATORS
         )
 
-    async def _reset_sdk(self) -> None:
-        """Reset SDK instance to force re-authentication."""
+    async def _reset_sdk(self) -> bool:
+        """Reset SDK instance to force re-authentication.
+
+        Returns True if this call performed the reset, False if another call already did.
+        """
         async with self._lock:
+            if self._reset_in_progress:
+                # Another coroutine is already handling the reset
+                logger.info("SDK reset already in progress, skipping duplicate reset")
+                return False
+            self._reset_in_progress = True
             self._sdk = None
             logger.info("Kingdee SDK session reset, will re-authenticate on next request")
+
+        # Small delay to let Kingdee server recover
+        await asyncio.sleep(1.0)
+
+        async with self._lock:
+            self._reset_in_progress = False
+        return True
 
     async def _get_sdk(self) -> K3CloudApiSdk:
         """Get or create SDK instance (thread-safe)."""
@@ -197,7 +213,10 @@ class KingdeeClient:
                     "Kingdee session expired for %s, resetting SDK and retrying...",
                     form_id
                 )
-                await self._reset_sdk()
+                did_reset = await self._reset_sdk()
+                if not did_reset:
+                    # Another coroutine already reset, wait a bit for new SDK
+                    await asyncio.sleep(0.5)
                 return await self.query(
                     form_id=form_id,
                     field_keys=field_keys,
