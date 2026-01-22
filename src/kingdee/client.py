@@ -35,6 +35,8 @@ class KingdeeClient:
         "Fail to verify third party passport",
         "当前尝试登录的数据中心无法获取到",
         "会话已过期",
+        "会话信息已丢失",  # Session information lost
+        "请重新登录",  # Please re-login
         "session expired",
         "login timeout",
     ]
