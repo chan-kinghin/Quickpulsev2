@@ -14,7 +14,7 @@ from typing import Optional, TYPE_CHECKING
 
 from cachetools import TTLCache
 
-from src.mto_config import MTOConfig
+from src.mto_config import MTOConfig, MaterialClassConfig
 from src.models.mto_status import ChildItem, MTOStatusResponse, ParentItem
 
 logger = logging.getLogger(__name__)
@@ -119,6 +119,22 @@ class MTOQueryHandler:
         # Query frequency tracking for smart cache warming
         self._query_counter: Counter = Counter()
 
+    def _get_material_class(self, material_code: str) -> tuple[str | None, MaterialClassConfig | None]:
+        """Get material class ID and config for a material code.
+
+        Uses config patterns to determine material class:
+        - 07.xx.xxx → finished_goods (成品)
+        - 05.xx.xxx → self_made (自制)
+        - 03.xx.xxx → purchased (外购)
+
+        Returns:
+            Tuple of (class_id, config) or (None, None) if no match
+        """
+        class_config = self._mto_config.get_class_for_material(material_code)
+        if class_config:
+            return class_config.id, class_config
+        return None, None
+
     async def get_status(
         self, mto_number: str, use_cache: bool = True
     ) -> MTOStatusResponse:
@@ -221,29 +237,33 @@ class MTOQueryHandler:
         # For cache, aux_attributes are already resolved
         aux_descriptions: dict[int, str] = {}
 
-        # Build children from source forms based on material class
+        # Build children from source forms based on material class config
         children = []
 
-        # 07.xx.xxx from Sales Orders
+        # Route records based on config patterns
+        # finished_goods (07.xx) from Sales Orders
         for so in sales_orders:
-            if so.material_code.startswith("07."):
+            class_id, _ = self._get_material_class(so.material_code)
+            if class_id == "finished_goods":
                 child = self._build_sales_child(
                     so, receipt_by_material, delivered_by_material,
                     pick_request, pick_actual, aux_descriptions
                 )
                 children.append(child)
 
-        # 05.xx.xxx from Production Orders
+        # self_made (05.xx) from Production Orders
         for po in prod_orders:
-            if po.material_code.startswith("05."):
+            class_id, _ = self._get_material_class(po.material_code)
+            if class_id == "self_made":
                 child = self._build_production_child(
                     po, prod_receipts, material_picks, aux_descriptions
                 )
                 children.append(child)
 
-        # 03.xx.xxx from Purchase Orders
+        # purchased (03.xx) from Purchase Orders
         for pur in purchase_orders:
-            if pur.material_code.startswith("03."):
+            class_id, _ = self._get_material_class(pur.material_code)
+            if class_id == "purchased":
                 child = self._build_purchase_child(
                     pur, pick_request, pick_actual, aux_descriptions
                 )
@@ -322,29 +342,33 @@ class MTOQueryHandler:
         # Lookup aux property descriptions from BD_FLEXSITEMDETAILV
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
 
-        # Build children from source forms based on material class
+        # Build children from source forms based on material class config
         children = []
 
-        # 07.xx.xxx (成品) from Sales Orders
+        # Route records based on config patterns
+        # finished_goods (07.xx) from Sales Orders
         for so in sales_orders:
-            if so.material_code.startswith("07."):
+            class_id, _ = self._get_material_class(so.material_code)
+            if class_id == "finished_goods":
                 child = self._build_sales_child(
                     so, receipt_by_material, delivered_by_material,
                     pick_request, pick_actual, aux_descriptions
                 )
                 children.append(child)
 
-        # 05.xx.xxx (自制) from Production Orders
+        # self_made (05.xx) from Production Orders
         for po in prod_orders:
-            if po.material_code.startswith("05."):
+            class_id, _ = self._get_material_class(po.material_code)
+            if class_id == "self_made":
                 child = self._build_production_child(
                     po, prod_receipts, material_picks, aux_descriptions
                 )
                 children.append(child)
 
-        # 03.xx.xxx (外购) from Purchase Orders
+        # purchased (03.xx) from Purchase Orders
         for pur in purchase_orders:
-            if pur.material_code.startswith("03."):
+            class_id, _ = self._get_material_class(pur.material_code)
+            if class_id == "purchased":
                 child = self._build_purchase_child(
                     pur, pick_request, pick_actual, aux_descriptions
                 )
@@ -462,7 +486,7 @@ class MTOQueryHandler:
             material_type_name="自制",
             required_qty=required_qty,
             picked_qty=pick_actual_total,
-            unpicked_qty=pick_app_total - pick_actual_total if pick_app_total > pick_actual_total else ZERO,
+            unpicked_qty=pick_app_total - pick_actual_total,  # 允许负值以检测超领
             order_qty=required_qty,
             receipt_qty=receipt_qty,
             unreceived_qty=required_qty - receipt_qty,

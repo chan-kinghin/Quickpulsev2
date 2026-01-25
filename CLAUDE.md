@@ -166,3 +166,54 @@ Detailed field mappings are in `docs/fields/` and `docs/api/`:
 3. **Parallel Fetching**: Use `asyncio.gather()` for independent receipt queries by material type
 4. **SQLite WAL Mode**: Enable for better concurrent read/write performance
 5. **Chunk Sync**: Process date ranges in 7-day chunks to avoid memory issues
+
+---
+
+## MTO 查询修改指南
+
+> 详细文档见 `docs/QUICKPULSE_MODIFICATION_GUIDE.md`
+
+### 关键文件
+| 文件 | 作用 | 修改频率 |
+|-----|------|---------|
+| `config/mto_config.json` | 物料类型路由 + 列计算配置 | ⭐ 高 |
+| `src/readers/factory.py` | 金蝶字段映射 (Python) | ⭐⭐ 中 |
+| `src/readers/models.py` | Pydantic 数据模型 | ⭐⭐ 中 |
+| `src/query/mto_handler.py` | 数据聚合逻辑 | ⭐⭐⭐ 低 |
+| `src/frontend/dashboard.html` | UI 表格显示 | ⭐⭐ 中 |
+
+### 物料类型路由
+| 物料编码前缀 | 类型 | 源单 | MTO 字段 |
+|-------------|------|------|----------|
+| `07.xx.xxx` | 成品 | `SAL_SaleOrder` | `FMtoNo` |
+| `05.xx.xxx` | 自制 | `PRD_MO` | `FMTONo` |
+| `03.xx.xxx` | 外购 | `PUR_PurchaseOrder` | `FMtoNo` |
+
+### MTO 字段名速查 (大小写敏感!)
+| 表单 | MTO 字段名 |
+|-----|-----------|
+| SAL_SaleOrder | `FMtoNo` |
+| PRD_MO | `FMTONo` |
+| PUR_PurchaseOrder | `FMtoNo` |
+| PRD_INSTOCK | `FMtoNo` |
+| STK_InStock | `FMtoNo` |
+| PRD_PickMtrl | `FMTONO` |
+| SAL_OUTSTOCK | `FMTONO` |
+| PRD_PPBOM | `FMTONO` |
+
+### 数量字段速查
+| 用途 | 字段名 | 表单 |
+|-----|-------|------|
+| 需求/订单数量 | `FQty` | 几乎所有源单 |
+| 实收/实发数量 | `FRealQty` | 入库单/出库单 |
+| 应收/应发数量 | `FMustQty` | 入库单/出库单 |
+| 申请领料数量 | `FAppQty` | PRD_PickMtrl |
+| 实际领料数量 | `FActualQty` | PRD_PickMtrl |
+| 累计入库数量 | `FStockInQty` | PUR_PurchaseOrder |
+| 未入库数量 | `FRemainStockInQty` | PUR_PurchaseOrder |
+
+### 修改步骤 (添加新字段)
+1. `factory.py` - 添加 FieldMapping
+2. `models.py` - 添加 Pydantic 字段
+3. `mto_handler.py` - 传递到 ChildItem
+4. `dashboard.html` - 添加 UI 列

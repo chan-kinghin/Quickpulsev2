@@ -17,6 +17,7 @@ from src.api.routers import auth, cache, mto, sync
 from src.config import Config
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
+from src.mto_config import MTOConfig
 from src.query.cache_reader import CacheReader
 from src.query.mto_handler import MTOQueryHandler
 from src.readers import (
@@ -72,6 +73,10 @@ async def lifespan(app: FastAPI):
     cache_ttl = config.sync.query_cache.ttl_minutes
     cache_reader = CacheReader(db, ttl_minutes=cache_ttl) if config.sync.query_cache.enabled else None
 
+    # Load MTO configuration for material class routing
+    mto_config = MTOConfig("config/mto_config.json")
+    logger.info("Loaded MTO config with %d material classes", len(mto_config.material_classes))
+
     # Initialize MTO handler with memory cache configuration
     memory_cfg = config.sync.memory_cache
     mto_handler = MTOQueryHandler(
@@ -85,6 +90,7 @@ async def lifespan(app: FastAPI):
         sales_delivery_reader=readers["sales_delivery"],
         sales_order_reader=readers["sales_order"],
         cache_reader=cache_reader,
+        mto_config=mto_config,
         memory_cache_enabled=memory_cfg.enabled,
         memory_cache_size=memory_cfg.max_size,
         memory_cache_ttl=memory_cfg.ttl_seconds,

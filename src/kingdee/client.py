@@ -81,14 +81,10 @@ class KingdeeClient:
         async with self._lock:
             if self._sdk is None:
                 self._sdk = K3CloudApiSdk(self.config.server_url)
-                self._sdk.InitConfig(
-                    acct_id=self.config.acct_id,
-                    user_name=self.config.user_name,
-                    app_id=self.config.app_id,
-                    app_secret=self.config.app_sec,
-                    server_url=self.config.server_url,
-                    lcid=self.config.lcid,
-                )
+                # Use Init() with config file like old working code
+                # InitConfig() with params seems to have session issues
+                self._sdk.Init(config_path='conf.ini', config_node='config')
+                logger.info("Kingdee SDK initialized with conf.ini")
             return self._sdk
 
     async def query(
