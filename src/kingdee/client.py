@@ -97,7 +97,7 @@ class KingdeeClient:
                     acct_id=self.config.acct_id,
                     user_name=self.config.user_name,
                     app_id=self.config.app_id,
-                    app_sec=self.config.app_sec,
+                    app_secret=self.config.app_sec,
                     server_url=self.config.server_url,
                     lcid=self.config.lcid,
                 )
