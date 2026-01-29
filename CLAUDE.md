@@ -82,18 +82,31 @@ pytest --cov=src
 
 ### Kingdee SDK Exploration
 ```bash
-# Explore API fields (uses conf.ini credentials)
+# Explore API fields (requires KINGDEE_* env vars or .env file)
 python scripts/explore_all_api_fields.py
 ```
 
 ## Kingdee K3Cloud SDK Usage
 
-The SDK is initialized from `conf.ini`:
+The SDK is initialized from environment variables (preferred) or `.env` file:
 ```python
-from k3cloud_webapi_sdk.main import K3CloudApiSdk
+# Credentials loaded automatically from environment
+from src.config import KingdeeConfig
+config = KingdeeConfig.load()
 
-api_sdk = K3CloudApiSdk("http://server:port/k3cloud/")
-api_sdk.Init(config_path='conf.ini', config_node='config')
+# Or manually via SDK (for scripts)
+from k3cloud_webapi_sdk.main import K3CloudApiSdk
+import os
+
+api_sdk = K3CloudApiSdk(os.environ["KINGDEE_SERVER_URL"])
+api_sdk.InitConfig(
+    acct_id=os.environ["KINGDEE_ACCT_ID"],
+    user_name=os.environ["KINGDEE_USER_NAME"],
+    app_id=os.environ["KINGDEE_APP_ID"],
+    app_sec=os.environ["KINGDEE_APP_SEC"],
+    server_url=os.environ["KINGDEE_SERVER_URL"],
+    lcid=int(os.environ.get("KINGDEE_LCID", 2052)),
+)
 
 # Execute query
 params = {
@@ -148,9 +161,25 @@ src/
 
 ## Configuration Files
 
-- `conf.ini`: Kingdee K3Cloud API credentials (not committed, see template)
+### Credentials (Priority Order)
+1. **Environment variables** (preferred): `KINGDEE_*` variables
+2. **`.env` file**: Copy from `.env.example` (gitignored)
+3. **`conf.ini`**: Legacy fallback (gitignored, not recommended)
+
+### Environment Variables
+```bash
+KINGDEE_SERVER_URL=http://your-server.com:8200/k3cloud/
+KINGDEE_ACCT_ID=your_account_id
+KINGDEE_USER_NAME=your_username
+KINGDEE_APP_ID=your_app_id
+KINGDEE_APP_SEC=your_app_secret
+KINGDEE_LCID=2052
+```
+
+### Other Config Files
+- `.env.example`: Template for credentials (committed)
 - `sync_config.json`: Sync schedule and performance settings
-- `.gitignore`: Excludes `data/*.json`, `*.log`, `__pycache__/`
+- `.gitignore`: Excludes `.env`, `conf.ini`, `data/*.json`, `*.log`
 
 ## API Field Documentation
 
@@ -333,3 +362,58 @@ Every `.md` plan must include:
 2. `models.py` - 添加 Pydantic 字段
 3. `mto_handler.py` - 传递到 ChildItem
 4. `dashboard.html` - 添加 UI 列
+
+---
+
+## Deployment Preferences
+
+### Credential Management
+
+**NEVER commit credentials to git.** Use environment variables instead.
+
+**Local development**:
+```bash
+# Copy template and fill in credentials
+cp .env.example .env
+# Edit .env with your credentials
+```
+
+**CVM/Production**:
+```bash
+# Option 1: Set in /etc/environment (persistent)
+echo 'KINGDEE_SERVER_URL=http://...' | sudo tee -a /etc/environment
+
+# Option 2: Set in systemd service file
+# Edit /etc/systemd/system/quickpulse.service
+# Add Environment= lines in [Service] section
+
+# Option 3: Create .env file on server (gitignored)
+scp .env ubuntu@your-server:/home/ubuntu/quickpulse/.env
+```
+
+### CVM Deployment: Use Git, Not Images
+
+**IMPORTANT**: Always use git to deploy code updates to the CVM (Cloud Virtual Machine). Do NOT use Docker images for code deployment.
+
+**Deployment workflow**:
+```bash
+# On CVM: Pull latest code
+cd /path/to/quickpulse
+git pull origin main
+
+# Restart service
+sudo systemctl restart quickpulse
+# or
+docker-compose down && docker-compose up -d
+```
+
+**Why git over images**:
+- Faster deployment (only pull changed files)
+- Easier rollback (`git revert` or `git checkout`)
+- Clear audit trail of changes
+- No need to rebuild/push large Docker images
+
+**When to rebuild Docker images**:
+- Only when dependencies change (requirements.txt, Dockerfile)
+- System-level configuration changes
+- NOT for application code changes

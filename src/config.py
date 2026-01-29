@@ -2,40 +2,67 @@
 Configuration Management Module
 
 Responsibilities:
-1. Read Kingdee API credentials from conf.ini
-2. Read sync config from sync_config.json
-3. Support environment variable overrides
+1. Read Kingdee API credentials from environment variables (preferred)
+2. Fallback to conf.ini for backwards compatibility
+3. Read sync config from sync_config.json
 4. Config validation and defaults
+
+Environment Variables (preferred):
+    KINGDEE_SERVER_URL - K3Cloud server URL
+    KINGDEE_ACCT_ID    - Account ID (data center)
+    KINGDEE_USER_NAME  - Username
+    KINGDEE_APP_ID     - Application ID
+    KINGDEE_APP_SEC    - Application Secret
+    KINGDEE_LCID       - Language ID (default: 2052)
 """
 
 import configparser
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Depends
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
 
 
 class KingdeeConfig(BaseSettings):
-    """Kingdee K3Cloud API Configuration"""
+    """Kingdee K3Cloud API Configuration.
 
-    server_url: str = Field(..., description="K3Cloud server URL")
-    acct_id: str = Field(..., description="Account ID")
-    user_name: str = Field(..., description="Username")
-    app_id: str = Field(..., description="Application ID")
-    app_sec: str = Field(..., description="Application Secret")
-    lcid: int = Field(2052, description="Language ID (2052=Chinese)")
-    connect_timeout: int = Field(15, description="Connection timeout (seconds)")
-    request_timeout: int = Field(30, description="Request timeout (seconds)")
+    Credentials are loaded in this priority order:
+    1. Environment variables (KINGDEE_*)
+    2. .env file (if exists)
+    3. conf.ini file (legacy, not recommended)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KINGDEE_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    server_url: str = Field(default="", description="K3Cloud server URL")
+    acct_id: str = Field(default="", description="Account ID")
+    user_name: str = Field(default="", description="Username")
+    app_id: str = Field(default="", description="Application ID")
+    app_sec: str = Field(default="", description="Application Secret")
+    lcid: int = Field(default=2052, description="Language ID (2052=Chinese)")
+    connect_timeout: int = Field(default=15, description="Connection timeout (seconds)")
+    request_timeout: int = Field(default=30, description="Request timeout (seconds)")
+
+    @classmethod
+    def from_env(cls) -> "KingdeeConfig":
+        """Load config from environment variables (preferred method)."""
+        return cls()
 
     @classmethod
     def from_ini(cls, ini_path: str = "conf.ini") -> "KingdeeConfig":
-        """Load config from INI file."""
+        """Load config from INI file (legacy fallback)."""
         config = configparser.ConfigParser()
         config.read(ini_path, encoding="utf-8")
 
@@ -50,6 +77,31 @@ class KingdeeConfig(BaseSettings):
             connect_timeout=int(section.get("X-KDApi-ConnectTimeout", 15)),
             request_timeout=int(section.get("X-KDApi-RequestTimeout", 30)),
         )
+
+    @classmethod
+    def load(cls) -> "KingdeeConfig":
+        """Load config with automatic source detection.
+
+        Priority: Environment variables > .env file > conf.ini
+        """
+        # Try environment variables first (includes .env via pydantic-settings)
+        config = cls.from_env()
+
+        # Check if we got valid credentials from env
+        if config.server_url and config.acct_id and config.app_id and config.app_sec:
+            return config
+
+        # Fallback to conf.ini if it exists
+        ini_path = Path("conf.ini")
+        if ini_path.exists():
+            return cls.from_ini(str(ini_path))
+
+        # Return empty config (will fail on use, but allows app to start)
+        return config
+
+    def is_valid(self) -> bool:
+        """Check if credentials are configured."""
+        return bool(self.server_url and self.acct_id and self.app_id and self.app_sec)
 
 
 class AutoSyncConfig(BaseSettings):
@@ -166,10 +218,14 @@ class Config:
         self.reports_dir = reports_dir
 
     @classmethod
-    def load(cls, ini_path: str = "conf.ini", sync_path: str = "sync_config.json") -> "Config":
-        """Factory method to load config from files."""
+    def load(cls, sync_path: str = "sync_config.json") -> "Config":
+        """Factory method to load config.
+
+        Kingdee credentials: Environment variables > .env > conf.ini
+        Sync config: sync_config.json
+        """
         return cls(
-            kingdee=KingdeeConfig.from_ini(ini_path),
+            kingdee=KingdeeConfig.load(),
             sync=SyncConfig.load(sync_path),
         )
 
