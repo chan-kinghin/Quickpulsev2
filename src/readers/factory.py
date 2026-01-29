@@ -290,7 +290,7 @@ PURCHASE_RECEIPT_CONFIG = ReaderConfig(
 )
 
 SUBCONTRACTING_ORDER_CONFIG = ReaderConfig(
-    form_id="SUB_POORDER",
+    form_id="SUB_SUBREQORDER",
     mto_field="FMtoNo",  # Corrected: no FTreeEntity_ prefix
     model_class=SubcontractingOrderModel,
     field_mappings={

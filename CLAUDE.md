@@ -169,6 +169,122 @@ Detailed field mappings are in `docs/fields/` and `docs/api/`:
 
 ---
 
+## Planning Practices
+
+### Two-Tier Planning System
+
+| Plan Type | Location | Purpose | Lifecycle |
+|-----------|----------|---------|-----------|
+| **Temporary Plans** | `/tmp/` | Quick fixes, debugging, one-off tasks | Ephemeral, deleted after completion |
+| **Project Plans** | `docs/` | Feature roadmaps, architectural decisions | Persistent, version controlled |
+
+### Temporary Plans (`/tmp/`)
+
+Use `/tmp/` for:
+- Bug fix plans that don't need history
+- Exploration/investigation notes
+- Quick implementation sketches
+- Debugging session notes
+
+**Naming convention**: `/tmp/PLAN_<task>_<date>.md`
+```
+/tmp/PLAN_fix_api_timeout_20260129.md
+/tmp/PLAN_debug_mto_query_20260129.md
+```
+
+### Project Plans (`docs/`)
+
+Use `docs/` for plans that:
+- Affect multiple components
+- Represent architectural decisions
+- Need team visibility or review
+- Should be referenced later
+
+**Update existing project plans regularly**:
+- `docs/IMPLEMENTATION_PLAN.md` - Current sprint/milestone work
+- `docs/*_PLAN.md` - Feature-specific planning docs
+
+**When to promote `/tmp/` to `docs/`**:
+- Task scope expanded beyond original estimate
+- Decisions made that affect future work
+- Documentation value for similar future tasks
+
+### Plan Mode Workflow
+
+```
+1. Quick fix/debug → Create plan in /tmp/
+2. Complex feature → Create/update plan in docs/
+3. After completion:
+   - /tmp/ plans: Delete or let expire
+   - docs/ plans: Update status, archive if complete
+```
+
+### Commit Checkpoints
+
+After every commit, Claude should:
+
+1. **Check alignment** - Compare commit with active plans:
+   - Does it complete tasks from `/tmp/` fix plans?
+   - Does it advance items in `docs/*_PLAN.md`?
+
+2. **Update documentation**:
+   - Mark completed items in the relevant plan
+   - If temp plan fully done → delete or archive
+   - Update `docs/IMPLEMENTATION_PLAN.md` status section
+
+3. **Trigger promotion** if needed:
+   - Temp plan scope grew → promote to `docs/`
+   - Plan completed → move to `docs/archive/`
+
+### Plan File Requirements
+
+Every `.md` plan must include:
+
+1. **Design Specs Section**:
+   - Problem statement
+   - Proposed solution with architecture/approach
+   - Files to modify
+   - Data flow or sequence (if applicable)
+
+2. **Test Cases Section**:
+   - Unit test scenarios matching the use case
+   - Integration test scenarios (if applicable)
+   - Manual verification steps
+
+3. **Acceptance Criteria**:
+   - What defines "done"
+   - Expected behavior/output
+
+**Plan Template:**
+```markdown
+# Plan: [Feature/Fix Name]
+
+## Status: [Not Started | In Progress | Complete]
+
+## Design Spec
+### Problem
+### Solution
+### Files to Modify
+
+## Test Cases
+### Unit Tests
+- [ ] Test case 1: ...
+- [ ] Test case 2: ...
+
+### Integration Tests
+- [ ] ...
+
+### Manual Verification
+1. Step 1...
+2. Step 2...
+
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+```
+
+---
+
 ## MTO 查询修改指南
 
 > 详细文档见 `docs/QUICKPULSE_MODIFICATION_GUIDE.md`

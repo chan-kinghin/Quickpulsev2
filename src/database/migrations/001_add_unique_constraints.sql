@@ -16,8 +16,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subo_unique
 ON cached_subcontracting_orders(bill_no, material_code);
 
 -- cached_production_receipts: Aggregated by MTO + material
+DROP INDEX IF EXISTS idx_prdr_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_prdr_unique
-ON cached_production_receipts(mto_number, material_code);
+ON cached_production_receipts(mto_number, material_code, aux_prop_id);
 
 -- cached_purchase_receipts: Aggregated by MTO + material + type
 CREATE UNIQUE INDEX IF NOT EXISTS idx_purr_unique
@@ -28,8 +29,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pick_unique
 ON cached_material_picking(mto_number, material_code, ppbom_bill_no);
 
 -- cached_sales_delivery: Aggregated by MTO + material
+DROP INDEX IF EXISTS idx_sald_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sald_unique
-ON cached_sales_delivery(mto_number, material_code);
+ON cached_sales_delivery(mto_number, material_code, aux_prop_id);
 
 -- cached_sales_orders: Unique on bill + MTO + material + aux variant
 -- Multiple lines per sales order can have same MTO but different materials/variants

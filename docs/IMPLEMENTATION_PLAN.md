@@ -2176,3 +2176,10 @@ tests/
 - [ ] Add Excel export with openpyxl (current uses CSV with .xlsx extension)
 - [ ] Production Nginx reverse proxy configuration
 - [ ] CI/CD pipeline setup
+
+### Bug Fixes In Progress
+
+See `docs/BUGFIX_PLAN.md` for current status of:
+- JWT token expiration (30min → 24hr)
+- SQLite ON CONFLICT constraint errors
+- Subcontracting order form ID fix
