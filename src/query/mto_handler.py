@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import IntEnum
 from threading import Lock
@@ -334,6 +334,7 @@ class MTOQueryHandler:
 
         # Build children from source forms based on material class config
         children = []
+        unmatched_materials = []
 
         # Route records based on config patterns
         # finished_goods (07.xx) from Sales Orders
@@ -345,6 +346,8 @@ class MTOQueryHandler:
                     pick_request, pick_actual, aux_descriptions
                 )
                 children.append(child)
+            elif class_id is None:
+                unmatched_materials.append(("SAL_SaleOrder", so.material_code))
 
         # self_made (05.xx) from Production Orders
         for po in prod_orders:
@@ -354,6 +357,8 @@ class MTOQueryHandler:
                     po, prod_receipts, material_picks, aux_descriptions
                 )
                 children.append(child)
+            elif class_id is None:
+                unmatched_materials.append(("PRD_MO", po.material_code))
 
         # purchased (03.xx) from Purchase Orders
         for pur in purchase_orders:
@@ -363,6 +368,17 @@ class MTOQueryHandler:
                     pur, pick_request, pick_actual, aux_descriptions
                 )
                 children.append(child)
+            elif class_id is None:
+                unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
+
+        # Log warning for unmatched materials
+        if unmatched_materials:
+            logger.warning(
+                "MTO %s (cache): %d materials skipped (no matching config pattern): %s",
+                mto_number, len(unmatched_materials),
+                ", ".join(f"{src}:{code}" for src, code in unmatched_materials[:5])
+                + ("..." if len(unmatched_materials) > 5 else "")
+            )
 
         # Build parent from first available sales order
         parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
@@ -371,7 +387,7 @@ class MTOQueryHandler:
         cache_age = None
         for result in [sales_orders_result, prod_orders_result, purchase_orders_result]:
             if result.synced_at:
-                cache_age = int((datetime.utcnow() - result.synced_at).total_seconds())
+                cache_age = int((datetime.now(timezone.utc) - result.synced_at).total_seconds())
                 break
 
         return MTOStatusResponse(
@@ -439,6 +455,7 @@ class MTOQueryHandler:
 
         # Build children from source forms based on material class config
         children = []
+        unmatched_materials = []
 
         # Route records based on config patterns
         # finished_goods (07.xx) from Sales Orders
@@ -450,6 +467,8 @@ class MTOQueryHandler:
                     pick_request, pick_actual, aux_descriptions
                 )
                 children.append(child)
+            elif class_id is None:
+                unmatched_materials.append(("SAL_SaleOrder", so.material_code))
 
         # self_made (05.xx) from Production Orders
         for po in prod_orders:
@@ -459,6 +478,8 @@ class MTOQueryHandler:
                     po, prod_receipts, material_picks, aux_descriptions
                 )
                 children.append(child)
+            elif class_id is None:
+                unmatched_materials.append(("PRD_MO", po.material_code))
 
         # purchased (03.xx) from Purchase Orders
         for pur in purchase_orders:
@@ -468,6 +489,17 @@ class MTOQueryHandler:
                     pur, pick_request, pick_actual, aux_descriptions
                 )
                 children.append(child)
+            elif class_id is None:
+                unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
+
+        # Log warning for unmatched materials
+        if unmatched_materials:
+            logger.warning(
+                "MTO %s (live): %d materials skipped (no matching config pattern): %s",
+                mto_number, len(unmatched_materials),
+                ", ".join(f"{src}:{code}" for src, code in unmatched_materials[:5])
+                + ("..." if len(unmatched_materials) > 5 else "")
+            )
 
         # Build parent from first available sales order
         parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
@@ -625,7 +657,7 @@ class MTOQueryHandler:
             material_type_name="外购",
             required_qty=required_qty,
             picked_qty=picked_qty,
-            unpicked_qty=required_qty - picked_qty if required_qty > picked_qty else ZERO,
+            unpicked_qty=required_qty - picked_qty,  # 允许负值以检测超领
             order_qty=required_qty,
             receipt_qty=purchase_order.stock_in_qty,
             unreceived_qty=purchase_order.remain_stock_in_qty,

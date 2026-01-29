@@ -30,5 +30,5 @@ data/*.json
 # Logs
 *.log
 
-# Config with secrets (uncomment if conf.ini contains sensitive data)
-# conf.ini
+# Config with secrets - ALWAYS exclude to avoid credential leaks
+conf.ini
