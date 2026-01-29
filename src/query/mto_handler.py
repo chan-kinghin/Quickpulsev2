@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from enum import IntEnum
 from threading import Lock
@@ -387,7 +387,7 @@ class MTOQueryHandler:
         cache_age = None
         for result in [sales_orders_result, prod_orders_result, purchase_orders_result]:
             if result.synced_at:
-                cache_age = int((datetime.now(timezone.utc) - result.synced_at).total_seconds())
+                cache_age = int((datetime.utcnow() - result.synced_at).total_seconds())
                 break
 
         return MTOStatusResponse(
