@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 class KingdeeClient:
     """K3Cloud SDK Wrapper"""
 
-    # Error messages that indicate session expiration
+    # Error messages that indicate session expiration or transient failures
+    # When detected, the SDK will reset and retry the request
     SESSION_EXPIRED_INDICATORS = [
         "Fail to verify thirty passport",  # Typo in Kingdee error for "third party"
         "Fail to verify third party passport",
@@ -39,6 +40,15 @@ class KingdeeClient:
         "请重新登录",  # Please re-login
         "session expired",
         "login timeout",
+        # Additional Chinese error messages for transient failures
+        "当前连接已断开",  # Connection disconnected
+        "服务器忙",        # Server busy
+        "网络异常",        # Network error
+        "请求超时",        # Request timeout
+        "连接超时",        # Connection timeout
+        "服务暂不可用",    # Service unavailable
+        "ValidateLogin",   # Login validation error
+        "unauthorized",    # Generic auth failure
     ]
 
     def __init__(self, config: "KingdeeConfig"):
@@ -205,16 +215,16 @@ class KingdeeClient:
             error_msg = str(exc)
             logger.error("Kingdee query failed: %s, error: %s", form_id, error_msg)
 
-            # Check if this is a session expiration error and retry once
-            if self._is_session_expired_error(error_msg) and _retry_count < 1:
+            # Check if this is a session expiration error and retry up to 2 times
+            if self._is_session_expired_error(error_msg) and _retry_count < 2:
                 logger.warning(
-                    "Kingdee session expired for %s, resetting SDK and retrying...",
-                    form_id
+                    "Kingdee session expired for %s (attempt %d/2), resetting SDK and retrying...",
+                    form_id, _retry_count + 1
                 )
                 did_reset = await self._reset_sdk()
                 if not did_reset:
-                    # Another coroutine already reset, wait a bit for new SDK
-                    await asyncio.sleep(0.5)
+                    # Another coroutine already reset, wait with exponential backoff
+                    await asyncio.sleep(0.5 * (2 ** _retry_count))
                 return await self.query(
                     form_id=form_id,
                     field_keys=field_keys,
