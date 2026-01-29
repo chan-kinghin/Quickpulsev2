@@ -378,18 +378,21 @@ cp .env.example .env
 # Edit .env with your credentials
 ```
 
-**CVM/Production**:
+**CVM/Production** (use env-file approach):
 ```bash
-# Option 1: Set in /etc/environment (persistent)
-echo 'KINGDEE_SERVER_URL=http://...' | sudo tee -a /etc/environment
-
-# Option 2: Set in systemd service file
-# Edit /etc/systemd/system/quickpulse.service
-# Add Environment= lines in [Service] section
-
-# Option 3: Create .env file on server (gitignored)
-scp .env ubuntu@your-server:/home/ubuntu/quickpulse/.env
+# Create credential file on CVM (one-time setup)
+cat > /home/ubuntu/.quickpulse.env << 'EOF'
+KINGDEE_SERVER_URL=http://flt.hotker.com:8200/k3cloud/
+KINGDEE_ACCT_ID=696f1cca847085
+KINGDEE_USER_NAME=张增辉
+KINGDEE_APP_ID=334941_QY7BWcsOTNoX1X+FS0RNSzxF2I16RBMJ
+KINGDEE_APP_SEC=b3ab5bd2958b4563a86fd80f6e68c872
+KINGDEE_LCID=2052
+EOF
+chmod 600 /home/ubuntu/.quickpulse.env
 ```
+
+**IMPORTANT**: Credentials are NOT baked into Docker images. The app will fail to start with a clear error if KINGDEE_* env vars are missing.
 
 ### CVM Deployment
 
@@ -425,12 +428,7 @@ docker run -d \
   --name quickpulse-v2 \
   --restart unless-stopped \
   -p 8000:8000 \
-  -e KINGDEE_SERVER_URL="http://flt.hotker.com:8200/k3cloud/" \
-  -e KINGDEE_ACCT_ID="<account_id>" \
-  -e KINGDEE_USER_NAME="<username>" \
-  -e KINGDEE_APP_ID="<app_id>" \
-  -e KINGDEE_APP_SEC="<app_secret>" \
-  -e KINGDEE_LCID="2052" \
+  --env-file /home/ubuntu/.quickpulse.env \
   -v /home/ubuntu/quickpulse-data:/app/data \
   -v /home/ubuntu/quickpulse-reports:/app/reports \
   -v /home/ubuntu/quickpulse-config:/app/config:ro \

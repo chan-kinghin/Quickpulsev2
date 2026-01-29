@@ -80,23 +80,30 @@ class KingdeeConfig(BaseSettings):
 
     @classmethod
     def load(cls) -> "KingdeeConfig":
-        """Load config with automatic source detection.
+        """Load config from environment variables only.
 
-        Priority: Environment variables > .env file > conf.ini
+        Raises ValueError if required credentials are missing.
+        No fallback to conf.ini to prevent stale credentials.
         """
-        # Try environment variables first (includes .env via pydantic-settings)
+        # Load from environment variables (includes .env via pydantic-settings)
         config = cls.from_env()
 
-        # Check if we got valid credentials from env
-        if config.server_url and config.acct_id and config.app_id and config.app_sec:
-            return config
+        # Validate required credentials - fail fast if missing
+        if not config.is_valid():
+            missing = []
+            if not config.server_url:
+                missing.append("KINGDEE_SERVER_URL")
+            if not config.acct_id:
+                missing.append("KINGDEE_ACCT_ID")
+            if not config.app_id:
+                missing.append("KINGDEE_APP_ID")
+            if not config.app_sec:
+                missing.append("KINGDEE_APP_SEC")
+            raise ValueError(
+                f"Missing required Kingdee credentials: {', '.join(missing)}. "
+                "Set these as environment variables or in a .env file."
+            )
 
-        # Fallback to conf.ini if it exists
-        ini_path = Path("conf.ini")
-        if ini_path.exists():
-            return cls.from_ini(str(ini_path))
-
-        # Return empty config (will fail on use, but allows app to start)
         return config
 
     def is_valid(self) -> bool:
