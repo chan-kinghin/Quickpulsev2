@@ -391,29 +391,59 @@ echo 'KINGDEE_SERVER_URL=http://...' | sudo tee -a /etc/environment
 scp .env ubuntu@your-server:/home/ubuntu/quickpulse/.env
 ```
 
-### CVM Deployment: Use Git, Not Images
+### CVM Deployment
 
-**IMPORTANT**: Always use git to deploy code updates to the CVM (Cloud Virtual Machine). Do NOT use Docker images for code deployment.
+**Server**: `ubuntu@175.27.161.234`
+**Project Path**: `/home/ubuntu/Quickpulsev2`
+**Container**: `quickpulse-v2`
+**Port**: `8000`
 
-**Deployment workflow**:
+**Full Redeployment**:
 ```bash
-# On CVM: Pull latest code
-cd /path/to/quickpulse
+ssh ubuntu@175.27.161.234
+cd /home/ubuntu/Quickpulsev2
 git pull origin main
+docker build -t dev-quickpulse:latest -f docker/Dockerfile.dev .
+docker stop quickpulse-v2 && docker rm quickpulse-v2
 
-# Restart service
-sudo systemctl restart quickpulse
-# or
-docker-compose down && docker-compose up -d
+docker run -d \
+  --name quickpulse-v2 \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e KINGDEE_SERVER_URL="http://flt.hotker.com:8200/k3cloud/" \
+  -e KINGDEE_ACCT_ID="<account_id>" \
+  -e KINGDEE_USER_NAME="<username>" \
+  -e KINGDEE_APP_ID="<app_id>" \
+  -e KINGDEE_APP_SEC="<app_secret>" \
+  -e KINGDEE_LCID="2052" \
+  -v /home/ubuntu/quickpulse-data:/app/data \
+  -v /home/ubuntu/quickpulse-reports:/app/reports \
+  -v /home/ubuntu/quickpulse-config:/app/config:ro \
+  -v /home/ubuntu/sync_config.json:/app/sync_config.json:ro \
+  --health-cmd="curl -f http://localhost:8000/health || exit 1" \
+  --health-interval=30s \
+  dev-quickpulse:latest
 ```
 
-**Why git over images**:
-- Faster deployment (only pull changed files)
-- Easier rollback (`git revert` or `git checkout`)
-- Clear audit trail of changes
-- No need to rebuild/push large Docker images
+**Quick Code Update** (no dependency changes):
+```bash
+ssh ubuntu@175.27.161.234
+cd /home/ubuntu/Quickpulsev2
+git pull origin main
+docker build -t dev-quickpulse:latest -f docker/Dockerfile.dev .
+docker restart quickpulse-v2
+```
 
-**When to rebuild Docker images**:
-- Only when dependencies change (requirements.txt, Dockerfile)
-- System-level configuration changes
-- NOT for application code changes
+**View Logs**:
+```bash
+docker logs quickpulse-v2 --tail 50
+docker logs quickpulse-v2 -f  # follow
+```
+
+**Volume Mounts**:
+| Host Path | Container Path | Purpose |
+|-----------|---------------|---------|
+| `/home/ubuntu/quickpulse-data` | `/app/data` | SQLite DB |
+| `/home/ubuntu/quickpulse-reports` | `/app/reports` | Reports |
+| `/home/ubuntu/quickpulse-config` | `/app/config` | MTO config |
+| `/home/ubuntu/sync_config.json` | `/app/sync_config.json` | Sync settings |
