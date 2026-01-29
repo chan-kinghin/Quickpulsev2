@@ -397,6 +397,21 @@ scp .env ubuntu@your-server:/home/ubuntu/quickpulse/.env
 **Project Path**: `/home/ubuntu/Quickpulsev2`
 **Container**: `quickpulse-v2`
 **Port**: `8000`
+**SSH Password**: `+Vb~W^{zB4|*8`
+
+### Auto-Deploy After Push
+
+**IMPORTANT**: After every `git push` to main, Claude should automatically:
+
+1. SSH into CVM: `sshpass -p '+Vb~W^{zB4|*8' ssh ubuntu@175.27.161.234`
+2. Run `git pull origin main`
+3. Determine if Docker rebuild/restart is needed based on changed files:
+
+| Files Changed | Action Required |
+|---------------|-----------------|
+| `Dockerfile*`, `pyproject.toml`, `requirements*.txt` | **Full rebuild**: `docker build` + `docker stop/rm/run` |
+| `src/**/*.py`, `config/*.json`, `src/frontend/**` | **Restart only**: `docker restart quickpulse-v2` |
+| `docs/**`, `.gitignore`, `*.md`, `tests/**` | **No action**: Documentation/tests only |
 
 **Full Redeployment**:
 ```bash
