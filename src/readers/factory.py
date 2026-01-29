@@ -248,6 +248,7 @@ PRODUCTION_RECEIPT_CONFIG = ReaderConfig(
     mto_field="FMtoNo",  # Corrected: no FEntity_ prefix
     model_class=ProductionReceiptModel,
     field_mappings={
+        "bill_no": FieldMapping("FBillNo"),
         "mto_number": FieldMapping("FMtoNo"),
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "real_qty": FieldMapping("FRealQty", _decimal),
@@ -279,6 +280,7 @@ PURCHASE_RECEIPT_CONFIG = ReaderConfig(
     mto_field="FMtoNo",  # Corrected: no FInStockEntry_ prefix
     model_class=PurchaseReceiptModel,
     field_mappings={
+        "bill_no": FieldMapping("FBillNo"),
         "mto_number": FieldMapping("FMtoNo"),
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "real_qty": FieldMapping("FRealQty", _decimal),
@@ -306,6 +308,7 @@ MATERIAL_PICKING_CONFIG = ReaderConfig(
     mto_field="FMTONO",  # Corrected: no FEntity_ prefix
     model_class=MaterialPickingModel,
     field_mappings={
+        "bill_no": FieldMapping("FBillNo"),
         "mto_number": FieldMapping("FMTONO"),
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "app_qty": FieldMapping("FAppQty", _decimal),
@@ -319,6 +322,7 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
     mto_field="FMTONO",  # Corrected: no FSAL_OUTSTOCKENTRY_ prefix
     model_class=SalesDeliveryModel,
     field_mappings={
+        "bill_no": FieldMapping("FBillNo"),
         "mto_number": FieldMapping("FMTONO"),
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "real_qty": FieldMapping("FRealQty", _decimal),

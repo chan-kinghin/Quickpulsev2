@@ -6,6 +6,10 @@ function mtoSearch() {
         loading: false,
         error: '',
         successMessage: '',
+        relatedOrders: null,
+        relatedOrdersExpanded: true,
+        relatedOrdersLoading: false,
+        relatedOrdersError: '',
         isFullScreen: false,
         isCollapsed: false,
 
@@ -44,6 +48,10 @@ function mtoSearch() {
             this.clearMessages();
             this.parentItem = null;
             this.childItems = [];
+            this.relatedOrders = null;
+            this.relatedOrdersExpanded = true;
+            this.relatedOrdersLoading = false;
+            this.relatedOrdersError = '';
             this.loading = true;
 
             try {
@@ -59,6 +67,8 @@ function mtoSearch() {
 
                 const newUrl = `${window.location.pathname}?mto=${encodeURIComponent(this.mtoNumber.trim())}`;
                 window.history.pushState({}, '', newUrl);
+
+                this.fetchRelatedOrders();
             } catch (err) {
                 console.error('Search error:', err);
                 this.showError(err.message || '查询失败，请稍后重试');
@@ -107,6 +117,26 @@ function mtoSearch() {
             }
         },
 
+        async fetchRelatedOrders() {
+            if (!this.mtoNumber?.trim()) {
+                return;
+            }
+
+            this.relatedOrdersLoading = true;
+            this.relatedOrdersError = '';
+
+            try {
+                const data = await api.get(`/mto/${encodeURIComponent(this.mtoNumber.trim())}/related-orders`);
+                this.relatedOrders = data;
+            } catch (err) {
+                console.error('Related orders error:', err);
+                this.relatedOrdersError = err.message || '关联单据加载失败';
+                this.relatedOrders = null;
+            } finally {
+                this.relatedOrdersLoading = false;
+            }
+        },
+
         isOverPicked: (qty) => parseFloat(qty) < 0,
 
         formatNumber(value) {
@@ -132,6 +162,18 @@ function mtoSearch() {
             };
 
             return badges[type] || 'bg-slate-800 text-slate-400 border border-slate-700';
+        },
+
+        hasRelatedOrders() {
+            if (!this.relatedOrders) {
+                return false;
+            }
+
+            const orders = Object.values(this.relatedOrders.orders || {});
+            const documents = Object.values(this.relatedOrders.documents || {});
+            const orderCount = orders.reduce((sum, items) => sum + (items?.length || 0), 0);
+            const docCount = documents.reduce((sum, items) => sum + (items?.length || 0), 0);
+            return orderCount + docCount > 0;
         },
 
         showError(message) {

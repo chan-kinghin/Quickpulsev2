@@ -40,6 +40,7 @@ class ProductionBOMModel(BaseModel):
 class ProductionReceiptModel(BaseModel):
     """Production Receipt Model (PRD_INSTOCK)."""
 
+    bill_no: str = ""
     mto_number: str
     material_code: str
     real_qty: Decimal
@@ -66,6 +67,7 @@ class PurchaseOrderModel(BaseModel):
 class PurchaseReceiptModel(BaseModel):
     """Purchase Receipt Model (STK_InStock)."""
 
+    bill_no: str = ""
     mto_number: str
     material_code: str
     real_qty: Decimal
@@ -87,6 +89,7 @@ class SubcontractingOrderModel(BaseModel):
 class MaterialPickingModel(BaseModel):
     """Material Picking Model (PRD_PickMtrl)."""
 
+    bill_no: str = ""
     mto_number: str
     material_code: str
     app_qty: Decimal
@@ -97,6 +100,7 @@ class MaterialPickingModel(BaseModel):
 class SalesDeliveryModel(BaseModel):
     """Sales Delivery Model (SAL_OUTSTOCK)."""
 
+    bill_no: str = ""
     mto_number: str
     material_code: str
     real_qty: Decimal

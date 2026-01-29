@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
-from src.models.mto_status import MTOSummary, MTOStatusResponse
+from src.models.mto_status import MTOSummary, MTOStatusResponse, MTORelatedOrdersResponse
 
 router = APIRouter(prefix="/api", tags=["mto"])
 
@@ -30,6 +30,25 @@ async def get_mto_status(
     handler = request.app.state.mto_handler
     try:
         return await handler.get_status(mto_number, use_cache=use_cache)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        import traceback
+        error_detail = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail) from exc
+
+
+@router.get("/mto/{mto_number}/related-orders", response_model=MTORelatedOrdersResponse)
+@limiter.limit("30/minute")
+async def get_mto_related_orders(
+    request: Request,
+    mto_number: str,
+    current_user: str = Depends(get_current_user),
+):
+    """Get all related order bill numbers for a given MTO number."""
+    handler = request.app.state.mto_handler
+    try:
+        return await handler.get_related_orders(mto_number)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

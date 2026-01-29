@@ -54,6 +54,31 @@ class MTOStatusResponse(BaseModel):
     )
 
 
+class OrderNode(BaseModel):
+    """Order node in relationship tree."""
+
+    bill_no: str
+    label: str
+
+
+class DocumentNode(BaseModel):
+    """Document linked to an order."""
+
+    bill_no: str
+    label: str
+    linked_order: Optional[str] = None
+
+
+class MTORelatedOrdersResponse(BaseModel):
+    """Response for /api/mto/{mto_number}/related-orders."""
+
+    mto_number: str
+    orders: dict[str, list[OrderNode]]
+    documents: dict[str, list[DocumentNode]]
+    query_time: datetime
+    data_source: str = "live"
+
+
 class MTOSummary(BaseModel):
     """Summary for search results."""
 

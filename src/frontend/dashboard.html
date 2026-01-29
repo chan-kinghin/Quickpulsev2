@@ -310,6 +310,107 @@
                 </div>
             </div>
 
+            <div x-show="childItems.length > 0" x-transition
+                 class="mt-6 bg-slate-900 border border-slate-800 rounded overflow-hidden">
+                <div class="bg-slate-800 px-6 py-4 flex items-center justify-between cursor-pointer"
+                     @click="relatedOrdersExpanded = !relatedOrdersExpanded">
+                    <h2 class="text-lg font-semibold text-slate-50 flex items-center gap-2">
+                        <i data-lucide="share-2" class="w-5 h-5"></i>
+                        订单关联图
+                    </h2>
+                    <div class="flex items-center gap-2 text-sm text-slate-400">
+                        <span x-text="relatedOrdersExpanded ? '收起' : '展开'"></span>
+                        <i :data-lucide="relatedOrdersExpanded ? 'chevron-up' : 'chevron-down'" class="w-4 h-4"></i>
+                    </div>
+                </div>
+
+                <div x-show="relatedOrdersExpanded" class="p-6 space-y-4">
+                    <div x-show="relatedOrdersLoading" class="text-slate-400 text-sm">
+                        正在加载关联单据...
+                    </div>
+                    <div x-show="relatedOrdersError" class="text-rose-400 text-sm" x-text="relatedOrdersError"></div>
+
+                    <template x-if="!relatedOrdersLoading && hasRelatedOrders()">
+                        <div class="tree-container">
+                            <div class="tree-node tree-root">
+                                <span class="tree-label">MTO号</span>
+                                <span class="tree-value" x-text="mtoNumber"></span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="space-y-3">
+                                    <template x-for="order in relatedOrders.orders.sales_orders" :key="`so-${order.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-sales">
+                                                <span class="tree-label" x-text="order.label"></span>
+                                                <span class="tree-value" x-text="order.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-for="doc in relatedOrders.documents.sales_deliveries" :key="`sd-${doc.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-sales tree-doc">
+                                                <span class="tree-label" x-text="doc.label"></span>
+                                                <span class="tree-value" x-text="doc.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <template x-for="order in relatedOrders.orders.production_orders" :key="`po-${order.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-production">
+                                                <span class="tree-label" x-text="order.label"></span>
+                                                <span class="tree-value" x-text="order.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-for="doc in relatedOrders.documents.production_receipts" :key="`pr-${doc.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-production tree-doc">
+                                                <span class="tree-label" x-text="doc.label"></span>
+                                                <span class="tree-value" x-text="doc.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-for="doc in relatedOrders.documents.material_pickings" :key="`mp-${doc.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-production tree-doc">
+                                                <span class="tree-label" x-text="doc.label"></span>
+                                                <span class="tree-value" x-text="doc.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <template x-for="order in relatedOrders.orders.purchase_orders" :key="`pu-${order.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-purchase">
+                                                <span class="tree-label" x-text="order.label"></span>
+                                                <span class="tree-value" x-text="order.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-for="doc in relatedOrders.documents.purchase_receipts" :key="`prc-${doc.bill_no}`">
+                                        <div class="tree-branch">
+                                            <div class="tree-node tree-purchase tree-doc">
+                                                <span class="tree-label" x-text="doc.label"></span>
+                                                <span class="tree-value" x-text="doc.bill_no"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div x-show="!relatedOrdersLoading && !relatedOrdersError && !hasRelatedOrders()" class="text-slate-500 text-sm">
+                        暂无关联单据
+                    </div>
+                </div>
+            </div>
+
             <div x-show="loading" class="bg-slate-900 border border-slate-800 rounded p-6">
                 <div class="space-y-4">
                     <template x-for="i in 5" :key="i">

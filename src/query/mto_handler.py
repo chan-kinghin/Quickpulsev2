@@ -15,7 +15,14 @@ from typing import Optional, TYPE_CHECKING
 from cachetools import TTLCache
 
 from src.mto_config import MTOConfig, MaterialClassConfig
-from src.models.mto_status import ChildItem, MTOStatusResponse, ParentItem
+from src.models.mto_status import (
+    ChildItem,
+    MTOStatusResponse,
+    ParentItem,
+    OrderNode,
+    DocumentNode,
+    MTORelatedOrdersResponse,
+)
 
 logger = logging.getLogger(__name__)
 from src.readers import (
@@ -184,6 +191,94 @@ class MTOQueryHandler:
                 self._memory_cache[mto_number] = result
 
         return result
+
+    async def get_related_orders(self, mto_number: str) -> MTORelatedOrdersResponse:
+        """Get all order/document bill numbers related to an MTO number."""
+        (
+            sales_orders,
+            prod_orders,
+            purchase_orders,
+            prod_receipts,
+            material_picks,
+            sales_deliveries,
+            purchase_receipts,
+        ) = await asyncio.gather(
+            self._readers["sales_order"].fetch_by_mto(mto_number),
+            self._readers["production_order"].fetch_by_mto(mto_number),
+            self._readers["purchase_order"].fetch_by_mto(mto_number),
+            self._readers["production_receipt"].fetch_by_mto(mto_number),
+            self._readers["material_picking"].fetch_by_mto(mto_number),
+            self._readers["sales_delivery"].fetch_by_mto(mto_number),
+            self._readers["purchase_receipt"].fetch_by_mto(mto_number),
+        )
+
+        if not any(
+            [
+                sales_orders,
+                prod_orders,
+                purchase_orders,
+                prod_receipts,
+                material_picks,
+                sales_deliveries,
+                purchase_receipts,
+            ]
+        ):
+            raise ValueError(f"No data found for MTO {mto_number}")
+
+        def _unique_order_nodes(items, label: str) -> list[OrderNode]:
+            seen: set[str] = set()
+            nodes: list[OrderNode] = []
+            for item in items:
+                bill_no = getattr(item, "bill_no", "") or ""
+                if not bill_no or bill_no in seen:
+                    continue
+                seen.add(bill_no)
+                nodes.append(OrderNode(bill_no=bill_no, label=label))
+            return nodes
+
+        def _unique_document_nodes(
+            items, label: str, linked_field: Optional[str] = None
+        ) -> list[DocumentNode]:
+            seen: set[str] = set()
+            nodes: list[DocumentNode] = []
+            for item in items:
+                bill_no = getattr(item, "bill_no", "") or ""
+                if not bill_no or bill_no in seen:
+                    continue
+                seen.add(bill_no)
+                linked_order = None
+                if linked_field:
+                    linked_order = getattr(item, linked_field, None) or None
+                nodes.append(
+                    DocumentNode(
+                        bill_no=bill_no,
+                        label=label,
+                        linked_order=linked_order,
+                    )
+                )
+            return nodes
+
+        orders = {
+            "sales_orders": _unique_order_nodes(sales_orders, "销售订单"),
+            "production_orders": _unique_order_nodes(prod_orders, "生产订单"),
+            "purchase_orders": _unique_order_nodes(purchase_orders, "采购订单"),
+        }
+        documents = {
+            "production_receipts": _unique_document_nodes(
+                prod_receipts, "生产入库", linked_field="mo_bill_no"
+            ),
+            "material_pickings": _unique_document_nodes(material_picks, "生产领料"),
+            "sales_deliveries": _unique_document_nodes(sales_deliveries, "销售出库"),
+            "purchase_receipts": _unique_document_nodes(purchase_receipts, "采购入库"),
+        }
+
+        return MTORelatedOrdersResponse(
+            mto_number=mto_number,
+            orders=orders,
+            documents=documents,
+            query_time=datetime.now(),
+            data_source="live",
+        )
 
     async def _try_cache(self, mto_number: str) -> Optional[MTOStatusResponse]:
         """Attempt to build response from cache.

@@ -102,6 +102,81 @@ body {
     animation: shake 0.4s ease-in-out;
 }
 
+.tree-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.tree-node {
+    background: var(--slate-900);
+    border: 1px solid var(--slate-700);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 180px;
+}
+
+.tree-label {
+    font-size: 0.75rem;
+    color: var(--slate-400);
+    letter-spacing: 0.04em;
+}
+
+.tree-value {
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--slate-50);
+}
+
+.tree-root {
+    border-color: var(--emerald-500);
+    background: rgb(16 185 129 / 0.08);
+    box-shadow: 0 0 0 1px rgb(16 185 129 / 0.25);
+}
+
+.tree-sales {
+    border-color: var(--violet-500);
+}
+
+.tree-production {
+    border-color: var(--sky-500);
+}
+
+.tree-purchase {
+    border-color: var(--amber-500);
+}
+
+.tree-doc {
+    background: rgb(15 23 42 / 0.4);
+}
+
+.tree-children {
+    margin-left: 1.5rem;
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--slate-700);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.tree-branch {
+    position: relative;
+    padding-left: 1.5rem;
+}
+
+.tree-branch::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 1.2rem;
+    width: 1.5rem;
+    height: 1px;
+    background: var(--slate-700);
+}
+
 @media print {
     body {
         background: white;
@@ -174,6 +249,23 @@ body {
     .touch-target {
         min-height: 44px;
         min-width: 44px;
+    }
+
+    .tree-node {
+        min-width: 0;
+    }
+
+    .tree-children {
+        margin-left: 1rem;
+        padding-left: 1rem;
+    }
+
+    .tree-branch {
+        padding-left: 1rem;
+    }
+
+    .tree-branch::before {
+        width: 1rem;
     }
 }
 
