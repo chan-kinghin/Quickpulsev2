@@ -8,6 +8,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
 venv/
 .venv/
 env/
@@ -19,8 +20,9 @@ env/
 *.swp
 *.swo
 
-# Generated data (large JSON files)
-data/*.json
+# Generated data
+data/
+reports/
 
 # Temporary files
 ~$*
@@ -33,3 +35,4 @@ data/*.json
 # Config with secrets - ALWAYS exclude to avoid credential leaks
 conf.ini
 .env
+test_kingdee_api.py
