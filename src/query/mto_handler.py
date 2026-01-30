@@ -337,39 +337,58 @@ class MTOQueryHandler:
         unmatched_materials = []
 
         # Route records based on config patterns
-        # finished_goods (07.xx) from Sales Orders
+        # finished_goods (07.xx) from Sales Orders - AGGREGATE by (material_code, aux_prop_id)
+        sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
             class_id, _ = self._get_material_class(so.material_code)
             if class_id == "finished_goods":
-                child = self._build_sales_child(
-                    so, receipt_by_material, delivered_by_material,
-                    pick_request, pick_actual, aux_descriptions
-                )
-                children.append(child)
+                aux_prop_id = getattr(so, "aux_prop_id", 0) or 0
+                key = (so.material_code, aux_prop_id)
+                sales_by_key[key].append(so)
             elif class_id is None:
                 unmatched_materials.append(("SAL_SaleOrder", so.material_code))
 
-        # self_made (05.xx) from Production Orders
+        # Create one ChildItem per unique (material_code, aux_prop_id) for finished_goods
+        for key, so_list in sales_by_key.items():
+            child = self._build_aggregated_sales_child(
+                so_list, receipt_by_material, delivered_by_material,
+                pick_request, pick_actual, aux_descriptions
+            )
+            children.append(child)
+
+        # self_made (05.xx) from Production Orders - AGGREGATE by material_code
+        prod_by_code: dict[str, list] = defaultdict(list)
         for po in prod_orders:
             class_id, _ = self._get_material_class(po.material_code)
             if class_id == "self_made":
-                child = self._build_production_child(
-                    po, prod_receipts, material_picks, aux_descriptions
-                )
-                children.append(child)
+                prod_by_code[po.material_code].append(po)
             elif class_id is None:
                 unmatched_materials.append(("PRD_MO", po.material_code))
 
-        # purchased (03.xx) from Purchase Orders
+        # Create one ChildItem per unique material_code for self_made
+        for code, po_list in prod_by_code.items():
+            child = self._build_aggregated_production_child(
+                po_list, prod_receipts, material_picks, aux_descriptions
+            )
+            children.append(child)
+
+        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
+        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
-                child = self._build_purchase_child(
-                    pur, pick_request, pick_actual, aux_descriptions
-                )
-                children.append(child)
+                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
+                key = (pur.material_code, aux_prop_id)
+                purchase_by_key[key].append(pur)
             elif class_id is None:
                 unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
+
+        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
+        for key, pur_list in purchase_by_key.items():
+            child = self._build_aggregated_purchase_child(
+                pur_list, pick_request, pick_actual, aux_descriptions
+            )
+            children.append(child)
 
         # Log warning for unmatched materials
         if unmatched_materials:
@@ -407,7 +426,7 @@ class MTOQueryHandler:
         - 05.xx.xxx → PRD_MO
         - 03.xx.xxx → PUR_PurchaseOrder
 
-        Each record from source form becomes a separate row (no aggregation).
+        Records are AGGREGATED by (material_code, aux_prop_id) to avoid duplicate counting.
         """
         # Fetch all source forms and receipt data in parallel
         (
@@ -458,39 +477,58 @@ class MTOQueryHandler:
         unmatched_materials = []
 
         # Route records based on config patterns
-        # finished_goods (07.xx) from Sales Orders
+        # finished_goods (07.xx) from Sales Orders - AGGREGATE by (material_code, aux_prop_id)
+        sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
             class_id, _ = self._get_material_class(so.material_code)
             if class_id == "finished_goods":
-                child = self._build_sales_child(
-                    so, receipt_by_material, delivered_by_material,
-                    pick_request, pick_actual, aux_descriptions
-                )
-                children.append(child)
+                aux_prop_id = getattr(so, "aux_prop_id", 0) or 0
+                key = (so.material_code, aux_prop_id)
+                sales_by_key[key].append(so)
             elif class_id is None:
                 unmatched_materials.append(("SAL_SaleOrder", so.material_code))
 
-        # self_made (05.xx) from Production Orders
+        # Create one ChildItem per unique (material_code, aux_prop_id) for finished_goods
+        for key, so_list in sales_by_key.items():
+            child = self._build_aggregated_sales_child(
+                so_list, receipt_by_material, delivered_by_material,
+                pick_request, pick_actual, aux_descriptions
+            )
+            children.append(child)
+
+        # self_made (05.xx) from Production Orders - AGGREGATE by material_code
+        prod_by_code: dict[str, list] = defaultdict(list)
         for po in prod_orders:
             class_id, _ = self._get_material_class(po.material_code)
             if class_id == "self_made":
-                child = self._build_production_child(
-                    po, prod_receipts, material_picks, aux_descriptions
-                )
-                children.append(child)
+                prod_by_code[po.material_code].append(po)
             elif class_id is None:
                 unmatched_materials.append(("PRD_MO", po.material_code))
 
-        # purchased (03.xx) from Purchase Orders
+        # Create one ChildItem per unique material_code for self_made
+        for code, po_list in prod_by_code.items():
+            child = self._build_aggregated_production_child(
+                po_list, prod_receipts, material_picks, aux_descriptions
+            )
+            children.append(child)
+
+        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
+        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
-                child = self._build_purchase_child(
-                    pur, pick_request, pick_actual, aux_descriptions
-                )
-                children.append(child)
+                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
+                key = (pur.material_code, aux_prop_id)
+                purchase_by_key[key].append(pur)
             elif class_id is None:
                 unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
+
+        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
+        for key, pur_list in purchase_by_key.items():
+            child = self._build_aggregated_purchase_child(
+                pur_list, pick_request, pick_actual, aux_descriptions
+            )
+            children.append(child)
 
         # Log warning for unmatched materials
         if unmatched_materials:
@@ -661,6 +699,150 @@ class MTOQueryHandler:
             order_qty=required_qty,
             receipt_qty=purchase_order.stock_in_qty,
             unreceived_qty=purchase_order.remain_stock_in_qty,
+            pick_request_qty=pick_request.get(code, ZERO),
+            pick_actual_qty=picked_qty,
+            delivered_qty=ZERO,
+            inventory_qty=ZERO,
+            receipt_source="PUR_PurchaseOrder",
+        )
+
+    def _build_aggregated_sales_child(
+        self,
+        sales_orders: list,
+        receipt_by_material: dict[tuple[str, int], Decimal],
+        delivered_by_material: dict[tuple[str, int], Decimal],
+        pick_request: dict[str, Decimal],
+        pick_actual: dict[str, Decimal],
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
+
+        Aggregates all sales order lines with the same (material_code, aux_prop_id) into one ChildItem.
+        This prevents duplicate counting of receipt_qty and picked_qty.
+        """
+        first = sales_orders[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+
+        # Sum required_qty from all sales order lines
+        required_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
+
+        # Get receipt and delivery totals (already aggregated by key)
+        key = (code, aux_prop_id)
+        picked_qty = delivered_by_material.get(key, ZERO)
+        receipt_qty = receipt_by_material.get(key, ZERO)
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=1,  # 成品 treated as 自制
+            material_type_name="成品",
+            required_qty=required_qty,
+            picked_qty=picked_qty,
+            unpicked_qty=required_qty - picked_qty,
+            order_qty=required_qty,
+            receipt_qty=receipt_qty,
+            unreceived_qty=required_qty - receipt_qty,
+            pick_request_qty=ZERO,
+            pick_actual_qty=ZERO,
+            delivered_qty=picked_qty,
+            inventory_qty=ZERO,
+            receipt_source="PRD_INSTOCK",
+        )
+
+    def _build_aggregated_production_child(
+        self,
+        prod_orders: list,
+        prod_receipts: list,
+        material_picks: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build aggregated ChildItem for 05.xx.xxx (自制) from multiple PRD_MO records.
+
+        Aggregates all production orders with the same material_code into one ChildItem.
+        """
+        first = prod_orders[0]
+        code = first.material_code
+        aux_attrs = getattr(first, "aux_attributes", "")
+
+        # Sum required_qty from all production orders
+        required_qty = sum(getattr(po, "qty", ZERO) for po in prod_orders)
+
+        # Match receipts by material_code (already filtered for this code)
+        receipt_qty = sum(
+            r.real_qty for r in prod_receipts
+            if r.material_code == code
+        )
+
+        # Match material picks by material_code
+        pick_actual_total = sum(
+            p.actual_qty for p in material_picks
+            if p.material_code == code
+        )
+        pick_app_total = sum(
+            p.app_qty for p in material_picks
+            if p.material_code == code
+        )
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.SELF_MADE,
+            material_type_name="自制",
+            required_qty=required_qty,
+            picked_qty=pick_actual_total,
+            unpicked_qty=pick_app_total - pick_actual_total,
+            order_qty=required_qty,
+            receipt_qty=receipt_qty,
+            unreceived_qty=required_qty - receipt_qty,
+            pick_request_qty=pick_app_total,
+            pick_actual_qty=pick_actual_total,
+            delivered_qty=ZERO,
+            inventory_qty=ZERO,
+            receipt_source="PRD_INSTOCK",
+        )
+
+    def _build_aggregated_purchase_child(
+        self,
+        purchase_orders: list,
+        pick_request: dict[str, Decimal],
+        pick_actual: dict[str, Decimal],
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build aggregated ChildItem for 03.xx.xxx (外购) from multiple PUR_PurchaseOrder records.
+
+        Aggregates all purchase orders with the same (material_code, aux_prop_id) into one ChildItem.
+        """
+        first = purchase_orders[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+
+        # Sum quantities from all purchase orders
+        required_qty = sum(getattr(po, "order_qty", ZERO) for po in purchase_orders)
+        stock_in_qty = sum(getattr(po, "stock_in_qty", ZERO) for po in purchase_orders)
+        remain_stock_in_qty = sum(getattr(po, "remain_stock_in_qty", ZERO) for po in purchase_orders)
+
+        picked_qty = pick_actual.get(code, ZERO)
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.PURCHASED,
+            material_type_name="外购",
+            required_qty=required_qty,
+            picked_qty=picked_qty,
+            unpicked_qty=required_qty - picked_qty,
+            order_qty=required_qty,
+            receipt_qty=stock_in_qty,
+            unreceived_qty=remain_stock_in_qty,
             pick_request_qty=pick_request.get(code, ZERO),
             pick_actual_qty=picked_qty,
             delivered_qty=ZERO,
