@@ -165,6 +165,7 @@ class RawKingdeeFetcher:
     async def _fetch_production_receipts(self, mto: str) -> list[RawRecord]:
         """Fetch PRD_INSTOCK entries for MTO (production receipts)."""
         try:
+            # Match QuickPulse filter: include confirmed/completed docs (C, D)
             result = await self.client.query(
                 form_id="PRD_INSTOCK",
                 field_keys=[
@@ -173,7 +174,7 @@ class RawKingdeeFetcher:
                     "FAuxPropId",
                     "FRealQty",
                 ],
-                filter_string=f"FMtoNo='{mto}'",
+                filter_string=f"FMtoNo='{mto}' AND FDocumentStatus IN ('C', 'D')",
                 limit=1000,
             )
             return [
@@ -192,6 +193,7 @@ class RawKingdeeFetcher:
     async def _fetch_sales_deliveries(self, mto: str) -> list[RawRecord]:
         """Fetch SAL_OUTSTOCK entries for MTO (sales deliveries)."""
         try:
+            # Match QuickPulse filter: include approved/confirmed docs (B, C, D)
             result = await self.client.query(
                 form_id="SAL_OUTSTOCK",
                 field_keys=[
@@ -200,7 +202,7 @@ class RawKingdeeFetcher:
                     "FAuxPropId",
                     "FRealQty",
                 ],
-                filter_string=f"FMTONO='{mto}'",  # Note: uppercase FMTONO
+                filter_string=f"FMTONO='{mto}' AND FDocumentStatus IN ('B', 'C', 'D')",  # Note: uppercase FMTONO
                 limit=1000,
             )
             return [
@@ -219,6 +221,7 @@ class RawKingdeeFetcher:
     async def _fetch_material_pickings(self, mto: str) -> list[RawRecord]:
         """Fetch PRD_PickMtrl entries for MTO (material picking)."""
         try:
+            # Match QuickPulse filter: include approved/confirmed docs (B, C)
             result = await self.client.query(
                 form_id="PRD_PickMtrl",
                 field_keys=[
@@ -227,7 +230,7 @@ class RawKingdeeFetcher:
                     "FAppQty",
                     "FActualQty",
                 ],
-                filter_string=f"FMTONO='{mto}'",  # Note: uppercase FMTONO
+                filter_string=f"FMTONO='{mto}' AND FDocumentStatus IN ('B', 'C')",  # Note: uppercase FMTONO
                 limit=1000,
             )
             return [

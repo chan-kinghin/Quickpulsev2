@@ -556,113 +556,9 @@ class MTOQueryHandler:
             data_source="live",
         )
 
-    def _build_sales_child(
-        self,
-        sales_order,
-        receipt_by_material: dict[tuple[str, int], Decimal],
-        delivered_by_material: dict[tuple[str, int], Decimal],
-        pick_request: dict[str, Decimal],
-        pick_actual: dict[str, Decimal],
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 07.xx.xxx (成品) from SAL_SaleOrder.
-
-        Column mappings (from config):
-        - 需求量 (required_qty): SAL_SaleOrder.qty (销售数量)
-        - 已领量 (picked_qty): SAL_OUTSTOCK.real_qty (实发数量)
-        - 未领量 (unpicked_qty): 需求量 - 已领量
-        - 订单数量 (order_qty): = 需求量
-        - 入库量 (receipt_qty): PRD_INSTOCK.real_qty (实收数量)
-        - 未入库量 (unreceived_qty): 订单数量 - 入库量
-        """
-        code = sales_order.material_code
-        aux_prop_id = getattr(sales_order, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(sales_order, "aux_attributes", "")
-
-        # Get quantities using (material_code, aux_prop_id) as key
-        key = (code, aux_prop_id)
-        required_qty = sales_order.qty
-        picked_qty = delivered_by_material.get(key, ZERO)
-        receipt_qty = receipt_by_material.get(key, ZERO)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(sales_order, "material_name", ""),
-            specification=getattr(sales_order, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=1,  # 成品 treated as 自制
-            material_type_name="成品",
-            required_qty=required_qty,
-            picked_qty=picked_qty,  # 已领量 = 出库量 for finished goods
-            unpicked_qty=required_qty - picked_qty,
-            order_qty=required_qty,
-            receipt_qty=receipt_qty,
-            unreceived_qty=required_qty - receipt_qty,
-            pick_request_qty=ZERO,  # Not applicable for finished goods
-            pick_actual_qty=ZERO,
-            delivered_qty=picked_qty,
-            inventory_qty=ZERO,
-            receipt_source="PRD_INSTOCK",
-        )
-
-    def _build_production_child(
-        self,
-        prod_order,
-        prod_receipts: list,
-        material_picks: list,
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 05.xx.xxx (自制) from PRD_MO.
-
-        Column mappings (from config):
-        - 需求量 (required_qty): PRD_MO.qty
-        - 已领量 (picked_qty): PRD_PickMtrl.actual_qty
-        - 未领量 (unpicked_qty): PRD_PickMtrl.app_qty - actual_qty
-        - 订单数量 (order_qty): = 需求量
-        - 入库量 (receipt_qty): PRD_INSTOCK.real_qty
-        - 未入库量 (unreceived_qty): 订单数量 - 入库量
-        """
-        code = prod_order.material_code
-        aux_prop_id = 0  # Production orders typically don't have aux_prop_id
-        aux_attrs = getattr(prod_order, "aux_attributes", "")
-
-        required_qty = prod_order.qty
-
-        # Match receipts by material_code
-        receipt_qty = sum(
-            r.real_qty for r in prod_receipts
-            if r.material_code == code
-        )
-
-        # Match material picks by material_code
-        pick_actual_total = sum(
-            p.actual_qty for p in material_picks
-            if p.material_code == code
-        )
-        pick_app_total = sum(
-            p.app_qty for p in material_picks
-            if p.material_code == code
-        )
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(prod_order, "material_name", ""),
-            specification=getattr(prod_order, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.SELF_MADE,
-            material_type_name="自制",
-            required_qty=required_qty,
-            picked_qty=pick_actual_total,
-            unpicked_qty=pick_app_total - pick_actual_total,  # 允许负值以检测超领
-            order_qty=required_qty,
-            receipt_qty=receipt_qty,
-            unreceived_qty=required_qty - receipt_qty,
-            pick_request_qty=pick_app_total,
-            pick_actual_qty=pick_actual_total,
-            delivered_qty=ZERO,
-            inventory_qty=ZERO,
-            receipt_source="PRD_INSTOCK",
-        )
+    # NOTE: _build_sales_child and _build_production_child were removed as dead code.
+    # These single-record build methods would cause double-counting bugs if activated.
+    # All builds now go through the aggregated methods (_build_aggregated_*).
 
     def _build_purchase_child(
         self,
@@ -825,9 +721,15 @@ class MTOQueryHandler:
         """
         first = purchase_orders[0]
         code = first.material_code
-        # Note: Multiple aux variants may be combined here; we use the first one's description
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+        # Check if multiple aux variants exist - show "多规格" if so
+        unique_aux_ids = set(getattr(po, "aux_prop_id", 0) or 0 for po in purchase_orders)
+        # Filter out 0 (no aux) to check for real variants
+        non_zero_aux = {aid for aid in unique_aux_ids if aid != 0}
+        if len(non_zero_aux) > 1:
+            aux_attrs = "多规格"  # Multiple variants
+        else:
+            aux_prop_id = unique_aux_ids.pop() if unique_aux_ids else 0
+            aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
 
         # Sum quantities from all purchase orders
         required_qty = sum(getattr(po, "order_qty", ZERO) for po in purchase_orders)

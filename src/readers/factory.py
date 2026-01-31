@@ -70,6 +70,8 @@ class ReaderConfig:
     field_mappings: dict[str, FieldMapping]
     date_field: str = "FDate"
     bill_field: str = "FBillNo"
+    # Extra filter applied to all queries (e.g., status filters)
+    extra_filter: str = ""
 
 
 class GenericReader(Generic[T]):
@@ -112,11 +114,15 @@ class GenericReader(Generic[T]):
 
     async def fetch_by_mto(self, mto_number: str) -> list[T]:
         """Query by MTO number and convert to models."""
-        raw_records = await self.client.query_by_mto(
+        # Build filter with optional extra conditions (e.g., status filters)
+        filter_string = f"{self.mto_field}='{mto_number}'"
+        if self.config.extra_filter:
+            filter_string = f"{filter_string} AND {self.config.extra_filter}"
+
+        raw_records = await self.client.query_all(
             form_id=self.form_id,
             field_keys=self.field_keys,
-            mto_field=self.mto_field,
-            mto_number=mto_number,
+            filter_string=filter_string,
         )
         return [self.to_model(record) for record in raw_records]
 
@@ -127,13 +133,21 @@ class GenericReader(Generic[T]):
         extra_filter: str = "",
     ) -> list[T]:
         """Query by date range and convert to models."""
+        # Combine user-provided extra_filter with config's extra_filter
+        combined_filter = extra_filter
+        if self.config.extra_filter:
+            if combined_filter:
+                combined_filter = f"({combined_filter}) AND {self.config.extra_filter}"
+            else:
+                combined_filter = self.config.extra_filter
+
         raw_records = await self.client.query_by_date_range(
             form_id=self.form_id,
             field_keys=self.field_keys,
             date_field=self.date_field,
             start_date=start_date,
             end_date=end_date,
-            extra_filter=extra_filter,
+            extra_filter=combined_filter,
         )
         return [self.to_model(record) for record in raw_records]
 
@@ -192,11 +206,17 @@ class GenericReader(Generic[T]):
             return []
 
         field = mto_field or self.config.mto_field
-        raw_records = await self.client.query_by_mto_numbers(
+        # Build filter with IN clause and optional extra conditions
+        escaped = [mto.replace("'", "''") for mto in mto_numbers]
+        in_clause = ",".join(f"'{mto}'" for mto in escaped)
+        filter_string = f"{field} IN ({in_clause})"
+        if self.config.extra_filter:
+            filter_string = f"{filter_string} AND {self.config.extra_filter}"
+
+        raw_records = await self.client.query_all(
             form_id=self.form_id,
             field_keys=self.field_keys,
-            mto_field=field,
-            mto_numbers=mto_numbers,
+            filter_string=filter_string,
         )
         return [self.to_model(record) for record in raw_records]
 
@@ -256,6 +276,8 @@ PRODUCTION_RECEIPT_CONFIG = ReaderConfig(
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
         "mo_bill_no": FieldMapping("FMoBillNo"),
     },
+    # Include approved/confirmed/completed docs (C=确认, D=完工), exclude drafts (A, B)
+    extra_filter="FDocumentStatus IN ('C', 'D')",
 )
 
 PURCHASE_ORDER_CONFIG = ReaderConfig(
@@ -287,6 +309,8 @@ PURCHASE_RECEIPT_CONFIG = ReaderConfig(
         "must_qty": FieldMapping("FMustQty", _decimal),
         "bill_type_number": FieldMapping("FBillTypeID.FNumber"),
     },
+    # Include approved/confirmed docs, exclude drafts (A)
+    extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
 SUBCONTRACTING_ORDER_CONFIG = ReaderConfig(
@@ -315,6 +339,8 @@ MATERIAL_PICKING_CONFIG = ReaderConfig(
         "actual_qty": FieldMapping("FActualQty", _decimal),
         "ppbom_bill_no": FieldMapping("FPPBomBillNo"),
     },
+    # Include approved/confirmed documents (B=审核, C=确认), exclude drafts (A)
+    extra_filter="FDocumentStatus IN ('B', 'C')",
 )
 
 SALES_DELIVERY_CONFIG = ReaderConfig(
@@ -329,6 +355,8 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
         "must_qty": FieldMapping("FMustQty", _decimal),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
     },
+    # Include approved/confirmed docs, exclude drafts (A)
+    extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
 SALES_ORDER_CONFIG = ReaderConfig(
