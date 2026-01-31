@@ -248,6 +248,43 @@ Use `docs/` for plans that:
    - docs/ plans: Update status, archive if complete
 ```
 
+### Mandatory Plan Confirmation Gate
+
+**CRITICAL**: Claude MUST follow this workflow for any non-trivial task:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. CREATE PLAN                                             │
+│     - Write plan to .md file (docs/ or /tmp/)               │
+│     - Include: problem, solution, files, test cases         │
+│                                                             │
+│  2. PRESENT PLAN TO USER                                    │
+│     - Show the plan file path                               │
+│     - Summarize key points                                  │
+│     - Ask: "Do you approve this plan?"                      │
+│                                                             │
+│  3. ⛔ HARD STOP - WAIT FOR EXPLICIT APPROVAL               │
+│     - DO NOT proceed without user saying "yes"/"approved"   │
+│     - DO NOT start implementation                           │
+│     - DO NOT write any code                                 │
+│                                                             │
+│  4. ONLY AFTER APPROVAL → Begin implementation              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Rules**:
+- Every plan MUST be saved as a `.md` file before asking for approval
+- Plan location: `docs/PLAN_<feature>_<date>.md` or `/tmp/PLAN_<task>_<date>.md`
+- Claude MUST NOT proceed to implementation without explicit user confirmation
+- Acceptable approval responses: "yes", "approved", "go ahead", "proceed", "确认", "同意"
+- If user requests changes → update the plan file → re-present → wait for approval again
+
+**Why This Matters**:
+- Prevents wasted effort on wrong approaches
+- Gives user visibility and control
+- Creates documentation trail
+- Allows course correction before code is written
+
 ### Commit Checkpoints
 
 After every commit, Claude should:
