@@ -322,8 +322,11 @@ class MTOComparator:
         """Get QuickPulse value for a field.
 
         Maps QuickPulse ChildItem fields to validation fields.
+        Note: ChildItem uses different attribute names internally vs JSON serialization:
+        - delivered_qty -> serializes as sales_outbound_qty
+        - receipt_qty -> serializes as received_qty
         """
-        # Direct mapping from ChildItem attributes
+        # Map validation field names to ChildItem attribute names
         mapping = {
             "required_qty": "required_qty",
             "picked_qty": "picked_qty",
@@ -331,7 +334,7 @@ class MTOComparator:
             "order_qty": "order_qty",
             "receipt_qty": "receipt_qty",
             "unreceived_qty": "unreceived_qty",
-            "sales_outbound_qty": "sales_outbound_qty",
+            "sales_outbound_qty": "delivered_qty",  # ChildItem uses delivered_qty internally
         }
 
         attr_name = mapping.get(field_name, field_name)

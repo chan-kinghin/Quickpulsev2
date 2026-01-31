@@ -372,19 +372,20 @@ class MTOQueryHandler:
             )
             children.append(child)
 
-        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
-        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        # purchased (03.xx) from Purchase Orders - AGGREGATE by material_code only
+        # NOTE: PRD_PickMtrl (picking data) groups by material_code only, not by aux_prop_id.
+        # If we grouped by (material_code, aux_prop_id), each variant would get the FULL
+        # picked total, causing double/triple counting when summed.
+        purchase_by_code: dict[str, list] = defaultdict(list)
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
-                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
-                key = (pur.material_code, aux_prop_id)
-                purchase_by_key[key].append(pur)
+                purchase_by_code[pur.material_code].append(pur)
             elif class_id is None:
                 unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
 
-        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
-        for key, pur_list in purchase_by_key.items():
+        # Create one ChildItem per unique material_code for purchased
+        for code, pur_list in purchase_by_code.items():
             child = self._build_aggregated_purchase_child(
                 pur_list, pick_request, pick_actual, aux_descriptions
             )
@@ -512,19 +513,20 @@ class MTOQueryHandler:
             )
             children.append(child)
 
-        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
-        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        # purchased (03.xx) from Purchase Orders - AGGREGATE by material_code only
+        # NOTE: PRD_PickMtrl (picking data) groups by material_code only, not by aux_prop_id.
+        # If we grouped by (material_code, aux_prop_id), each variant would get the FULL
+        # picked total, causing double/triple counting when summed.
+        purchase_by_code: dict[str, list] = defaultdict(list)
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
-                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
-                key = (pur.material_code, aux_prop_id)
-                purchase_by_key[key].append(pur)
+                purchase_by_code[pur.material_code].append(pur)
             elif class_id is None:
                 unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
 
-        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
-        for key, pur_list in purchase_by_key.items():
+        # Create one ChildItem per unique material_code for purchased
+        for code, pur_list in purchase_by_code.items():
             child = self._build_aggregated_purchase_child(
                 pur_list, pick_request, pick_actual, aux_descriptions
             )
@@ -816,10 +818,14 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Build aggregated ChildItem for 03.xx.xxx (外购) from multiple PUR_PurchaseOrder records.
 
-        Aggregates all purchase orders with the same (material_code, aux_prop_id) into one ChildItem.
+        Aggregates all purchase orders with the same material_code into one ChildItem.
+        NOTE: We aggregate by material_code only (not by aux_prop_id) because PRD_PickMtrl
+        picking data is only available at material_code level. If multiple aux variants exist,
+        their quantities are summed together and aux_attributes shows the first variant.
         """
         first = purchase_orders[0]
         code = first.material_code
+        # Note: Multiple aux variants may be combined here; we use the first one's description
         aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
         aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
 
