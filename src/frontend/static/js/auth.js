@@ -25,9 +25,19 @@ function loginForm() {
 
 function authGuard() {
     return {
-        init() {
+        async init() {
+            // First check if token exists locally
             if (!api.isAuthenticated()) {
                 window.location.href = '/';
+                return;
+            }
+
+            // Then verify token is still valid with server
+            try {
+                await api.get('/auth/verify');
+            } catch (error) {
+                // Token invalid/expired - redirect handled by api.request() on 401
+                console.log('Token verification failed, redirecting to login');
             }
         }
     };

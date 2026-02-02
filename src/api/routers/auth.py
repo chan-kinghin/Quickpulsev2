@@ -54,3 +54,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         )
     access_token = create_access_token(data={"sub": form_data.username})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/verify")
+async def verify_token(username: str = Depends(get_current_user)):
+    """Verify that the current token is valid. Returns 401 if expired/invalid."""
+    return {"valid": True, "username": username}
