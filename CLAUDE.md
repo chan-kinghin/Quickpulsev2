@@ -441,26 +441,41 @@ chmod 600 /home/ubuntu/.quickpulse.env
 
 ### Auto-Deploy After Push
 
-**IMPORTANT**: After every `git push` to main, Claude should automatically:
+**IMPORTANT**: After every `git push` to main, Claude MUST use the deployment helper script:
 
-1. SSH into CVM: `sshpass -p '+Vb~W^{zB4|*8' ssh ubuntu@175.27.161.234`
-2. Run `git pull origin main`
-3. Determine if Docker rebuild/restart is needed based on changed files:
+```bash
+sshpass -p '+Vb~W^{zB4|*8' ssh ubuntu@175.27.161.234 './deploy.sh'
+```
 
-| Files Changed | Action Required |
-|---------------|-----------------|
-| `Dockerfile*`, `pyproject.toml`, `requirements*.txt` | **Full rebuild**: `docker build` + `docker stop/rm/run` |
-| `src/**/*.py`, `config/*.json`, `src/frontend/**` | **Restart only**: `docker restart quickpulse-v2` |
-| `docs/**`, `.gitignore`, `*.md`, `tests/**` | **No action**: Documentation/tests only |
+### Deployment Helper Script (`/home/ubuntu/deploy.sh`)
 
-**Full Redeployment**:
+A helper script exists on the CVM that handles deployments reliably:
+
+| Command | Description |
+|---------|-------------|
+| `./deploy.sh` | **Smart deploy**: pulls code, detects changes, rebuilds with `--no-cache` if needed |
+| `./deploy.sh --force` | Force full rebuild with `--no-cache` |
+| `./deploy.sh --restart` | Quick restart only (no rebuild) |
+| `./deploy.sh --logs` | Show recent container logs |
+| `./deploy.sh --status` | Check container & health status |
+
+**Smart Deploy Logic**:
+| Files Changed | Action |
+|---------------|--------|
+| `Dockerfile*`, `pyproject.toml`, `requirements*.txt` | Full rebuild with `--no-cache` |
+| `src/**` | Rebuild with `--no-cache` (prevents Docker cache bugs) |
+| `config/`, `sync_config.json` | Restart only |
+| `docs/**`, `*.md`, `tests/**` | No action |
+
+**Why use this script**: Docker layer caching can cause issues where code changes aren't deployed even after `docker build`. The script always uses `--no-cache` for source changes to guarantee fresh code is deployed.
+
+**Manual Commands** (only if deploy.sh fails):
 ```bash
 ssh ubuntu@175.27.161.234
 cd /home/ubuntu/Quickpulsev2
 git pull origin main
-docker build -t dev-quickpulse:latest -f docker/Dockerfile.dev .
+docker build --no-cache -t dev-quickpulse:latest -f docker/Dockerfile.dev .
 docker stop quickpulse-v2 && docker rm quickpulse-v2
-
 docker run -d \
   --name quickpulse-v2 \
   --restart unless-stopped \
@@ -475,17 +490,10 @@ docker run -d \
   dev-quickpulse:latest
 ```
 
-**Quick Code Update** (no dependency changes):
-```bash
-ssh ubuntu@175.27.161.234
-cd /home/ubuntu/Quickpulsev2
-git pull origin main
-docker build -t dev-quickpulse:latest -f docker/Dockerfile.dev .
-docker restart quickpulse-v2
-```
-
 **View Logs**:
 ```bash
+./deploy.sh --logs
+# or manually:
 docker logs quickpulse-v2 --tail 50
 docker logs quickpulse-v2 -f  # follow
 ```
