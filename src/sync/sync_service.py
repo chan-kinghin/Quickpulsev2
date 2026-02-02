@@ -905,7 +905,9 @@ class SyncService:
         rows = [
             (
                 r.mto_number, r.material_code, float(r.app_qty), float(r.actual_qty),
-                r.ppbom_bill_no, model_to_json(r),
+                r.ppbom_bill_no,
+                getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
+                model_to_json(r),
             )
             for r in records
         ]
@@ -914,9 +916,9 @@ class SyncService:
             f"""
             INSERT INTO {TABLE_MATERIAL_PICKING} (
                 mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
-                raw_data, synced_at
+                aux_prop_id, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             rows,
         )
@@ -1126,16 +1128,19 @@ class SyncService:
             )
         rows = [
             (r.mto_number, r.material_code, float(r.app_qty), float(r.actual_qty),
-             r.ppbom_bill_no, model_to_json(r))
+             r.ppbom_bill_no,
+             getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
+             model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_MATERIAL_PICKING} (
                 mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
-                raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                aux_prop_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(mto_number, material_code, ppbom_bill_no) DO UPDATE SET
                 app_qty=excluded.app_qty, actual_qty=excluded.actual_qty,
+                aux_prop_id=excluded.aux_prop_id,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
         )

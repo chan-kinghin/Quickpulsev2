@@ -122,11 +122,13 @@ CREATE TABLE IF NOT EXISTS cached_material_picking (
     app_qty REAL,
     actual_qty REAL,
     ppbom_bill_no TEXT,
+    aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_pick_mto ON cached_material_picking(mto_number);
 CREATE INDEX IF NOT EXISTS idx_pick_mto_synced ON cached_material_picking(mto_number, synced_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pick_material_aux ON cached_material_picking(material_code, aux_prop_id);
 
 -- Sales delivery cache (销售出库)
 CREATE TABLE IF NOT EXISTS cached_sales_delivery (

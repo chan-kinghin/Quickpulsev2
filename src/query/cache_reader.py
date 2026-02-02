@@ -166,14 +166,14 @@ class CacheReader:
         rows = await self.db.execute_read(
             """
             SELECT mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
-                   raw_data, synced_at
+                   aux_prop_id, raw_data, synced_at
             FROM cached_material_picking
             WHERE mto_number = ?
             """,
             [mto_number],
         )
         return self._build_cache_result(
-            rows, self._row_to_material_picking, synced_at_index=6
+            rows, self._row_to_material_picking, synced_at_index=7
         )
 
     async def get_sales_delivery(self, mto_number: str) -> CacheResult:
@@ -373,13 +373,19 @@ class CacheReader:
         )
 
     def _row_to_material_picking(self, row: tuple) -> MaterialPickingModel:
-        """Convert database row to MaterialPickingModel."""
+        """Convert database row to MaterialPickingModel.
+
+        Row columns:
+        0: mto_number, 1: material_code, 2: app_qty, 3: actual_qty,
+        4: ppbom_bill_no, 5: aux_prop_id, 6: raw_data, 7: synced_at
+        """
         return MaterialPickingModel(
             mto_number=row[0] or "",
             material_code=row[1] or "",
             app_qty=Decimal(str(row[2] or 0)),
             actual_qty=Decimal(str(row[3] or 0)),
             ppbom_bill_no=row[4] or "",
+            aux_prop_id=row[5] or 0,  # For variant-aware matching
         )
 
     def _row_to_sales_delivery(self, row: tuple) -> SalesDeliveryModel:
