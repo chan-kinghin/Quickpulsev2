@@ -6,6 +6,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+from src.logging_config import setup_logging
+
+# Configure logging before anything else
+setup_logging(log_level="INFO")
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
