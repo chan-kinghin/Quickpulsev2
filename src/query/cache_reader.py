@@ -336,10 +336,27 @@ class CacheReader:
         Row columns:
         0: mto_number, 1: material_code, 2: real_qty, 3: must_qty,
         4: aux_prop_id, 5: raw_data, 6: synced_at
+
+        Note: material_name and specification come from raw_data JSON if available,
+        otherwise default to empty string (will be populated from live API).
         """
+        # Try to extract material_name and specification from raw_data JSON
+        material_name = ""
+        specification = ""
+        if row[5]:
+            try:
+                import json
+                raw_data = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                material_name = raw_data.get("material_name", "")
+                specification = raw_data.get("specification", "")
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass  # Use defaults
+
         return ProductionReceiptModel(
             mto_number=row[0] or "",
             material_code=row[1] or "",
+            material_name=material_name,
+            specification=specification,
             real_qty=Decimal(str(row[2] or 0)),
             must_qty=Decimal(str(row[3] or 0)),
             aux_prop_id=row[4] or 0,  # For variant-aware matching

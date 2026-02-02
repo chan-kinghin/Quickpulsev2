@@ -43,6 +43,8 @@ class ProductionReceiptModel(BaseModel):
     bill_no: str = ""
     mto_number: str
     material_code: str
+    material_name: str = ""  # For variant-level display
+    specification: str = ""  # For variant-level display
     real_qty: Decimal
     must_qty: Decimal
     aux_prop_id: int = 0  # For matching by aux_attributes

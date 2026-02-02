@@ -329,8 +329,23 @@ class MTOQueryHandler:
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
 
-        # For cache, aux_attributes are already resolved
-        aux_descriptions: dict[int, str] = {}
+        # Collect aux_prop_ids from cached data for lookup
+        aux_prop_ids = set()
+        for so in sales_orders:
+            if hasattr(so, "aux_prop_id") and so.aux_prop_id:
+                aux_prop_ids.add(so.aux_prop_id)
+        for pur in purchase_orders:
+            if hasattr(pur, "aux_prop_id") and pur.aux_prop_id:
+                aux_prop_ids.add(pur.aux_prop_id)
+        for pr in prod_receipts:
+            if hasattr(pr, "aux_prop_id") and pr.aux_prop_id:
+                aux_prop_ids.add(pr.aux_prop_id)
+        for sd in sales_deliveries:
+            if hasattr(sd, "aux_prop_id") and sd.aux_prop_id:
+                aux_prop_ids.add(sd.aux_prop_id)
+
+        # Lookup aux property descriptions from Kingdee
+        aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
 
         # Build children from source forms based on material class config
         children = []
@@ -356,36 +371,41 @@ class MTOQueryHandler:
             )
             children.append(child)
 
-        # self_made (05.xx) from Production Orders - AGGREGATE by material_code
-        prod_by_code: dict[str, list] = defaultdict(list)
-        for po in prod_orders:
-            class_id, _ = self._get_material_class(po.material_code)
+        # self_made (05.xx) from Production Receipts - AGGREGATE by (material_code, aux_prop_id)
+        # NOTE: PRD_MO doesn't have aux_prop_id, so we use PRD_INSTOCK as the primary source
+        # Each aux variant is displayed as a separate row
+        selfmade_receipt_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for pr in prod_receipts:
+            class_id, _ = self._get_material_class(pr.material_code)
             if class_id == "self_made":
-                prod_by_code[po.material_code].append(po)
+                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
+                key = (pr.material_code, aux_prop_id)
+                selfmade_receipt_by_key[key].append(pr)
             elif class_id is None:
-                unmatched_materials.append(("PRD_MO", po.material_code))
+                unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
 
-        # Create one ChildItem per unique material_code for self_made
-        for code, po_list in prod_by_code.items():
-            child = self._build_aggregated_production_child(
-                po_list, prod_receipts, material_picks, aux_descriptions
+        # Create one ChildItem per unique (material_code, aux_prop_id) for self_made
+        for key, receipt_list in selfmade_receipt_by_key.items():
+            child = self._build_aggregated_selfmade_child(
+                receipt_list, material_picks, aux_descriptions
             )
             children.append(child)
 
-        # purchased (03.xx) from Purchase Orders - AGGREGATE by material_code only
-        # NOTE: PRD_PickMtrl (picking data) groups by material_code only, not by aux_prop_id.
-        # If we grouped by (material_code, aux_prop_id), each variant would get the FULL
-        # picked total, causing double/triple counting when summed.
-        purchase_by_code: dict[str, list] = defaultdict(list)
+        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
+        # Each aux variant is displayed as a separate row
+        # NOTE: PRD_PickMtrl picking data is by material_code only, so picking is shared across variants
+        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
-                purchase_by_code[pur.material_code].append(pur)
+                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
+                key = (pur.material_code, aux_prop_id)
+                purchase_by_key[key].append(pur)
             elif class_id is None:
                 unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
 
-        # Create one ChildItem per unique material_code for purchased
-        for code, pur_list in purchase_by_code.items():
+        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
+        for key, pur_list in purchase_by_key.items():
             child = self._build_aggregated_purchase_child(
                 pur_list, pick_request, pick_actual, aux_descriptions
             )
@@ -497,36 +517,41 @@ class MTOQueryHandler:
             )
             children.append(child)
 
-        # self_made (05.xx) from Production Orders - AGGREGATE by material_code
-        prod_by_code: dict[str, list] = defaultdict(list)
-        for po in prod_orders:
-            class_id, _ = self._get_material_class(po.material_code)
+        # self_made (05.xx) from Production Receipts - AGGREGATE by (material_code, aux_prop_id)
+        # NOTE: PRD_MO doesn't have aux_prop_id, so we use PRD_INSTOCK as the primary source
+        # Each aux variant is displayed as a separate row
+        selfmade_receipt_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for pr in prod_receipts:
+            class_id, _ = self._get_material_class(pr.material_code)
             if class_id == "self_made":
-                prod_by_code[po.material_code].append(po)
+                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
+                key = (pr.material_code, aux_prop_id)
+                selfmade_receipt_by_key[key].append(pr)
             elif class_id is None:
-                unmatched_materials.append(("PRD_MO", po.material_code))
+                unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
 
-        # Create one ChildItem per unique material_code for self_made
-        for code, po_list in prod_by_code.items():
-            child = self._build_aggregated_production_child(
-                po_list, prod_receipts, material_picks, aux_descriptions
+        # Create one ChildItem per unique (material_code, aux_prop_id) for self_made
+        for key, receipt_list in selfmade_receipt_by_key.items():
+            child = self._build_aggregated_selfmade_child(
+                receipt_list, material_picks, aux_descriptions
             )
             children.append(child)
 
-        # purchased (03.xx) from Purchase Orders - AGGREGATE by material_code only
-        # NOTE: PRD_PickMtrl (picking data) groups by material_code only, not by aux_prop_id.
-        # If we grouped by (material_code, aux_prop_id), each variant would get the FULL
-        # picked total, causing double/triple counting when summed.
-        purchase_by_code: dict[str, list] = defaultdict(list)
+        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
+        # Each aux variant is displayed as a separate row
+        # NOTE: PRD_PickMtrl picking data is by material_code only, so picking is shared across variants
+        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
-                purchase_by_code[pur.material_code].append(pur)
+                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
+                key = (pur.material_code, aux_prop_id)
+                purchase_by_key[key].append(pur)
             elif class_id is None:
                 unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
 
-        # Create one ChildItem per unique material_code for purchased
-        for code, pur_list in purchase_by_code.items():
+        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
+        for key, pur_list in purchase_by_key.items():
             child = self._build_aggregated_purchase_child(
                 pur_list, pick_request, pick_actual, aux_descriptions
             )
@@ -705,6 +730,61 @@ class MTOQueryHandler:
             receipt_source="PRD_INSTOCK",
         )
 
+    def _build_aggregated_selfmade_child(
+        self,
+        prod_receipts: list,
+        material_picks: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 05.xx.xxx (自制) based on PRD_INSTOCK records.
+
+        This method takes PRD_INSTOCK records already grouped by (material_code, aux_prop_id).
+        Each aux variant is displayed as a separate row.
+
+        Quantities:
+        - order_qty: FMustQty (应收数量) from PRD_INSTOCK
+        - receipt_qty: FRealQty (实收数量) from PRD_INSTOCK
+        - picked_qty: From PRD_PickMtrl (shared across all aux variants of same material_code)
+        """
+        first = prod_receipts[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "")
+
+        # Sum from all receipts with same (material_code, aux_prop_id)
+        order_qty = sum(r.must_qty for r in prod_receipts)  # 应收数量
+        receipt_qty = sum(r.real_qty for r in prod_receipts)  # 实收数量
+
+        # Material picking is by material_code only (shared across all aux variants)
+        pick_actual_total = sum(
+            p.actual_qty for p in material_picks
+            if p.material_code == code
+        )
+        pick_app_total = sum(
+            p.app_qty for p in material_picks
+            if p.material_code == code
+        )
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.SELF_MADE,
+            material_type_name="自制",
+            required_qty=order_qty,
+            picked_qty=pick_actual_total,
+            unpicked_qty=pick_app_total - pick_actual_total,
+            order_qty=order_qty,
+            receipt_qty=receipt_qty,
+            unreceived_qty=order_qty - receipt_qty,
+            pick_request_qty=pick_app_total,
+            pick_actual_qty=pick_actual_total,
+            delivered_qty=ZERO,
+            inventory_qty=ZERO,
+            receipt_source="PRD_INSTOCK",
+        )
+
     def _build_aggregated_purchase_child(
         self,
         purchase_orders: list,
@@ -712,24 +792,20 @@ class MTOQueryHandler:
         pick_actual: dict[str, Decimal],
         aux_descriptions: dict[int, str],
     ) -> ChildItem:
-        """Build aggregated ChildItem for 03.xx.xxx (外购) from multiple PUR_PurchaseOrder records.
+        """Build ChildItem for 03.xx.xxx (外购) from PUR_PurchaseOrder records.
 
-        Aggregates all purchase orders with the same material_code into one ChildItem.
-        NOTE: We aggregate by material_code only (not by aux_prop_id) because PRD_PickMtrl
-        picking data is only available at material_code level. If multiple aux variants exist,
-        their quantities are summed together and aux_attributes shows the first variant.
+        This method takes records already grouped by (material_code, aux_prop_id).
+        Each aux variant is displayed as a separate row.
+
+        Quantities:
+        - order_qty: Sum of order_qty from all records
+        - receipt_qty: Sum of stock_in_qty (累计入库数量)
+        - picked_qty: From PRD_PickMtrl (shared across all aux variants of same material_code)
         """
         first = purchase_orders[0]
         code = first.material_code
-        # Check if multiple aux variants exist - show "多规格" if so
-        unique_aux_ids = set(getattr(po, "aux_prop_id", 0) or 0 for po in purchase_orders)
-        # Filter out 0 (no aux) to check for real variants
-        non_zero_aux = {aid for aid in unique_aux_ids if aid != 0}
-        if len(non_zero_aux) > 1:
-            aux_attrs = "多规格"  # Multiple variants
-        else:
-            aux_prop_id = unique_aux_ids.pop() if unique_aux_ids else 0
-            aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
 
         # Sum quantities from all purchase orders
         required_qty = sum(getattr(po, "order_qty", ZERO) for po in purchase_orders)

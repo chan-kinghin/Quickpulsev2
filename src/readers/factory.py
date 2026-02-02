@@ -271,6 +271,8 @@ PRODUCTION_RECEIPT_CONFIG = ReaderConfig(
         "bill_no": FieldMapping("FBillNo"),
         "mto_number": FieldMapping("FMtoNo"),
         "material_code": FieldMapping("FMaterialId.FNumber"),
+        "material_name": FieldMapping("FMaterialId.FName"),  # For variant-level display
+        "specification": FieldMapping("FMaterialId.FSpecification"),  # For variant-level display
         "real_qty": FieldMapping("FRealQty", _decimal),
         "must_qty": FieldMapping("FMustQty", _decimal),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
