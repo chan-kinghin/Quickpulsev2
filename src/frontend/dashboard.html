@@ -165,22 +165,25 @@
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap min-w-[150px]">辅助属性</th>
                                 <th scope="col"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">物料类型</th>
+                                <!-- 绿色组: 数量/领料 -->
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900">需求量</th>
+                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900">数量</th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">已领量</th>
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">实领数量</th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900">未领量</th>
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">实发数量</th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-l border-sky-900">订单数量</th>
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900">未领数量</th>
+                                <!-- 蓝色组: 入库 -->
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">入库量</th>
+                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-l border-sky-900">实收数量</th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-sky-900">未入库量</th>
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">累计入库数量</th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-violet-400 bg-slate-900 whitespace-nowrap border-l border-violet-900">销售出库</th>
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-sky-900">未入库数量</th>
+                                <!-- 紫色组: 库存 -->
                                 <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">即时库存</th>
+                                    class="px-4 py-3 text-right font-medium text-violet-400 bg-slate-900 whitespace-nowrap border-l border-violet-900">即时库存</th>
                             </tr>
                         </thead>
                         <tbody role="rowgroup">
@@ -199,25 +202,28 @@
                                               :class="getMaterialTypeBadge(item.material_type)"
                                               x-text="item.material_type"></span>
                                     </td>
+                                    <!-- 绿色组: 数量/领料 -->
                                     <td role="cell"
                                         class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
-                                        x-text="formatNumber(item.required_qty)"></td>
+                                        x-text="formatNumber(item.order_qty)"></td>
                                     <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-emerald-950/10"
-                                        x-text="formatNumber(item.picked_qty)"></td>
+                                        x-text="['03', '05'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.picked_qty) : '-'"></td>
+                                    <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-emerald-950/10"
+                                        x-text="item.material_code?.startsWith('07') ? formatNumber(item.picked_qty) : '-'"></td>
                                     <td role="cell" class="px-4 py-3 text-right font-medium bg-emerald-950/10"
                                         :class="isOverPicked(item.unpicked_qty) ? 'text-rose-400 font-bold' : 'text-slate-200'">
                                         <span x-text="formatNumber(item.unpicked_qty)"></span>
                                         <span x-show="isOverPicked(item.unpicked_qty)" class="text-xs ml-1 text-rose-500">(超领)</span>
                                     </td>
+                                    <!-- 蓝色组: 入库 -->
                                     <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
-                                        x-text="formatNumber(item.order_qty)"></td>
+                                        x-text="['05', '07'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.received_qty) : '-'"></td>
                                     <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
-                                        x-text="formatNumber(item.received_qty)"></td>
+                                        x-text="item.material_code?.startsWith('03') ? formatNumber(item.received_qty) : '-'"></td>
                                     <td role="cell" class="px-4 py-3 text-right font-medium bg-sky-950/10"
                                         :class="item.unreceived_qty > 0 ? 'text-amber-400' : 'text-emerald-400'"
                                         x-text="formatNumber(item.unreceived_qty)"></td>
-                                    <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-violet-950/10"
-                                        x-text="formatNumber(item.sales_outbound_qty)"></td>
+                                    <!-- 紫色组: 库存 -->
                                     <td role="cell" class="px-4 py-3 text-right font-medium bg-violet-950/10"
                                         :class="item.current_stock <= 0 ? 'text-rose-400' : 'text-slate-200'"
                                         x-text="formatNumber(item.current_stock)"></td>
@@ -228,21 +234,24 @@
                             <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
                                 <td class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
                                 <td colspan="5" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <!-- 绿色组合计 -->
                                 <td class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.required_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.unpicked_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.order_qty || 0), 0))"></td>
                                 <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0))"></td>
+                                    x-text="formatNumber(childItems.filter(i => ['03', '05'].some(p => i.material_code?.startsWith(p))).reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0))"></td>
+                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(childItems.filter(i => i.material_code?.startsWith('07')).reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0))"></td>
+                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.unpicked_qty || 0), 0))"></td>
+                                <!-- 蓝色组合计 -->
+                                <td class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                    x-text="formatNumber(childItems.filter(i => ['05', '07'].some(p => i.material_code?.startsWith(p))).reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0))"></td>
+                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(childItems.filter(i => i.material_code?.startsWith('03')).reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0))"></td>
                                 <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
                                     x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.unreceived_qty || 0), 0))"></td>
+                                <!-- 紫色组合计 -->
                                 <td class="px-4 py-3 text-right text-violet-400 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.sales_outbound_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
                                     x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.current_stock || 0), 0))"></td>
                             </tr>
                         </tfoot>
@@ -264,18 +273,30 @@
                             </div>
                             <div class="bom-card-grid">
                                 <div class="bom-card-item">
-                                    <span class="bom-card-label">需求量</span>
-                                    <span class="bom-card-value" x-text="formatNumber(item.required_qty)"></span>
+                                    <span class="bom-card-label">数量</span>
+                                    <span class="bom-card-value" x-text="formatNumber(item.order_qty)"></span>
                                 </div>
-                                <div class="bom-card-item">
-                                    <span class="bom-card-label">已领量</span>
+                                <div class="bom-card-item" x-show="['03', '05'].some(p => item.material_code?.startsWith(p))">
+                                    <span class="bom-card-label">实领数量</span>
+                                    <span class="bom-card-value" x-text="formatNumber(item.picked_qty)"></span>
+                                </div>
+                                <div class="bom-card-item" x-show="item.material_code?.startsWith('07')">
+                                    <span class="bom-card-label">实发数量</span>
                                     <span class="bom-card-value" x-text="formatNumber(item.picked_qty)"></span>
                                 </div>
                                 <div class="bom-card-item">
-                                    <span class="bom-card-label">未领量</span>
+                                    <span class="bom-card-label">未领数量</span>
                                     <span class="bom-card-value"
                                           :class="isOverPicked(item.unpicked_qty) ? 'text-rose-400 font-bold' : ''"
                                           x-text="formatNumber(item.unpicked_qty) + (isOverPicked(item.unpicked_qty) ? ' (超领)' : '')"></span>
+                                </div>
+                                <div class="bom-card-item" x-show="['05', '07'].some(p => item.material_code?.startsWith(p))">
+                                    <span class="bom-card-label">实收数量</span>
+                                    <span class="bom-card-value" x-text="formatNumber(item.received_qty)"></span>
+                                </div>
+                                <div class="bom-card-item" x-show="item.material_code?.startsWith('03')">
+                                    <span class="bom-card-label">累计入库数量</span>
+                                    <span class="bom-card-value" x-text="formatNumber(item.received_qty)"></span>
                                 </div>
                                 <div class="bom-card-item">
                                     <span class="bom-card-label">即时库存</span>
