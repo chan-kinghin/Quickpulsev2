@@ -15,13 +15,15 @@ function mtoSearch() {
         isCollapsed: false,
 
         // === Filters ===
+        // 物料类型: 成品(07.xx), 自制(05.xx), 外购(03.xx)
         filters: {
-            materialTypes: { '自制': true, '外购': true, '委外': true },
-            status: 'all', // 'all' | 'complete' | 'incomplete' | 'overpicked'
+            materialTypes: { '成品': true, '自制': true, '外购': true },
+            status: 'all', // 保留但简化
             searchText: ''
         },
 
         // === Column Configuration ===
+        // 列名直接使用金蝶的"表单.字段名"格式，不做任何计算
         columns: [
             { key: 'index', label: '序号', width: 60, minWidth: 40, resizable: false, visible: true, sortable: false, locked: true },
             { key: 'material_code', label: '物料编码', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: true },
@@ -29,14 +31,14 @@ function mtoSearch() {
             { key: 'specification', label: '规格型号', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'aux_attributes', label: '辅助属性', width: 150, minWidth: 100, resizable: true, visible: true, sortable: false, locked: false },
             { key: 'material_type', label: '物料类型', width: 90, minWidth: 70, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'order_qty', label: '数量', width: 80, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
-            { key: 'picked_qty', label: '实领数量', width: 90, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
-            { key: 'actual_sent_qty', label: '实发数量', width: 90, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
-            { key: 'unpicked_qty', label: '未领数量', width: 90, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
-            { key: 'received_qty', label: '实收数量', width: 90, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
-            { key: 'cumulative_in_qty', label: '累计入库数量', width: 110, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
-            { key: 'unreceived_qty', label: '未入库数量', width: 100, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
-            { key: 'current_stock', label: '即时库存', width: 90, minWidth: 60, resizable: true, visible: true, sortable: true, locked: false, group: 'purple' }
+            // 数量列：根据物料类型显示不同来源
+            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '07' },
+            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '05' },
+            { key: 'purchase_order_qty', label: '采购订单.数量', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '03' },
+            // 领料/入库列
+            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '05,03' },
+            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '07,05' },
+            { key: 'purchase_stock_in_qty', label: '采购订单.累计入库数量', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '03' }
         ],
 
         // === Sorting ===
@@ -173,16 +175,9 @@ function mtoSearch() {
                 // Material type filter
                 if (!this.filters.materialTypes[item.material_type]) return false;
 
-                // Status filter
-                if (this.filters.status !== 'all') {
-                    const isOverpicked = parseFloat(item.unpicked_qty || 0) < 0;
-                    const isComplete = parseFloat(item.unreceived_qty || 0) === 0 &&
-                                       parseFloat(item.unpicked_qty || 0) === 0;
-
-                    if (this.filters.status === 'overpicked' && !isOverpicked) return false;
-                    if (this.filters.status === 'complete' && !isComplete) return false;
-                    if (this.filters.status === 'incomplete' && (isComplete || isOverpicked)) return false;
-                }
+                // Status filter - 简化版，不再使用计算字段
+                // 由于不再计算未领/未入库数量，状态筛选功能暂时禁用
+                // 保留代码结构以便未来需要时恢复
 
                 // Text search (material code + name + spec + aux)
                 if (this.filters.searchText) {
@@ -248,7 +243,7 @@ function mtoSearch() {
         },
 
         resetFilters() {
-            this.filters.materialTypes = { '自制': true, '外购': true, '委外': true };
+            this.filters.materialTypes = { '成品': true, '自制': true, '外购': true };
             this.filters.status = 'all';
             this.filters.searchText = '';
             this.savePreferences();
@@ -432,22 +427,28 @@ function mtoSearch() {
 
                 if (format === 'xlsx' && typeof XLSX !== 'undefined') {
                     // Client-side Excel export using SheetJS
-                    const exportData = items.map((item, index) => ({
-                        '序号': index + 1,
-                        '物料编码': item.material_code,
-                        '物料名称': item.material_name,
-                        '规格型号': item.specification || '-',
-                        '辅助属性': item.aux_attributes || '-',
-                        '物料类型': item.material_type,
-                        '数量': parseFloat(item.order_qty) || 0,
-                        '实领数量': parseFloat(item.picked_qty) || 0,
-                        '实发数量': parseFloat(item.picked_qty) || 0,
-                        '未领数量': parseFloat(item.unpicked_qty) || 0,
-                        '实收数量': parseFloat(item.received_qty) || 0,
-                        '累计入库数量': parseFloat(item.received_qty) || 0,
-                        '未入库数量': parseFloat(item.unreceived_qty) || 0,
-                        '即时库存': parseFloat(item.current_stock) || 0
-                    }));
+                    // 使用金蝶原始字段名，根据物料类型显示不同值
+                    const exportData = items.map((item, index) => {
+                        const code = item.material_code || '';
+                        const is07 = code.startsWith('07');
+                        const is05 = code.startsWith('05');
+                        const is03 = code.startsWith('03');
+
+                        return {
+                            '序号': index + 1,
+                            '物料编码': code,
+                            '物料名称': item.material_name,
+                            '规格型号': item.specification || '-',
+                            '辅助属性': item.aux_attributes || '-',
+                            '物料类型': item.material_type,
+                            '销售订单.数量': is07 ? parseFloat(item.sales_order_qty) || 0 : '-',
+                            '生产入库单.应收数量': is05 ? parseFloat(item.prod_instock_must_qty) || 0 : '-',
+                            '采购订单.数量': is03 ? parseFloat(item.purchase_order_qty) || 0 : '-',
+                            '生产领料单.实发数量': (is05 || is03) ? parseFloat(item.pick_actual_qty) || 0 : '-',
+                            '生产入库单.实收数量': (is07 || is05) ? parseFloat(item.prod_instock_real_qty) || 0 : '-',
+                            '采购订单.累计入库数量': is03 ? parseFloat(item.purchase_stock_in_qty) || 0 : '-'
+                        };
+                    });
 
                     const ws = XLSX.utils.json_to_sheet(exportData);
                     const wb = XLSX.utils.book_new();
@@ -456,8 +457,8 @@ function mtoSearch() {
                     // Set column widths
                     ws['!cols'] = [
                         { wch: 6 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 },
-                        { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-                        { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 }
+                        { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 18 },
+                        { wch: 18 }, { wch: 20 }
                     ];
 
                     XLSX.writeFile(wb, `MTO_${this.mtoNumber}_${this.getTimestamp()}.xlsx`);
@@ -522,9 +523,9 @@ function mtoSearch() {
 
         getMaterialTypeBadge(type) {
             const badges = {
-                '自制': 'badge-self-made',
-                '外购': 'badge-purchased',
-                '委外': 'badge-subcontracted'
+                '成品': 'badge-finished',          // 成品 07.xx
+                '自制': 'badge-self-made',         // 自制件 05.xx
+                '外购': 'badge-purchased'          // 外购件 03.xx
             };
 
             return badges[type] || 'bg-slate-800 text-slate-400 border border-slate-700';
@@ -567,21 +568,28 @@ function mtoSearch() {
         },
 
         // === Summary Calculations for Footer ===
+        // 使用金蝶原始字段名计算合计
         calculateTotals() {
             const items = this.getSortedItems();
             return {
-                order_qty: items.reduce((sum, i) => sum + parseFloat(i.order_qty || 0), 0),
-                picked_qty_03_05: items.filter(i => ['03', '05'].some(p => i.material_code?.startsWith(p)))
-                    .reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0),
-                picked_qty_07: items.filter(i => i.material_code?.startsWith('07'))
-                    .reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0),
-                unpicked_qty: items.reduce((sum, i) => sum + parseFloat(i.unpicked_qty || 0), 0),
-                received_qty_05_07: items.filter(i => ['05', '07'].some(p => i.material_code?.startsWith(p)))
-                    .reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0),
-                received_qty_03: items.filter(i => i.material_code?.startsWith('03'))
-                    .reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0),
-                unreceived_qty: items.reduce((sum, i) => sum + parseFloat(i.unreceived_qty || 0), 0),
-                current_stock: items.reduce((sum, i) => sum + parseFloat(i.current_stock || 0), 0)
+                // 销售订单.数量 (成品 07.xx)
+                sales_order_qty: items.filter(i => i.material_code?.startsWith('07'))
+                    .reduce((sum, i) => sum + parseFloat(i.sales_order_qty || 0), 0),
+                // 生产入库单.应收数量 (自制件 05.xx)
+                prod_instock_must_qty: items.filter(i => i.material_code?.startsWith('05'))
+                    .reduce((sum, i) => sum + parseFloat(i.prod_instock_must_qty || 0), 0),
+                // 采购订单.数量 (外购件 03.xx)
+                purchase_order_qty: items.filter(i => i.material_code?.startsWith('03'))
+                    .reduce((sum, i) => sum + parseFloat(i.purchase_order_qty || 0), 0),
+                // 生产领料单.实发数量 (自制件/外购件)
+                pick_actual_qty: items.filter(i => ['03', '05'].some(p => i.material_code?.startsWith(p)))
+                    .reduce((sum, i) => sum + parseFloat(i.pick_actual_qty || 0), 0),
+                // 生产入库单.实收数量 (成品/自制件)
+                prod_instock_real_qty: items.filter(i => ['05', '07'].some(p => i.material_code?.startsWith(p)))
+                    .reduce((sum, i) => sum + parseFloat(i.prod_instock_real_qty || 0), 0),
+                // 采购订单.累计入库数量 (外购件)
+                purchase_stock_in_qty: items.filter(i => i.material_code?.startsWith('03'))
+                    .reduce((sum, i) => sum + parseFloat(i.purchase_stock_in_qty || 0), 0)
             };
         }
     };

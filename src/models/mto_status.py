@@ -16,25 +16,34 @@ class ParentItem(BaseModel):
 
 
 class ChildItem(BaseModel):
-    """BOM component (child item) with status."""
+    """BOM component (child item) with status.
 
+    字段名称直接对应金蝶原始字段：
+    - sales_order_qty: 销售订单.数量 (成品07.xx用)
+    - prod_instock_must_qty: 生产入库单.应收数量 (自制件05.xx用)
+    - purchase_order_qty: 采购订单.数量 (外购件03.xx用)
+    - pick_actual_qty: 生产领料单.实发数量 (自制件/外购件用)
+    - prod_instock_real_qty: 生产入库单.实收数量 (成品/自制件用)
+    - purchase_stock_in_qty: 采购订单.累计入库数量 (外购件用)
+    """
+
+    # 基础信息
     material_code: str
     material_name: str
     specification: str
     aux_attributes: str
     material_type: int = Field(..., serialization_alias="material_type_code")
     material_type_name: str = Field(..., serialization_alias="material_type")
-    required_qty: Decimal
-    picked_qty: Decimal
-    unpicked_qty: Decimal
-    order_qty: Decimal
-    receipt_qty: Decimal = Field(..., serialization_alias="received_qty")
-    unreceived_qty: Decimal
-    pick_request_qty: Decimal
-    pick_actual_qty: Decimal
-    delivered_qty: Decimal = Field(..., serialization_alias="sales_outbound_qty")
-    inventory_qty: Decimal = Field(..., serialization_alias="current_stock")
-    receipt_source: str
+
+    # 金蝶原始字段 - 数量类（根据物料类型，只有一个有值）
+    sales_order_qty: Decimal = Field(default=Decimal(0), description="销售订单.数量")
+    prod_instock_must_qty: Decimal = Field(default=Decimal(0), description="生产入库单.应收数量")
+    purchase_order_qty: Decimal = Field(default=Decimal(0), description="采购订单.数量")
+
+    # 金蝶原始字段 - 领料/入库
+    pick_actual_qty: Decimal = Field(default=Decimal(0), description="生产领料单.实发数量")
+    prod_instock_real_qty: Decimal = Field(default=Decimal(0), description="生产入库单.实收数量")
+    purchase_stock_in_qty: Decimal = Field(default=Decimal(0), description="采购订单.累计入库数量")
 
 
 class MTOStatusResponse(BaseModel):

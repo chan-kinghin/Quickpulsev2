@@ -97,6 +97,7 @@ class MaterialPickingModel(BaseModel):
     app_qty: Decimal
     actual_qty: Decimal
     ppbom_bill_no: str
+    aux_prop_id: int = 0  # 辅助属性ID，用于按颜色/尺寸汇总
 
 
 class SalesDeliveryModel(BaseModel):

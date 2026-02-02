@@ -41,6 +41,12 @@ body {
     border-left: 3px solid var(--rose-500);
 }
 
+.badge-finished {
+    background: rgb(139 92 246 / 0.2);
+    color: var(--violet-400);
+    border: 1px solid rgb(139 92 246 / 0.3);
+}
+
 .badge-self-made {
     background: rgb(16 185 129 / 0.2);
     color: var(--emerald-400);
@@ -51,12 +57,6 @@ body {
     background: rgb(14 165 233 / 0.2);
     color: var(--sky-400);
     border: 1px solid rgb(14 165 233 / 0.3);
-}
-
-.badge-subcontracted {
-    background: rgb(139 92 246 / 0.2);
-    color: var(--violet-400);
-    border: 1px solid rgb(139 92 246 / 0.3);
 }
 
 .glow-emerald:focus {
@@ -135,6 +135,12 @@ th.resizable {
     color: var(--slate-400);
 }
 
+.filter-chip-finished.filter-chip-active {
+    background: rgb(139 92 246 / 0.15);
+    color: var(--violet-400);
+    border-color: rgb(139 92 246 / 0.3);
+}
+
 .filter-chip-self-made.filter-chip-active {
     background: rgb(16 185 129 / 0.15);
     color: var(--emerald-400);
@@ -145,12 +151,6 @@ th.resizable {
     background: rgb(14 165 233 / 0.15);
     color: var(--sky-400);
     border-color: rgb(14 165 233 / 0.3);
-}
-
-.filter-chip-subcontracted.filter-chip-active {
-    background: rgb(139 92 246 / 0.15);
-    color: var(--violet-400);
-    border-color: rgb(139 92 246 / 0.3);
 }
 
 /* === Sort Indicators === */

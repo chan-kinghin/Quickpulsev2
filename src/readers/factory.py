@@ -340,6 +340,7 @@ MATERIAL_PICKING_CONFIG = ReaderConfig(
         "app_qty": FieldMapping("FAppQty", _decimal),
         "actual_qty": FieldMapping("FActualQty", _decimal),
         "ppbom_bill_no": FieldMapping("FPPBomBillNo"),
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),  # 辅助属性ID，用于按颜色/尺寸汇总
     },
     # Include approved/confirmed documents (B=审核, C=确认), exclude drafts (A)
     extra_filter="FDocumentStatus IN ('B', 'C')",

@@ -325,7 +325,7 @@ class MTOQueryHandler:
 
         # Build aggregation lookups
         pick_request = _sum_by_material(material_picks, "app_qty")
-        pick_actual = _sum_by_material(material_picks, "actual_qty")
+        pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
 
@@ -343,6 +343,9 @@ class MTOQueryHandler:
         for sd in sales_deliveries:
             if hasattr(sd, "aux_prop_id") and sd.aux_prop_id:
                 aux_prop_ids.add(sd.aux_prop_id)
+        for mp in material_picks:
+            if hasattr(mp, "aux_prop_id") and mp.aux_prop_id:
+                aux_prop_ids.add(mp.aux_prop_id)
 
         # Lookup aux property descriptions from Kingdee
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
@@ -473,7 +476,7 @@ class MTOQueryHandler:
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         pick_request = _sum_by_material(material_picks, "app_qty")
-        pick_actual = _sum_by_material(material_picks, "actual_qty")
+        pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
 
         # Collect aux_prop_ids for lookup
         aux_prop_ids = set()
@@ -489,6 +492,9 @@ class MTOQueryHandler:
         for sd in sales_deliveries:
             if hasattr(sd, "aux_prop_id") and sd.aux_prop_id:
                 aux_prop_ids.add(sd.aux_prop_id)
+        for mp in material_picks:
+            if hasattr(mp, "aux_prop_id") and mp.aux_prop_id:
+                aux_prop_ids.add(mp.aux_prop_id)
 
         # Lookup aux property descriptions from BD_FLEXSITEMDETAILV
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
@@ -640,40 +646,32 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
 
-        Aggregates all sales order lines with the same (material_code, aux_prop_id) into one ChildItem.
-        This prevents duplicate counting of receipt_qty and picked_qty.
+        字段映射 (金蝶原始字段):
+        - sales_order_qty: 销售订单.数量
+        - prod_instock_real_qty: 生产入库单.实收数量
         """
         first = sales_orders[0]
         code = first.material_code
         aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
         aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
 
-        # Sum required_qty from all sales order lines
-        required_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
+        # 销售订单.数量
+        sales_order_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
 
-        # Get receipt and delivery totals (already aggregated by key)
+        # 生产入库单.实收数量
         key = (code, aux_prop_id)
-        picked_qty = delivered_by_material.get(key, ZERO)
-        receipt_qty = receipt_by_material.get(key, ZERO)
+        prod_instock_real_qty = receipt_by_material.get(key, ZERO)
 
         return ChildItem(
             material_code=code,
             material_name=getattr(first, "material_name", ""),
             specification=getattr(first, "specification", ""),
             aux_attributes=aux_attrs,
-            material_type=1,  # 成品 treated as 自制
+            material_type=1,  # 成品
             material_type_name="成品",
-            required_qty=required_qty,
-            picked_qty=picked_qty,
-            unpicked_qty=required_qty - picked_qty,
-            order_qty=required_qty,
-            receipt_qty=receipt_qty,
-            unreceived_qty=required_qty - receipt_qty,
-            pick_request_qty=ZERO,
-            pick_actual_qty=ZERO,
-            delivered_qty=picked_qty,
-            inventory_qty=ZERO,
-            receipt_source="PRD_INSTOCK",
+            # 金蝶原始字段
+            sales_order_qty=sales_order_qty,
+            prod_instock_real_qty=prod_instock_real_qty,
         )
 
     def _build_aggregated_production_child(
@@ -685,28 +683,22 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Build aggregated ChildItem for 05.xx.xxx (自制) from multiple PRD_MO records.
 
-        Aggregates all production orders with the same material_code into one ChildItem.
+        注意: 此方法目前未被使用，保留以备将来需要。
+        实际使用的是 _build_aggregated_selfmade_child (基于 PRD_INSTOCK)。
         """
         first = prod_orders[0]
         code = first.material_code
         aux_attrs = getattr(first, "aux_attributes", "")
 
-        # Sum required_qty from all production orders
-        required_qty = sum(getattr(po, "qty", ZERO) for po in prod_orders)
-
-        # Match receipts by material_code (already filtered for this code)
-        receipt_qty = sum(
+        # 生产入库单.实收数量
+        prod_instock_real_qty = sum(
             r.real_qty for r in prod_receipts
             if r.material_code == code
         )
 
-        # Match material picks by material_code
-        pick_actual_total = sum(
+        # 生产领料单.实发数量
+        pick_actual_qty = sum(
             p.actual_qty for p in material_picks
-            if p.material_code == code
-        )
-        pick_app_total = sum(
-            p.app_qty for p in material_picks
             if p.material_code == code
         )
 
@@ -717,17 +709,9 @@ class MTOQueryHandler:
             aux_attributes=aux_attrs,
             material_type=MaterialType.SELF_MADE,
             material_type_name="自制",
-            required_qty=required_qty,
-            picked_qty=pick_actual_total,
-            unpicked_qty=pick_app_total - pick_actual_total,
-            order_qty=required_qty,
-            receipt_qty=receipt_qty,
-            unreceived_qty=required_qty - receipt_qty,
-            pick_request_qty=pick_app_total,
-            pick_actual_qty=pick_actual_total,
-            delivered_qty=ZERO,
-            inventory_qty=ZERO,
-            receipt_source="PRD_INSTOCK",
+            # 金蝶原始字段
+            pick_actual_qty=pick_actual_qty,
+            prod_instock_real_qty=prod_instock_real_qty,
         )
 
     def _build_aggregated_selfmade_child(
@@ -738,31 +722,26 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Build ChildItem for 05.xx.xxx (自制) based on PRD_INSTOCK records.
 
-        This method takes PRD_INSTOCK records already grouped by (material_code, aux_prop_id).
-        Each aux variant is displayed as a separate row.
-
-        Quantities:
-        - order_qty: FMustQty (应收数量) from PRD_INSTOCK
-        - receipt_qty: FRealQty (实收数量) from PRD_INSTOCK
-        - picked_qty: From PRD_PickMtrl (shared across all aux variants of same material_code)
+        字段映射 (金蝶原始字段):
+        - prod_instock_must_qty: 生产入库单.应收数量
+        - prod_instock_real_qty: 生产入库单.实收数量
+        - pick_actual_qty: 生产领料单.实发数量
         """
         first = prod_receipts[0]
         code = first.material_code
         aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
         aux_attrs = aux_descriptions.get(aux_prop_id, "")
 
-        # Sum from all receipts with same (material_code, aux_prop_id)
-        order_qty = sum(r.must_qty for r in prod_receipts)  # 应收数量
-        receipt_qty = sum(r.real_qty for r in prod_receipts)  # 实收数量
+        # 生产入库单.应收数量
+        prod_instock_must_qty = sum(r.must_qty for r in prod_receipts)
 
-        # Material picking is by material_code only (shared across all aux variants)
-        pick_actual_total = sum(
+        # 生产入库单.实收数量
+        prod_instock_real_qty = sum(r.real_qty for r in prod_receipts)
+
+        # 生产领料单.实发数量 - 按 (material_code, aux_prop_id) 汇总
+        pick_actual_qty = sum(
             p.actual_qty for p in material_picks
-            if p.material_code == code
-        )
-        pick_app_total = sum(
-            p.app_qty for p in material_picks
-            if p.material_code == code
+            if p.material_code == code and (getattr(p, "aux_prop_id", 0) or 0) == aux_prop_id
         )
 
         return ChildItem(
@@ -772,17 +751,10 @@ class MTOQueryHandler:
             aux_attributes=aux_attrs,
             material_type=MaterialType.SELF_MADE,
             material_type_name="自制",
-            required_qty=order_qty,
-            picked_qty=pick_actual_total,
-            unpicked_qty=pick_app_total - pick_actual_total,
-            order_qty=order_qty,
-            receipt_qty=receipt_qty,
-            unreceived_qty=order_qty - receipt_qty,
-            pick_request_qty=pick_app_total,
-            pick_actual_qty=pick_actual_total,
-            delivered_qty=ZERO,
-            inventory_qty=ZERO,
-            receipt_source="PRD_INSTOCK",
+            # 金蝶原始字段
+            prod_instock_must_qty=prod_instock_must_qty,
+            prod_instock_real_qty=prod_instock_real_qty,
+            pick_actual_qty=pick_actual_qty,
         )
 
     def _build_aggregated_purchase_child(
@@ -794,25 +766,24 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Build ChildItem for 03.xx.xxx (外购) from PUR_PurchaseOrder records.
 
-        This method takes records already grouped by (material_code, aux_prop_id).
-        Each aux variant is displayed as a separate row.
-
-        Quantities:
-        - order_qty: Sum of order_qty from all records
-        - receipt_qty: Sum of stock_in_qty (累计入库数量)
-        - picked_qty: From PRD_PickMtrl (shared across all aux variants of same material_code)
+        字段映射 (金蝶原始字段):
+        - purchase_order_qty: 采购订单.数量
+        - purchase_stock_in_qty: 采购订单.累计入库数量
+        - pick_actual_qty: 生产领料单.实发数量
         """
         first = purchase_orders[0]
         code = first.material_code
         aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
         aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
 
-        # Sum quantities from all purchase orders
-        required_qty = sum(getattr(po, "order_qty", ZERO) for po in purchase_orders)
-        stock_in_qty = sum(getattr(po, "stock_in_qty", ZERO) for po in purchase_orders)
-        remain_stock_in_qty = sum(getattr(po, "remain_stock_in_qty", ZERO) for po in purchase_orders)
+        # 采购订单.数量
+        purchase_order_qty = sum(getattr(po, "order_qty", ZERO) for po in purchase_orders)
 
-        picked_qty = pick_actual.get(code, ZERO)
+        # 采购订单.累计入库数量
+        purchase_stock_in_qty = sum(getattr(po, "stock_in_qty", ZERO) for po in purchase_orders)
+
+        # 生产领料单.实发数量 - 按 (material_code, aux_prop_id) 汇总
+        pick_actual_qty = pick_actual.get((code, aux_prop_id), ZERO)
 
         return ChildItem(
             material_code=code,
@@ -821,17 +792,10 @@ class MTOQueryHandler:
             aux_attributes=aux_attrs,
             material_type=MaterialType.PURCHASED,
             material_type_name="外购",
-            required_qty=required_qty,
-            picked_qty=picked_qty,
-            unpicked_qty=required_qty - picked_qty,
-            order_qty=required_qty,
-            receipt_qty=stock_in_qty,
-            unreceived_qty=remain_stock_in_qty,
-            pick_request_qty=pick_request.get(code, ZERO),
-            pick_actual_qty=picked_qty,
-            delivered_qty=ZERO,
-            inventory_qty=ZERO,
-            receipt_source="PUR_PurchaseOrder",
+            # 金蝶原始字段
+            purchase_order_qty=purchase_order_qty,
+            purchase_stock_in_qty=purchase_stock_in_qty,
+            pick_actual_qty=pick_actual_qty,
         )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
