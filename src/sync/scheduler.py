@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 
@@ -10,6 +11,8 @@ import schedule
 
 from src.config import SyncConfig
 from src.sync.sync_service import SyncService
+
+logger = logging.getLogger(__name__)
 
 
 class SyncScheduler:
@@ -25,6 +28,7 @@ class SyncScheduler:
     def start(self) -> None:
         """Start auto sync scheduler."""
         if not self.config.auto_sync.enabled:
+            logger.info("Auto-sync scheduler disabled in config")
             return
 
         schedule.clear()
@@ -34,6 +38,11 @@ class SyncScheduler:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self._thread.start()
+        logger.info(
+            "Auto-sync scheduler started with schedule (UTC): %s, days_back=%d",
+            self.config.auto_sync.schedule,
+            self.config.auto_sync.days_back,
+        )
 
     def stop(self) -> None:
         """Stop the scheduler."""
@@ -47,7 +56,9 @@ class SyncScheduler:
         days_back = self.config.auto_sync.days_back
         chunk_days = self.config.performance.chunk_days
         if self.sync_service.is_running():
+            logger.info("Auto-sync skipped - sync already running")
             return
+        logger.info("Auto-sync triggered: days_back=%d, chunk_days=%d", days_back, chunk_days)
         asyncio.run_coroutine_threadsafe(
             self.sync_service.run_sync(days_back=days_back, chunk_days=chunk_days),
             self.loop,
