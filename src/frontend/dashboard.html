@@ -657,20 +657,26 @@
         </div>
     </div>
 
-    <script src="/static/js/api.js?v=20260202"></script>
-    <script src="/static/js/auth.js?v=20260202"></script>
-    <script src="/static/js/dashboard.js?v=20260202"></script>
+    <script src="/static/js/api.js?v=20260202b"></script>
+    <script src="/static/js/auth.js?v=20260202b"></script>
+    <script src="/static/js/dashboard.js?v=20260202b"></script>
     <script>
-        // Initialize Lucide icons
+        // Initialize Lucide icons once on page load
         lucide.createIcons();
 
-        // Re-initialize icons when Alpine updates DOM
-        document.addEventListener('alpine:initialized', () => {
-            // Use MutationObserver to catch dynamic icon additions
-            const observer = new MutationObserver(() => {
+        // Debounced icon refresh for dynamic content
+        let iconRefreshTimeout = null;
+        function refreshIcons() {
+            if (iconRefreshTimeout) clearTimeout(iconRefreshTimeout);
+            iconRefreshTimeout = setTimeout(() => {
                 lucide.createIcons();
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
+            }, 100);
+        }
+
+        // Only refresh icons after Alpine finishes major updates
+        document.addEventListener('alpine:initialized', () => {
+            // Refresh icons once after Alpine initializes
+            refreshIcons();
         });
     </script>
 </body>

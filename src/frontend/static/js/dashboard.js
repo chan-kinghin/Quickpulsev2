@@ -272,6 +272,11 @@ function mtoSearch() {
                 this.sort.direction = null;
             }
             this.savePreferences();
+
+            // Refresh sort icons
+            if (typeof refreshIcons === 'function') {
+                setTimeout(refreshIcons, 50);
+            }
         },
 
         getSortIcon(columnKey) {
@@ -387,6 +392,11 @@ function mtoSearch() {
                     this.successMessage = '';
                 }, 3000);
 
+                // Refresh icons after data loads
+                if (typeof refreshIcons === 'function') {
+                    setTimeout(refreshIcons, 50);
+                }
+
                 const newUrl = `${window.location.pathname}?mto=${encodeURIComponent(this.mtoNumber.trim())}`;
                 window.history.pushState({}, '', newUrl);
 
@@ -494,6 +504,11 @@ function mtoSearch() {
             try {
                 const data = await api.get(`/mto/${encodeURIComponent(this.mtoNumber.trim())}/related-orders`);
                 this.relatedOrders = data;
+
+                // Refresh icons after related orders load
+                if (typeof refreshIcons === 'function') {
+                    setTimeout(refreshIcons, 50);
+                }
             } catch (err) {
                 console.error('Related orders error:', err);
                 this.relatedOrdersError = err.message || '关联单据加载失败';
