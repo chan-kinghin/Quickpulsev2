@@ -1,3 +1,8 @@
+/* Hide elements until Alpine.js initializes - prevents FOUC */
+[x-cloak] {
+    display: none !important;
+}
+
 :root {
     --slate-950: #0a0a0b;
     --slate-900: #111113;

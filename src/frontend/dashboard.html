@@ -37,7 +37,7 @@
         跳转到主要内容
     </a>
 
-    <div x-data="mtoSearch()" x-init="init()" @keydown.escape.window="exitFullScreen()">
+    <div x-data="mtoSearch()" x-init="init()" x-cloak @keydown.escape.window="exitFullScreen()">
         <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 no-print"
                 :class="isFullScreen && isCollapsed ? 'hidden' : ''">
             <div class="flex items-center justify-between max-w-7xl mx-auto">
