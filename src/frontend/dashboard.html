@@ -26,6 +26,8 @@
 
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SheetJS for Excel export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
@@ -69,14 +71,38 @@
         <main id="main-content" class="max-w-7xl mx-auto px-6 py-8" :class="isFullScreen ? 'max-w-full' : ''">
             <section :class="isFullScreen && isCollapsed ? 'hidden' : 'mb-8'" class="transition-all">
                 <div class="flex gap-4 items-end">
-                    <div class="flex-1 max-w-md">
+                    <div class="flex-1 max-w-md relative">
                         <label for="mto-search" class="block text-sm text-slate-400 mb-2">MTO单号</label>
-                        <input type="text" id="mto-search" x-model="mtoNumber" @keydown.enter="search()"
+                        <input type="text" id="mto-search" x-model="mtoNumber"
+                               @keydown.enter="search()"
+                               @focus="showSearchHistory = searchHistory.length > 0"
+                               @blur="setTimeout(() => showSearchHistory = false, 200)"
                                aria-label="计划跟踪号" aria-describedby="mto-help"
                                placeholder="输入计划跟踪号..."
                                class="w-full bg-slate-800 border border-slate-700 text-slate-50 px-4 py-3 rounded focus:outline-none glow-emerald transition font-mono"
-                               :disabled="loading">
+                               :disabled="loading"
+                               autocomplete="off">
                         <p id="mto-help" class="sr-only">输入MTO跟踪号进行搜索，例如 AK2510034</p>
+
+                        <!-- Search History Dropdown -->
+                        <div x-show="showSearchHistory && searchHistory.length > 0" x-transition
+                             class="search-history">
+                            <div class="search-history-header">
+                                <span class="text-xs text-slate-500">最近搜索</span>
+                                <button @click.stop="clearSearchHistory()"
+                                        class="text-xs text-slate-500 hover:text-slate-300 transition">
+                                    清除
+                                </button>
+                            </div>
+                            <template x-for="item in searchHistory" :key="item">
+                                <button @mousedown.prevent="selectFromHistory(item)"
+                                        class="search-history-item w-full text-left">
+                                    <i data-lucide="clock" class="w-3 h-3 text-slate-500"></i>
+                                    <span x-text="item"></span>
+                                </button>
+                            </template>
+                        </div>
+
                         <div class="text-xs text-slate-600 mt-2">
                             提示: 按 <kbd class="px-1 bg-slate-800 rounded">/</kbd> 快速定位搜索框
                         </div>
@@ -129,18 +155,67 @@
                     <h2 class="text-lg font-semibold text-slate-50 flex items-center gap-2">
                         <i data-lucide="list" class="w-5 h-5"></i>
                         BOM组件明细
-                        <span class="text-sm font-normal text-slate-400" x-text="`(${childItems.length} 条)`"></span>
+                        <span class="text-sm font-normal text-slate-400">
+                            (<span x-text="getSortedItems().length"></span>/<span x-text="childItems.length"></span> 条)
+                        </span>
+                        <span x-show="hasActiveFilters()" class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded">
+                            已筛选
+                        </span>
                     </h2>
                     <div class="flex items-center gap-3">
                         <button x-show="isFullScreen" @click="isCollapsed = !isCollapsed"
                                 class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 text-sm transition">
                             <span x-text="isCollapsed ? '展开' : '收起'"></span>
                         </button>
-                        <button @click="exportToExcel()"
-                                class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-slate-950 text-sm font-medium transition flex items-center gap-2">
-                            <i data-lucide="download" class="w-4 h-4"></i>
-                            导出
-                        </button>
+
+                        <!-- Column Settings Dropdown -->
+                        <div class="relative">
+                            <button @click="showColumnSettings = !showColumnSettings"
+                                    class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 text-sm transition flex items-center gap-2">
+                                <i data-lucide="columns" class="w-4 h-4"></i>
+                                列设置
+                            </button>
+                            <div x-show="showColumnSettings" @click.away="showColumnSettings = false" x-transition
+                                 class="dropdown-menu column-settings">
+                                <div class="dropdown-header">显示/隐藏列</div>
+                                <template x-for="col in columns" :key="col.key">
+                                    <label class="column-settings-item"
+                                           :class="col.locked ? 'column-settings-item-locked' : ''">
+                                        <input type="checkbox"
+                                               :checked="col.visible"
+                                               :disabled="col.locked"
+                                               @change="toggleColumnVisibility(col.key)"
+                                               class="column-settings-checkbox">
+                                        <span class="text-sm text-slate-300" x-text="col.label"></span>
+                                        <span x-show="col.locked" class="text-xs text-slate-500 ml-auto">锁定</span>
+                                    </label>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Export Dropdown -->
+                        <div class="relative">
+                            <button @click="showExportMenu = !showExportMenu"
+                                    class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-slate-950 text-sm font-medium transition flex items-center gap-2">
+                                <i data-lucide="download" class="w-4 h-4"></i>
+                                导出
+                                <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                            </button>
+                            <div x-show="showExportMenu" @click.away="showExportMenu = false" x-transition
+                                 class="dropdown-menu" style="min-width: 160px;">
+                                <button @click="exportToExcel('xlsx')"
+                                        class="dropdown-item w-full text-left">
+                                    <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                                    Excel (.xlsx)
+                                </button>
+                                <button @click="exportToExcel('csv')"
+                                        class="dropdown-item w-full text-left">
+                                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                                    CSV
+                                </button>
+                            </div>
+                        </div>
+
                         <button @click="toggleFullScreen()"
                                 class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 text-sm transition flex items-center gap-2">
                             <i :data-lucide="isFullScreen ? 'minimize-2' : 'maximize-2'" class="w-4 h-4"></i>
@@ -149,117 +224,282 @@
                     </div>
                 </div>
 
-                <div class="overflow-x-auto overflow-y-auto bom-table" :class="isFullScreen ? 'max-h-[calc(100vh-120px)]' : 'max-h-[600px]'">
-                    <table role="table" class="w-full text-sm">
+                <!-- Filter Toolbar -->
+                <div class="filter-toolbar">
+                    <!-- Material Type Chips -->
+                    <div class="filter-group">
+                        <span class="filter-label">物料类型:</span>
+                        <button @click="toggleMaterialType('自制')"
+                                class="filter-chip"
+                                :class="filters.materialTypes['自制'] ? 'filter-chip-active filter-chip-self-made' : 'filter-chip-inactive'">
+                            自制
+                        </button>
+                        <button @click="toggleMaterialType('外购')"
+                                class="filter-chip"
+                                :class="filters.materialTypes['外购'] ? 'filter-chip-active filter-chip-purchased' : 'filter-chip-inactive'">
+                            外购
+                        </button>
+                        <button @click="toggleMaterialType('委外')"
+                                class="filter-chip"
+                                :class="filters.materialTypes['委外'] ? 'filter-chip-active filter-chip-subcontracted' : 'filter-chip-inactive'">
+                            委外
+                        </button>
+                    </div>
+
+                    <!-- Status Filter -->
+                    <div class="filter-group">
+                        <span class="filter-label">状态:</span>
+                        <select x-model="filters.status" @change="savePreferences()"
+                                class="bg-slate-900 border border-slate-700 text-slate-300 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-emerald-500">
+                            <option value="all">全部</option>
+                            <option value="complete">完成</option>
+                            <option value="incomplete">待处理</option>
+                            <option value="overpicked">超领</option>
+                        </select>
+                    </div>
+
+                    <!-- Text Search -->
+                    <div class="filter-search relative">
+                        <i data-lucide="search" class="w-4 h-4 filter-search-icon"></i>
+                        <input type="text" x-model.debounce.300ms="filters.searchText"
+                               placeholder="搜索物料..."
+                               class="pl-8">
+                    </div>
+
+                    <!-- Clear Filters -->
+                    <button x-show="hasActiveFilters()" @click="resetFilters()"
+                            class="text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-1">
+                        <i data-lucide="x" class="w-3 h-3"></i>
+                        清除筛选
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto overflow-y-auto bom-table" :class="isFullScreen ? 'max-h-[calc(100vh-180px)]' : 'max-h-[600px]'">
+                    <table role="table" class="w-full text-sm" style="table-layout: fixed;">
                         <thead class="sticky top-0 z-10">
                             <tr role="row" class="border-b border-slate-700">
-                                <th scope="col"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sticky left-0 z-20">序号</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap min-w-[120px]">物料编码</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap min-w-[150px]">物料名称</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap min-w-[120px]">规格型号</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap min-w-[150px]">辅助属性</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">物料类型</th>
+                                <!-- 序号 - not sortable, not resizable -->
+                                <th scope="col" x-show="columns[0].visible"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sticky left-0 z-20"
+                                    :style="getColumnStyle('index')">
+                                    序号
+                                </th>
+                                <!-- 物料编码 - sortable -->
+                                <th scope="col" x-show="columns[1].visible"
+                                    @click="toggleSort('material_code')"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    :style="getColumnStyle('material_code')">
+                                    <div class="flex items-center gap-1">
+                                        <span>物料编码</span>
+                                        <i :data-lucide="getSortIcon('material_code')" class="w-3 h-3"
+                                           :class="sort.column === 'material_code' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 1)"></div>
+                                </th>
+                                <!-- 物料名称 - sortable -->
+                                <th scope="col" x-show="columns[2].visible"
+                                    @click="toggleSort('material_name')"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    :style="getColumnStyle('material_name')">
+                                    <div class="flex items-center gap-1">
+                                        <span>物料名称</span>
+                                        <i :data-lucide="getSortIcon('material_name')" class="w-3 h-3"
+                                           :class="sort.column === 'material_name' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 2)"></div>
+                                </th>
+                                <!-- 规格型号 - sortable -->
+                                <th scope="col" x-show="columns[3].visible"
+                                    @click="toggleSort('specification')"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    :style="getColumnStyle('specification')">
+                                    <div class="flex items-center gap-1">
+                                        <span>规格型号</span>
+                                        <i :data-lucide="getSortIcon('specification')" class="w-3 h-3"
+                                           :class="sort.column === 'specification' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 3)"></div>
+                                </th>
+                                <!-- 辅助属性 - not sortable -->
+                                <th scope="col" x-show="columns[4].visible"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap relative resizable"
+                                    :style="getColumnStyle('aux_attributes')">
+                                    辅助属性
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 4)"></div>
+                                </th>
+                                <!-- 物料类型 - sortable -->
+                                <th scope="col" x-show="columns[5].visible"
+                                    @click="toggleSort('material_type')"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    :style="getColumnStyle('material_type')">
+                                    <div class="flex items-center gap-1">
+                                        <span>物料类型</span>
+                                        <i :data-lucide="getSortIcon('material_type')" class="w-3 h-3"
+                                           :class="sort.column === 'material_type' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 5)"></div>
+                                </th>
                                 <!-- 绿色组: 数量/领料 -->
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900">数量</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">实领数量</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">实发数量</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900">未领数量</th>
+                                <th scope="col" x-show="columns[6].visible"
+                                    @click="toggleSort('order_qty')"
+                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900 sortable-header relative resizable"
+                                    :style="getColumnStyle('order_qty')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>数量</span>
+                                        <i :data-lucide="getSortIcon('order_qty')" class="w-3 h-3"
+                                           :class="sort.column === 'order_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 6)"></div>
+                                </th>
+                                <th scope="col" x-show="columns[7].visible"
+                                    @click="toggleSort('picked_qty')"
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    :style="getColumnStyle('picked_qty')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>实领数量</span>
+                                        <i :data-lucide="getSortIcon('picked_qty')" class="w-3 h-3"
+                                           :class="sort.column === 'picked_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 7)"></div>
+                                </th>
+                                <th scope="col" x-show="columns[8].visible"
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap relative resizable"
+                                    :style="getColumnStyle('actual_sent_qty')">
+                                    实发数量
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 8)"></div>
+                                </th>
+                                <th scope="col" x-show="columns[9].visible"
+                                    @click="toggleSort('unpicked_qty')"
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900 sortable-header relative resizable"
+                                    :style="getColumnStyle('unpicked_qty')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>未领数量</span>
+                                        <i :data-lucide="getSortIcon('unpicked_qty')" class="w-3 h-3"
+                                           :class="sort.column === 'unpicked_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 9)"></div>
+                                </th>
                                 <!-- 蓝色组: 入库 -->
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-l border-sky-900">实收数量</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">累计入库数量</th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-sky-900">未入库数量</th>
+                                <th scope="col" x-show="columns[10].visible"
+                                    @click="toggleSort('received_qty')"
+                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-l border-sky-900 sortable-header relative resizable"
+                                    :style="getColumnStyle('received_qty')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>实收数量</span>
+                                        <i :data-lucide="getSortIcon('received_qty')" class="w-3 h-3"
+                                           :class="sort.column === 'received_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 10)"></div>
+                                </th>
+                                <th scope="col" x-show="columns[11].visible"
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap relative resizable"
+                                    :style="getColumnStyle('cumulative_in_qty')">
+                                    累计入库数量
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 11)"></div>
+                                </th>
+                                <th scope="col" x-show="columns[12].visible"
+                                    @click="toggleSort('unreceived_qty')"
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-r border-sky-900 sortable-header relative resizable"
+                                    :style="getColumnStyle('unreceived_qty')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>未入库数量</span>
+                                        <i :data-lucide="getSortIcon('unreceived_qty')" class="w-3 h-3"
+                                           :class="sort.column === 'unreceived_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 12)"></div>
+                                </th>
                                 <!-- 紫色组: 库存 -->
-                                <th scope="col"
-                                    class="px-4 py-3 text-right font-medium text-violet-400 bg-slate-900 whitespace-nowrap border-l border-violet-900">即时库存</th>
+                                <th scope="col" x-show="columns[13].visible"
+                                    @click="toggleSort('current_stock')"
+                                    class="px-4 py-3 text-right font-medium text-violet-400 bg-slate-900 whitespace-nowrap border-l border-violet-900 sortable-header relative resizable"
+                                    :style="getColumnStyle('current_stock')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>即时库存</span>
+                                        <i :data-lucide="getSortIcon('current_stock')" class="w-3 h-3"
+                                           :class="sort.column === 'current_stock' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 13)"></div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody role="rowgroup">
-                            <template x-for="(item, index) in childItems" :key="index">
+                            <template x-for="(item, index) in getSortedItems()" :key="item.material_code + '-' + index">
                                 <tr role="row" class="border-b border-slate-800 hover:bg-slate-800/50 transition"
                                     :class="isOverPicked(item.unpicked_qty) ? 'row-overpick' : ''">
-                                    <td role="cell" class="px-4 py-3 text-slate-500 bg-slate-900 sticky left-0 z-[5]" x-text="index + 1"></td>
-                                    <td role="cell" class="px-4 py-3 font-mono text-sm text-slate-300" x-text="item.material_code"></td>
-                                    <td role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
-                                    <td role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
-                                    <td role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
+                                    <td x-show="columns[0].visible" role="cell" class="px-4 py-3 text-slate-500 bg-slate-900 sticky left-0 z-[5]" x-text="index + 1"></td>
+                                    <td x-show="columns[1].visible" role="cell" class="px-4 py-3 font-mono text-sm text-slate-300" x-text="item.material_code"></td>
+                                    <td x-show="columns[2].visible" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
+                                    <td x-show="columns[3].visible" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
+                                    <td x-show="columns[4].visible" role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
                                         :title="item.aux_attributes || ''"
                                         x-text="item.aux_attributes || '-'"></td>
-                                    <td role="cell" class="px-4 py-3">
+                                    <td x-show="columns[5].visible" role="cell" class="px-4 py-3">
                                         <span class="px-2 py-1 rounded text-xs font-medium"
                                               :class="getMaterialTypeBadge(item.material_type)"
                                               x-text="item.material_type"></span>
                                     </td>
                                     <!-- 绿色组: 数量/领料 -->
-                                    <td role="cell"
+                                    <td x-show="columns[6].visible" role="cell"
                                         class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="formatNumber(item.order_qty)"></td>
-                                    <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-emerald-950/10"
+                                    <td x-show="columns[7].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-emerald-950/10"
                                         x-text="['03', '05'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.picked_qty) : '-'"></td>
-                                    <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-emerald-950/10"
+                                    <td x-show="columns[8].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('07') ? formatNumber(item.picked_qty) : '-'"></td>
-                                    <td role="cell" class="px-4 py-3 text-right font-medium bg-emerald-950/10"
+                                    <td x-show="columns[9].visible" role="cell" class="px-4 py-3 text-right font-medium bg-emerald-950/10"
                                         :class="isOverPicked(item.unpicked_qty) ? 'text-rose-400 font-bold' : 'text-slate-200'">
                                         <span x-text="formatNumber(item.unpicked_qty)"></span>
                                         <span x-show="isOverPicked(item.unpicked_qty)" class="text-xs ml-1 text-rose-500">(超领)</span>
                                     </td>
                                     <!-- 蓝色组: 入库 -->
-                                    <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td x-show="columns[10].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="['05', '07'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.received_qty) : '-'"></td>
-                                    <td role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td x-show="columns[11].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="item.material_code?.startsWith('03') ? formatNumber(item.received_qty) : '-'"></td>
-                                    <td role="cell" class="px-4 py-3 text-right font-medium bg-sky-950/10"
+                                    <td x-show="columns[12].visible" role="cell" class="px-4 py-3 text-right font-medium bg-sky-950/10"
                                         :class="item.unreceived_qty > 0 ? 'text-amber-400' : 'text-emerald-400'"
                                         x-text="formatNumber(item.unreceived_qty)"></td>
                                     <!-- 紫色组: 库存 -->
-                                    <td role="cell" class="px-4 py-3 text-right font-medium bg-violet-950/10"
+                                    <td x-show="columns[13].visible" role="cell" class="px-4 py-3 text-right font-medium bg-violet-950/10"
                                         :class="item.current_stock <= 0 ? 'text-rose-400' : 'text-slate-200'"
                                         x-text="formatNumber(item.current_stock)"></td>
                                 </tr>
                             </template>
                         </tbody>
-                        <tfoot class="sticky bottom-0 z-10">
+                        <tfoot class="sticky bottom-0 z-10" x-data="{ totals: calculateTotals() }" x-effect="totals = calculateTotals()">
                             <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
-                                <td class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
-                                <td colspan="5" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="columns[0].visible" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
+                                <td x-show="columns[1].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="columns[2].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="columns[3].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="columns[4].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="columns[5].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <!-- 绿色组合计 -->
-                                <td class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.order_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.filter(i => ['03', '05'].some(p => i.material_code?.startsWith(p))).reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.filter(i => i.material_code?.startsWith('07')).reduce((sum, i) => sum + parseFloat(i.picked_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.unpicked_qty || 0), 0))"></td>
+                                <td x-show="columns[6].visible" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                    x-text="formatNumber(totals.order_qty)"></td>
+                                <td x-show="columns[7].visible" class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(totals.picked_qty_03_05)"></td>
+                                <td x-show="columns[8].visible" class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(totals.picked_qty_07)"></td>
+                                <td x-show="columns[9].visible" class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(totals.unpicked_qty)"></td>
                                 <!-- 蓝色组合计 -->
-                                <td class="px-4 py-3 text-right text-sky-400 bg-slate-800"
-                                    x-text="formatNumber(childItems.filter(i => ['05', '07'].some(p => i.material_code?.startsWith(p))).reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.filter(i => i.material_code?.startsWith('03')).reduce((sum, i) => sum + parseFloat(i.received_qty || 0), 0))"></td>
-                                <td class="px-4 py-3 text-right text-slate-300 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.unreceived_qty || 0), 0))"></td>
+                                <td x-show="columns[10].visible" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                    x-text="formatNumber(totals.received_qty_05_07)"></td>
+                                <td x-show="columns[11].visible" class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(totals.received_qty_03)"></td>
+                                <td x-show="columns[12].visible" class="px-4 py-3 text-right text-slate-300 bg-slate-800"
+                                    x-text="formatNumber(totals.unreceived_qty)"></td>
                                 <!-- 紫色组合计 -->
-                                <td class="px-4 py-3 text-right text-violet-400 bg-slate-800"
-                                    x-text="formatNumber(childItems.reduce((sum, i) => sum + parseFloat(i.current_stock || 0), 0))"></td>
+                                <td x-show="columns[13].visible" class="px-4 py-3 text-right text-violet-400 bg-slate-800"
+                                    x-text="formatNumber(totals.current_stock)"></td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
 
                 <div class="bom-cards md:hidden">
-                    <template x-for="(item, index) in childItems" :key="`card-${index}`">
+                    <template x-for="(item, index) in getSortedItems()" :key="`card-${item.material_code}-${index}`">
                         <div class="bom-card" :class="isOverPicked(item.unpicked_qty) ? 'row-overpick' : ''">
                             <div class="bom-card-header">
                                 <div>
@@ -311,7 +551,8 @@
                 <div class="bg-slate-800/50 px-6 py-4 border-t border-slate-700">
                     <div class="flex items-center justify-between text-sm">
                         <div class="text-slate-400">
-                            共 <span class="font-bold text-slate-200" x-text="childItems.length"></span> 条记录
+                            显示 <span class="font-bold text-slate-200" x-text="getSortedItems().length"></span> / <span x-text="childItems.length"></span> 条记录
+                            <span x-show="hasActiveFilters()" class="ml-2 text-emerald-400">(已筛选)</span>
                         </div>
                         <div class="flex items-center gap-6 text-xs">
                             <div class="flex items-center gap-2">
@@ -465,6 +706,18 @@
     <script src="/static/js/api.js"></script>
     <script src="/static/js/auth.js"></script>
     <script src="/static/js/dashboard.js"></script>
-    <script>lucide.createIcons();</script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Re-initialize icons when Alpine updates DOM
+        document.addEventListener('alpine:initialized', () => {
+            // Use MutationObserver to catch dynamic icon additions
+            const observer = new MutationObserver(() => {
+                lucide.createIcons();
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+    </script>
 </body>
 </html>
