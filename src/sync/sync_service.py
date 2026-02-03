@@ -956,11 +956,27 @@ class SyncService:
         )
 
     async def _upsert_sales_orders(self, records: Iterable) -> None:
-        """Upsert sales orders to cache."""
+        """Upsert sales orders to cache.
+
+        Note: The dual-field MTO query for SAL_SaleOrder may return duplicate
+        records (same key from both entry-level and header-level MTO fields).
+        We deduplicate by keeping the record with MAX qty for each unique key.
+        """
         if not records:
             return
 
-        mto_numbers = sorted({r.mto_number for r in records if r.mto_number})
+        records_list = list(records)
+
+        # Deduplicate: keep record with MAX qty for each unique key
+        # This handles duplicates from dual-field MTO query (FMtoNo OR F_QWJI_JHGZH)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id)
+            if key not in deduped or r.qty > deduped[key].qty:
+                deduped[key] = r
+        records_list = list(deduped.values())
+
+        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
             await self.db.execute_write(
@@ -976,7 +992,7 @@ class SyncService:
                 getattr(r, "bom_short_name", "") or "",  # BOM简称
                 model_to_json(r),
             )
-            for r in records
+            for r in records_list
         ]
 
         await self.db.executemany(
@@ -1175,10 +1191,25 @@ class SyncService:
         )
 
     async def _upsert_sales_orders_no_commit(self, records: Iterable) -> None:
-        """Upsert sales orders without commit (for transaction use)."""
+        """Upsert sales orders without commit (for transaction use).
+
+        Note: The dual-field MTO query for SAL_SaleOrder may return duplicate
+        records (same key from both entry-level and header-level MTO fields).
+        We deduplicate by keeping the record with MAX qty for each unique key.
+        """
         if not records:
             return
         records_list = list(records)
+
+        # Deduplicate: keep record with MAX qty for each unique key
+        # This handles duplicates from dual-field MTO query (FMtoNo OR F_QWJI_JHGZH)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id)
+            if key not in deduped or r.qty > deduped[key].qty:
+                deduped[key] = r
+        records_list = list(deduped.values())
+
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
