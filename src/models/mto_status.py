@@ -32,6 +32,7 @@ class ChildItem(BaseModel):
     material_name: str
     specification: str
     aux_attributes: str
+    bom_short_name: str = Field(default="", description="BOM简称")
     material_type: int = Field(..., serialization_alias="material_type_code")
     material_type_name: str = Field(..., serialization_alias="material_type")
 

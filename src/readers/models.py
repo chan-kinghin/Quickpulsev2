@@ -124,3 +124,4 @@ class SalesOrderModel(BaseModel):
     customer_name: str
     delivery_date: Optional[str] = None
     qty: Decimal = Decimal("0")  # 销售数量
+    bom_short_name: str = ""  # BOM简称

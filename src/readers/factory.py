@@ -113,9 +113,23 @@ class GenericReader(Generic[T]):
         return self.config.model_class(**kwargs)
 
     async def fetch_by_mto(self, mto_number: str) -> list[T]:
-        """Query by MTO number and convert to models."""
-        # Build filter with optional extra conditions (e.g., status filters)
-        filter_string = f"{self.mto_field}='{mto_number}'"
+        """Query by MTO number and convert to models.
+
+        Note: For SAL_SaleOrder, MTO can be stored in two fields:
+        - FMtoNo (entry-level, newer orders)
+        - F_QWJI_JHGZH (header-level, older orders)
+        We query both to ensure all records are returned.
+        """
+        escaped_mto = mto_number.replace("'", "''")
+
+        # Special case for SAL_SaleOrder: query both entry and header MTO fields
+        if self.form_id == "SAL_SaleOrder":
+            filter_string = (
+                f"(FMtoNo='{escaped_mto}' OR F_QWJI_JHGZH='{escaped_mto}')"
+            )
+        else:
+            filter_string = f"{self.mto_field}='{escaped_mto}'"
+
         if self.config.extra_filter:
             filter_string = f"{filter_string} AND {self.config.extra_filter}"
 
@@ -195,6 +209,11 @@ class GenericReader(Generic[T]):
         This is much more efficient than calling fetch_by_mto repeatedly
         as it uses a single API call with an IN clause.
 
+        Note: For SAL_SaleOrder, MTO can be stored in two fields:
+        - FMtoNo (entry-level, newer orders)
+        - F_QWJI_JHGZH (header-level, older orders)
+        We query both to ensure all records are returned.
+
         Args:
             mto_numbers: List of MTO numbers to query
             mto_field: Optional override for MTO field name (uses config default)
@@ -209,7 +228,15 @@ class GenericReader(Generic[T]):
         # Build filter with IN clause and optional extra conditions
         escaped = [mto.replace("'", "''") for mto in mto_numbers]
         in_clause = ",".join(f"'{mto}'" for mto in escaped)
-        filter_string = f"{field} IN ({in_clause})"
+
+        # Special case for SAL_SaleOrder: query both entry and header MTO fields
+        if self.form_id == "SAL_SaleOrder":
+            filter_string = (
+                f"(FMtoNo IN ({in_clause}) OR F_QWJI_JHGZH IN ({in_clause}))"
+            )
+        else:
+            filter_string = f"{field} IN ({in_clause})"
+
         if self.config.extra_filter:
             filter_string = f"{filter_string} AND {self.config.extra_filter}"
 
@@ -364,7 +391,8 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
 
 SALES_ORDER_CONFIG = ReaderConfig(
     form_id="SAL_SaleOrder",
-    # Corrected: FMtoNo without FSaleOrderEntry_ prefix
+    # Note: MTO can be in FMtoNo (entry-level) or F_QWJI_JHGZH (header-level)
+    # The fetch_by_mto/fetch_by_mtos methods handle querying both fields
     mto_field="FMtoNo",
     model_class=SalesOrderModel,
     field_mappings={
@@ -377,6 +405,7 @@ SALES_ORDER_CONFIG = ReaderConfig(
         "customer_name": FieldMapping("FCustId.FName"),
         "delivery_date": FieldMapping("FDeliveryDate", _optional_str),
         "qty": FieldMapping("FQty", _decimal),
+        "bom_short_name": FieldMapping("FBomId.FName", _optional_str),  # BOM简称
     },
 )
 

@@ -649,11 +649,13 @@ class MTOQueryHandler:
         字段映射 (金蝶原始字段):
         - sales_order_qty: 销售订单.数量
         - prod_instock_real_qty: 生产入库单.实收数量
+        - bom_short_name: BOM简称
         """
         first = sales_orders[0]
         code = first.material_code
         aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
         aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+        bom_short_name = getattr(first, "bom_short_name", "") or ""
 
         # 销售订单.数量
         sales_order_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
@@ -667,6 +669,7 @@ class MTOQueryHandler:
             material_name=getattr(first, "material_name", ""),
             specification=getattr(first, "specification", ""),
             aux_attributes=aux_attrs,
+            bom_short_name=bom_short_name,
             material_type=1,  # 成品
             material_type_name="成品",
             # 金蝶原始字段

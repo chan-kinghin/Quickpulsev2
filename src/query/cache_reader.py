@@ -196,14 +196,14 @@ class CacheReader:
             """
             SELECT bill_no, mto_number, material_code, material_name, specification,
                    aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
-                   raw_data, synced_at
+                   bom_short_name, raw_data, synced_at
             FROM cached_sales_orders
             WHERE mto_number = ?
             """,
             [mto_number],
         )
         return self._build_cache_result(
-            rows, self._row_to_sales_order, synced_at_index=11
+            rows, self._row_to_sales_order, synced_at_index=12
         )
 
     def _build_cache_result(
@@ -409,7 +409,7 @@ class CacheReader:
         Row columns:
         0: bill_no, 1: mto_number, 2: material_code, 3: material_name,
         4: specification, 5: aux_attributes, 6: aux_prop_id, 7: customer_name,
-        8: delivery_date, 9: qty, 10: raw_data, 11: synced_at
+        8: delivery_date, 9: qty, 10: bom_short_name, 11: raw_data, 12: synced_at
         """
         return SalesOrderModel(
             bill_no=row[0] or "",
@@ -422,4 +422,5 @@ class CacheReader:
             customer_name=row[7] or "",
             delivery_date=row[8] if row[8] else None,
             qty=Decimal(str(row[9] or 0)),
+            bom_short_name=row[10] or "",
         )

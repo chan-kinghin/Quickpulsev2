@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS cached_sales_orders (
     customer_name TEXT,
     delivery_date TEXT,
     qty REAL DEFAULT 0,
+    bom_short_name TEXT DEFAULT '',  -- BOM简称
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bill_no, mto_number, material_code, aux_prop_id)

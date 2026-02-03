@@ -33,6 +33,7 @@ function mtoSearch() {
             { key: 'material_type', label: '物料类型', width: 90, minWidth: 70, resizable: true, visible: true, sortable: true, locked: false },
             // 数量列：根据物料类型显示不同来源
             { key: 'sales_order_qty', label: '销售订单.数量', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '07' },
+            { key: 'bom_short_name', label: '销售订单.BOM简称', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, materialPrefix: '07' },
             { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '05' },
             { key: 'purchase_order_qty', label: '采购订单.数量', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '03' },
             // 领料/入库列
