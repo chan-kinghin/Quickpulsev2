@@ -435,9 +435,12 @@ chmod 600 /home/ubuntu/.quickpulse.env
 
 **Server**: `ubuntu@175.27.161.234`
 **Project Path**: `/home/ubuntu/Quickpulsev2`
-**Container**: `quickpulse-v2`
-**Port**: `8000`
 **SSH Password**: `+Vb~W^{zB4|*8`
+
+| Environment | Container | Port | Image |
+|-------------|-----------|------|-------|
+| **Prod** | `quickpulse-prod` | 8000 | `quickpulse:latest` |
+| **Dev** | `quickpulse-dev` | 8003 | `dev-quickpulse:latest` |
 
 ### Auto-Deploy After Push
 
@@ -474,12 +477,32 @@ A helper script exists on the CVM that handles deployments reliably:
 ssh ubuntu@175.27.161.234
 cd /home/ubuntu/Quickpulsev2
 git pull origin main
+
+# Build images
+docker build --no-cache -t quickpulse:latest -f docker/Dockerfile.dev .
 docker build --no-cache -t dev-quickpulse:latest -f docker/Dockerfile.dev .
-docker stop quickpulse-v2 && docker rm quickpulse-v2
+
+# Restart Prod (port 8000)
+docker stop quickpulse-prod && docker rm quickpulse-prod
 docker run -d \
-  --name quickpulse-v2 \
+  --name quickpulse-prod \
   --restart unless-stopped \
   -p 8000:8000 \
+  --env-file /home/ubuntu/.quickpulse.env \
+  -v /home/ubuntu/quickpulse-data:/app/data \
+  -v /home/ubuntu/quickpulse-reports:/app/reports \
+  -v /home/ubuntu/quickpulse-config:/app/config:ro \
+  -v /home/ubuntu/sync_config.json:/app/sync_config.json:ro \
+  --health-cmd="curl -f http://localhost:8000/health || exit 1" \
+  --health-interval=30s \
+  quickpulse:latest
+
+# Restart Dev (port 8003)
+docker stop quickpulse-dev && docker rm quickpulse-dev
+docker run -d \
+  --name quickpulse-dev \
+  --restart unless-stopped \
+  -p 8003:8000 \
   --env-file /home/ubuntu/.quickpulse.env \
   -v /home/ubuntu/quickpulse-data:/app/data \
   -v /home/ubuntu/quickpulse-reports:/app/reports \
@@ -494,8 +517,8 @@ docker run -d \
 ```bash
 ./deploy.sh --logs
 # or manually:
-docker logs quickpulse-v2 --tail 50
-docker logs quickpulse-v2 -f  # follow
+docker logs quickpulse-prod --tail 50
+docker logs quickpulse-dev --tail 50
 ```
 
 **Volume Mounts**:

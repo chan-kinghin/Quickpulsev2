@@ -4,6 +4,8 @@ function mtoSearch() {
         mtoNumber: '',
         parentItem: null,
         childItems: [],
+        dataSource: null,      // 'cache' or 'live'
+        cacheAgeSeconds: null, // age in seconds when from cache
         loading: false,
         error: '',
         successMessage: '',
@@ -376,6 +378,8 @@ function mtoSearch() {
             this.clearMessages();
             this.parentItem = null;
             this.childItems = [];
+            this.dataSource = null;
+            this.cacheAgeSeconds = null;
             this.relatedOrders = null;
             this.relatedOrdersExpanded = true;
             this.relatedOrdersLoading = false;
@@ -387,6 +391,8 @@ function mtoSearch() {
 
                 this.parentItem = data.parent_item || null;
                 this.childItems = data.child_items || [];
+                this.dataSource = data.data_source || 'live';
+                this.cacheAgeSeconds = data.cache_age_seconds || null;
 
                 this.successMessage = `成功查询到 ${this.childItems.length} 条BOM组件记录`;
                 setTimeout(() => {
@@ -581,6 +587,15 @@ function mtoSearch() {
         getTimestamp() {
             const now = new Date();
             return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+        },
+
+        formatCacheAge() {
+            if (!this.cacheAgeSeconds) return '';
+            const mins = Math.floor(this.cacheAgeSeconds / 60);
+            if (mins < 1) return '刚刚';
+            if (mins < 60) return `${mins}分钟前`;
+            const hours = Math.floor(mins / 60);
+            return `${hours}小时前`;
         },
 
         // === Summary Calculations for Footer ===

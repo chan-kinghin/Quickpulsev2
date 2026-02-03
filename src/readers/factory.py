@@ -406,7 +406,7 @@ SALES_ORDER_CONFIG = ReaderConfig(
         "customer_name": FieldMapping("FCustId.FName"),
         "delivery_date": FieldMapping("FDeliveryDate", _optional_str),
         "qty": FieldMapping("FQty", _decimal),
-        "bom_short_name": FieldMapping("FBomId.FName", _optional_str),  # BOM简称
+        "bom_short_name": FieldMapping("FBomId.FName", _str),  # BOM简称
     },
 )
 

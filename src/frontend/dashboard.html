@@ -143,6 +143,12 @@
                                 <span class="text-slate-500">交期</span>
                                 <span class="text-slate-200" x-text="parentItem?.delivery_date ? parentItem.delivery_date.split('T')[0] : '-'"></span>
                             </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-slate-500">数据</span>
+                                <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                      :class="dataSource === 'cache' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400'"
+                                      x-text="dataSource === 'cache' ? ('缓存 · ' + formatCacheAge()) : '实时'"></span>
+                            </div>
                         </div>
                     </div>
                 </div>
