@@ -456,11 +456,16 @@ A helper script exists on the CVM that handles deployments reliably:
 
 | Command | Description |
 |---------|-------------|
-| `./deploy.sh` | **Smart deploy**: pulls code, detects changes, rebuilds with `--no-cache` if needed |
-| `./deploy.sh --force` | Force full rebuild with `--no-cache` |
-| `./deploy.sh --restart` | Quick restart only (no rebuild) |
-| `./deploy.sh --logs` | Show recent container logs |
-| `./deploy.sh --status` | Check container & health status |
+| `./deploy.sh` | **Smart deploy prod**: pulls code, detects changes, rebuilds if needed |
+| `./deploy.sh dev` | Smart deploy dev environment |
+| `./deploy.sh --all` | Deploy both prod and dev |
+| `./deploy.sh --force` | Force full rebuild prod with `--no-cache` |
+| `./deploy.sh dev --force` | Force full rebuild dev |
+| `./deploy.sh --restart` | Quick restart prod only (no rebuild) |
+| `./deploy.sh dev --restart` | Quick restart dev only |
+| `./deploy.sh --logs` | Show prod container logs |
+| `./deploy.sh dev --logs` | Show dev container logs |
+| `./deploy.sh --status` | Check all containers & health status |
 
 **Smart Deploy Logic**:
 | Files Changed | Action |
