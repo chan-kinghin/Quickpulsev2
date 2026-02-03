@@ -101,6 +101,36 @@ class CacheReader:
 
         return CacheResult(data=bom_entries, synced_at=oldest_sync, is_fresh=is_fresh)
 
+    async def get_production_bom_by_mto(self, mto_number: str) -> CacheResult:
+        """Get cached BOM entries for MTO number (prefix match).
+
+        用于获取 03 级包材的领料数据。
+        """
+        rows = await self.db.execute_read(
+            """
+            SELECT mo_bill_no, mto_number, material_code, material_name,
+                   specification, aux_attributes, aux_prop_id, material_type,
+                   need_qty, picked_qty, no_picked_qty, synced_at
+            FROM cached_production_bom
+            WHERE mto_number LIKE ?
+            ORDER BY synced_at DESC
+            """,
+            [f"{mto_number}%"],
+        )
+
+        if not rows:
+            return CacheResult(data=[], synced_at=None, is_fresh=False)
+
+        # Get oldest synced_at (worst case freshness) - now at index 11
+        synced_times = [self._parse_timestamp(row[11]) for row in rows if row[11]]
+        oldest_sync = min(synced_times) if synced_times else None
+        is_fresh = self._is_fresh(oldest_sync) if oldest_sync else False
+
+        # Convert rows to ProductionBOMModel
+        bom_entries = [self._row_to_bom(row) for row in rows]
+
+        return CacheResult(data=bom_entries, synced_at=oldest_sync, is_fresh=is_fresh)
+
     async def get_purchase_orders(self, mto_number: str) -> CacheResult:
         """Get cached purchase orders (外购件) for MTO number (prefix match)."""
         rows = await self.db.execute_read(

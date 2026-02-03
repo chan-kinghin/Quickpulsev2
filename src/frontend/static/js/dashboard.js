@@ -17,9 +17,9 @@ function mtoSearch() {
         isCollapsed: false,
 
         // === Filters ===
-        // 物料类型: 成品(07.xx), 自制(05.xx), 外购(03.xx)
+        // 物料类型: 成品(07.xx), 自制(05.xx), 包材(03.xx)
         filters: {
-            materialTypes: { '成品': true, '自制': true, '外购': true },
+            materialTypes: { '成品': true, '自制': true, '包材': true },
             status: 'all', // 保留但简化
             searchText: ''
         },
@@ -246,7 +246,7 @@ function mtoSearch() {
         },
 
         resetFilters() {
-            this.filters.materialTypes = { '成品': true, '自制': true, '外购': true };
+            this.filters.materialTypes = { '成品': true, '自制': true, '包材': true };
             this.filters.status = 'all';
             this.filters.searchText = '';
             this.savePreferences();
@@ -547,7 +547,7 @@ function mtoSearch() {
             const badges = {
                 '成品': 'badge-finished',          // 成品 07.xx
                 '自制': 'badge-self-made',         // 自制件 05.xx
-                '外购': 'badge-purchased'          // 外购件 03.xx
+                '包材': 'badge-purchased'          // 包材 03.xx
             };
 
             return badges[type] || 'bg-slate-800 text-slate-400 border border-slate-700';
@@ -609,16 +609,16 @@ function mtoSearch() {
                 // 生产入库单.应收数量 (自制件 05.xx)
                 prod_instock_must_qty: items.filter(i => i.material_code?.startsWith('05'))
                     .reduce((sum, i) => sum + parseFloat(i.prod_instock_must_qty || 0), 0),
-                // 采购订单.数量 (外购件 03.xx)
+                // 采购订单.数量 (包材 03.xx)
                 purchase_order_qty: items.filter(i => i.material_code?.startsWith('03'))
                     .reduce((sum, i) => sum + parseFloat(i.purchase_order_qty || 0), 0),
-                // 生产领料单.实发数量 (自制件/外购件)
+                // 生产领料单.实发数量 (自制件/包材)
                 pick_actual_qty: items.filter(i => ['03', '05'].some(p => i.material_code?.startsWith(p)))
                     .reduce((sum, i) => sum + parseFloat(i.pick_actual_qty || 0), 0),
                 // 生产入库单.实收数量 (成品/自制件)
                 prod_instock_real_qty: items.filter(i => ['05', '07'].some(p => i.material_code?.startsWith(p)))
                     .reduce((sum, i) => sum + parseFloat(i.prod_instock_real_qty || 0), 0),
-                // 采购订单.累计入库数量 (外购件)
+                // 采购订单.累计入库数量 (包材)
                 purchase_stock_in_qty: items.filter(i => i.material_code?.startsWith('03'))
                     .reduce((sum, i) => sum + parseFloat(i.purchase_stock_in_qty || 0), 0)
             };

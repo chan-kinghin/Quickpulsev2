@@ -52,7 +52,7 @@ class MaterialType(IntEnum):
 
     @property
     def display_name(self) -> str:
-        return {1: "自制", 2: "外购", 3: "委外"}.get(self.value, "未知")
+        return {1: "自制", 2: "包材", 3: "委外"}.get(self.value, "未知")
 
 
 class MTOQueryHandler:
@@ -302,6 +302,7 @@ class MTOQueryHandler:
             purchase_receipts_result,
             material_picks_result,
             sales_delivery_result,
+            production_bom_result,  # 新增：获取 PRD_PPBOM 数据用于 03 级包材
         ) = await asyncio.gather(
             self._cache_reader.get_sales_orders(mto_number),
             self._cache_reader.get_production_orders(mto_number),
@@ -310,6 +311,7 @@ class MTOQueryHandler:
             self._cache_reader.get_purchase_receipts(mto_number),
             self._cache_reader.get_material_picking(mto_number),
             self._cache_reader.get_sales_delivery(mto_number),
+            self._cache_reader.get_production_bom_by_mto(mto_number),  # 新增
         )
 
         # Need at least one source form to have data
@@ -329,6 +331,7 @@ class MTOQueryHandler:
         purchase_receipts = purchase_receipts_result.data or []
         material_picks = material_picks_result.data or []
         sales_deliveries = sales_delivery_result.data or []
+        production_bom = production_bom_result.data or []  # 新增：PRD_PPBOM 数据
 
         # Build aggregation lookups
         pick_request = _sum_by_material(material_picks, "app_qty")
@@ -353,6 +356,9 @@ class MTOQueryHandler:
         for mp in material_picks:
             if hasattr(mp, "aux_prop_id") and mp.aux_prop_id:
                 aux_prop_ids.add(mp.aux_prop_id)
+        for bom in production_bom:  # 新增：从 PPBOM 收集辅助属性
+            if hasattr(bom, "aux_prop_id") and bom.aux_prop_id:
+                aux_prop_ids.add(bom.aux_prop_id)
 
         # Lookup aux property descriptions from Kingdee
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
@@ -421,6 +427,20 @@ class MTOQueryHandler:
             )
             children.append(child)
 
+        # 包材 (03.xx) from PRD_PPBOM - 显示领料数据（独立于 PUR 行）
+        ppbom_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for bom in production_bom:
+            # material_type=2 是外购（包材），或者物料编码以 03. 开头
+            if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
+                aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
+                key = (bom.material_code, aux_prop_id)
+                ppbom_by_key[key].append(bom)
+
+        # 创建 PPBOM 包材行（与 PUR 行分开显示）
+        for key, bom_list in ppbom_by_key.items():
+            child = self._build_purchased_child_from_ppbom(bom_list, aux_descriptions)
+            children.append(child)
+
         # Log warning for unmatched materials
         if unmatched_materials:
             logger.warning(
@@ -468,6 +488,7 @@ class MTOQueryHandler:
             purchase_receipts,
             material_picks,
             sales_deliveries,
+            production_bom,  # 新增：获取 PRD_PPBOM 数据用于 03 级包材
         ) = await asyncio.gather(
             self._readers["sales_order"].fetch_by_mto(mto_number),
             self._readers["production_order"].fetch_by_mto(mto_number),
@@ -476,6 +497,7 @@ class MTOQueryHandler:
             self._readers["purchase_receipt"].fetch_by_mto(mto_number),
             self._readers["material_picking"].fetch_by_mto(mto_number),
             self._readers["sales_delivery"].fetch_by_mto(mto_number),
+            self._readers["production_bom"].fetch_by_mto(mto_number),  # 新增
         )
 
         # Debug logging: show what records were returned from each source
@@ -525,6 +547,9 @@ class MTOQueryHandler:
         for mp in material_picks:
             if hasattr(mp, "aux_prop_id") and mp.aux_prop_id:
                 aux_prop_ids.add(mp.aux_prop_id)
+        for bom in production_bom:
+            if hasattr(bom, "aux_prop_id") and bom.aux_prop_id:
+                aux_prop_ids.add(bom.aux_prop_id)
 
         # Lookup aux property descriptions from BD_FLEXSITEMDETAILV
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
@@ -593,6 +618,21 @@ class MTOQueryHandler:
             )
             children.append(child)
 
+        # 包材 (03.xx) from PRD_PPBOM - 显示领料数据（独立于 PUR 行）
+        # 即使 PUR 中已有相同物料，PPBOM 也单独显示为一行
+        ppbom_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for bom in production_bom:
+            # material_type=2 是外购/包材，或者物料编码以 03. 开头
+            if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
+                aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
+                key = (bom.material_code, aux_prop_id)
+                ppbom_by_key[key].append(bom)
+
+        # 所有 PPBOM 03 级物料都添加为独立行
+        for key, bom_list in ppbom_by_key.items():
+            child = self._build_purchased_child_from_ppbom(bom_list, aux_descriptions)
+            children.append(child)
+
         # Log warning for unmatched materials
         if unmatched_materials:
             logger.warning(
@@ -651,7 +691,7 @@ class MTOQueryHandler:
             specification=getattr(purchase_order, "specification", ""),
             aux_attributes=aux_attrs,
             material_type=MaterialType.PURCHASED,
-            material_type_name="外购",
+            material_type_name="包材",
             required_qty=required_qty,
             picked_qty=picked_qty,
             unpicked_qty=required_qty - picked_qty,  # 允许负值以检测超领
@@ -824,11 +864,47 @@ class MTOQueryHandler:
             specification=getattr(first, "specification", ""),
             aux_attributes=aux_attrs,
             material_type=MaterialType.PURCHASED,
-            material_type_name="外购",
+            material_type_name="包材",
             # 金蝶原始字段
             purchase_order_qty=purchase_order_qty,
             purchase_stock_in_qty=purchase_stock_in_qty,
             pick_actual_qty=pick_actual_qty,
+        )
+
+    def _build_purchased_child_from_ppbom(
+        self,
+        bom_items: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 03.xx.xxx (包材) from PRD_PPBOM.
+
+        当物料从现有库存领料时（没有针对此 MTO 的采购订单），使用 PPBOM 数据。
+
+        字段映射:
+        - purchase_order_qty: PPBOM.FMustQty (需求数量)
+        - purchase_stock_in_qty: 0 (无采购订单)
+        - pick_actual_qty: PPBOM.FPickedQty (已领数量)
+        """
+        first = bom_items[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+
+        # 从 PPBOM 获取领料数据
+        need_qty = sum(getattr(b, "need_qty", ZERO) for b in bom_items)
+        picked_qty = sum(getattr(b, "picked_qty", ZERO) for b in bom_items)
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.PURCHASED,
+            material_type_name="包材",
+            # PPBOM 字段映射到显示列
+            purchase_order_qty=need_qty,      # 需求量 → "采购订单.数量" 列
+            purchase_stock_in_qty=ZERO,       # 无采购订单，入库为 0
+            pick_actual_qty=picked_qty,       # 已领量 → "生产领料单.实发数量" 列
         )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
