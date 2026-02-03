@@ -441,6 +441,21 @@ class MTOQueryHandler:
             child = self._build_purchased_child_from_ppbom(bom_list, aux_descriptions)
             children.append(child)
 
+        # 包材 (03.xx) from PRD_PickMtrl - 直接领料的物料
+        # 这些物料可能不在 PUR 或 PPBOM 中，但有实际领料记录
+        pickmtrl_03_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for pick in material_picks:
+            if pick.material_code.startswith("03."):
+                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
+                key = (pick.material_code, aux_prop_id)
+                pickmtrl_03_by_key[key].append(pick)
+
+        # 只添加不在 purchase_by_key 和 ppbom_by_key 中的物料
+        for key, pick_list in pickmtrl_03_by_key.items():
+            if key not in purchase_by_key and key not in ppbom_by_key:
+                child = self._build_purchased_child_from_pickmtrl(pick_list, aux_descriptions)
+                children.append(child)
+
         # Log warning for unmatched materials
         if unmatched_materials:
             logger.warning(
@@ -632,6 +647,21 @@ class MTOQueryHandler:
         for key, bom_list in ppbom_by_key.items():
             child = self._build_purchased_child_from_ppbom(bom_list, aux_descriptions)
             children.append(child)
+
+        # 包材 (03.xx) from PRD_PickMtrl - 直接领料的物料
+        # 这些物料可能不在 PUR 或 PPBOM 中，但有实际领料记录
+        pickmtrl_03_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for pick in material_picks:
+            if pick.material_code.startswith("03."):
+                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
+                key = (pick.material_code, aux_prop_id)
+                pickmtrl_03_by_key[key].append(pick)
+
+        # 只添加不在 purchase_by_key 和 ppbom_by_key 中的物料
+        for key, pick_list in pickmtrl_03_by_key.items():
+            if key not in purchase_by_key and key not in ppbom_by_key:
+                child = self._build_purchased_child_from_pickmtrl(pick_list, aux_descriptions)
+                children.append(child)
 
         # Log warning for unmatched materials
         if unmatched_materials:
@@ -905,6 +935,43 @@ class MTOQueryHandler:
             purchase_order_qty=need_qty,      # 需求量 → "采购订单.数量" 列
             purchase_stock_in_qty=ZERO,       # 无采购订单，入库为 0
             pick_actual_qty=picked_qty,       # 已领量 → "生产领料单.实发数量" 列
+        )
+
+    def _build_purchased_child_from_pickmtrl(
+        self,
+        pick_items: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 03.xx.xxx (包材) from PRD_PickMtrl (直接领料).
+
+        当物料从现有库存直接领料，不在 PUR 或 PPBOM 中时使用。
+        这些物料通常是库存充足、无需新采购的包材。
+
+        字段映射:
+        - purchase_order_qty: PRD_PickMtrl.FAppQty (申请数量)
+        - purchase_stock_in_qty: 0 (无采购订单)
+        - pick_actual_qty: PRD_PickMtrl.FActualQty (实发数量)
+        """
+        first = pick_items[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+
+        # 从 PickMtrl 获取领料数据
+        app_qty = sum(getattr(p, "app_qty", ZERO) for p in pick_items)
+        actual_qty = sum(getattr(p, "actual_qty", ZERO) for p in pick_items)
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.PURCHASED,
+            material_type_name="包材",
+            # PickMtrl 字段映射到显示列
+            purchase_order_qty=app_qty,       # 申请量 → "采购订单.数量" 列
+            purchase_stock_in_qty=ZERO,       # 无采购入库
+            pick_actual_qty=actual_qty,       # 实发量 → "生产领料单.实发数量" 列
         )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
