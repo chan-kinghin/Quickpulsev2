@@ -52,12 +52,29 @@ class Database:
         # Apply new migrations in sorted order
         for migration_file in sorted(migrations_dir.glob("*.sql")):
             if migration_file.name not in applied:
+                # Special handling for migrations that add columns (SQLite lacks IF NOT EXISTS)
+                if migration_file.name == "003_add_bom_short_name.sql":
+                    # Check if column already exists (schema.sql may have it)
+                    if await self._column_exists("cached_sales_orders", "bom_short_name"):
+                        # Mark as applied without running (column exists from schema.sql)
+                        await self._connection.execute(
+                            "INSERT INTO _migrations (name) VALUES (?)",
+                            [migration_file.name]
+                        )
+                        continue
+
                 sql = migration_file.read_text(encoding="utf-8")
                 await self._connection.executescript(sql)
                 await self._connection.execute(
                     "INSERT INTO _migrations (name) VALUES (?)",
                     [migration_file.name]
                 )
+
+    async def _column_exists(self, table: str, column: str) -> bool:
+        """Check if a column exists in a table."""
+        async with self._connection.execute(f"PRAGMA table_info({table})") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+            return column in columns
 
     async def execute(self, query: str, params=None):
         async with self._connection.execute(query, params or []) as cursor:
