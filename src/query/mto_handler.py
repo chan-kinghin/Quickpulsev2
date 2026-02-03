@@ -407,6 +407,21 @@ class MTOQueryHandler:
             )
             children.append(child)
 
+        # 自制 (05.xx) from PRD_PickMtrl - 从库存领料的物料
+        # 这些物料可能不在 PRD_INSTOCK 中，但有实际领料记录
+        pickmtrl_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for pick in material_picks:
+            if pick.material_code.startswith("05."):
+                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
+                key = (pick.material_code, aux_prop_id)
+                pickmtrl_05_by_key[key].append(pick)
+
+        # 只添加不在 selfmade_receipt_by_key 中的物料
+        for key, pick_list in pickmtrl_05_by_key.items():
+            if key not in selfmade_receipt_by_key:
+                child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
+                children.append(child)
+
         # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
         # Each aux variant is displayed as a separate row
         # NOTE: PRD_PickMtrl picking data is by material_code only, so picking is shared across variants
@@ -612,6 +627,21 @@ class MTOQueryHandler:
                 receipt_list, material_picks, aux_descriptions
             )
             children.append(child)
+
+        # 自制 (05.xx) from PRD_PickMtrl - 从库存领料的物料
+        # 这些物料可能不在 PRD_INSTOCK 中，但有实际领料记录
+        pickmtrl_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for pick in material_picks:
+            if pick.material_code.startswith("05."):
+                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
+                key = (pick.material_code, aux_prop_id)
+                pickmtrl_05_by_key[key].append(pick)
+
+        # 只添加不在 selfmade_receipt_by_key 中的物料
+        for key, pick_list in pickmtrl_05_by_key.items():
+            if key not in selfmade_receipt_by_key:
+                child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
+                children.append(child)
 
         # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
         # Each aux variant is displayed as a separate row
@@ -971,6 +1001,43 @@ class MTOQueryHandler:
             # PickMtrl 字段映射到显示列
             purchase_order_qty=app_qty,       # 申请量 → "采购订单.数量" 列
             purchase_stock_in_qty=ZERO,       # 无采购入库
+            pick_actual_qty=actual_qty,       # 实发量 → "生产领料单.实发数量" 列
+        )
+
+    def _build_selfmade_child_from_pickmtrl(
+        self,
+        pick_items: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 05.xx.xxx (自制) from PRD_PickMtrl (库存领料).
+
+        当物料从现有库存直接领料，不在 PRD_INSTOCK 中时使用。
+        这些物料通常是库存充足、无需新生产的自制件。
+
+        字段映射:
+        - prod_instock_must_qty: PRD_PickMtrl.FAppQty (申请数量)
+        - prod_instock_real_qty: 0 (无入库记录)
+        - pick_actual_qty: PRD_PickMtrl.FActualQty (实发数量)
+        """
+        first = pick_items[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+
+        # 从 PickMtrl 获取领料数据
+        app_qty = sum(getattr(p, "app_qty", ZERO) for p in pick_items)
+        actual_qty = sum(getattr(p, "actual_qty", ZERO) for p in pick_items)
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.SELF_MADE,
+            material_type_name="自制",
+            # PickMtrl 字段映射到显示列
+            prod_instock_must_qty=app_qty,    # 申请量 → "生产入库单.应收数量" 列
+            prod_instock_real_qty=ZERO,       # 无入库记录
             pick_actual_qty=actual_qty,       # 实发量 → "生产领料单.实发数量" 列
         )
 
