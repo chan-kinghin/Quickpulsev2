@@ -478,6 +478,29 @@ class MTOQueryHandler:
             self._readers["sales_delivery"].fetch_by_mto(mto_number),
         )
 
+        # Debug logging: show what records were returned from each source
+        logger.info(
+            "MTO %s live query results: SAL_SaleOrder=%d, PRD_MO=%d, PUR=%d, PRD_INSTOCK=%d",
+            mto_number, len(sales_orders), len(prod_orders), len(purchase_orders), len(prod_receipts)
+        )
+        # Log each SAL_SaleOrder record to see exact data
+        for so in sales_orders:
+            logger.info(
+                "  SAL_SaleOrder: material=%s, aux_prop_id=%d, qty=%s, mto=%s",
+                so.material_code, getattr(so, 'aux_prop_id', 0), so.qty, so.mto_number
+            )
+        # Log unique (material_code, aux_prop_id) keys for finished_goods classification
+        finished_keys = set()
+        for so in sales_orders:
+            class_id, _ = self._get_material_class(so.material_code)
+            if class_id == "finished_goods":
+                key = (so.material_code, getattr(so, 'aux_prop_id', 0) or 0)
+                finished_keys.add(key)
+        logger.info(
+            "MTO %s: %d unique 成品 (material_code, aux_prop_id) keys: %s",
+            mto_number, len(finished_keys), list(finished_keys)
+        )
+
         # Build aggregation lookups for receipts/deliveries
         # Key: (material_code, aux_prop_id) for variant-aware matching
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
