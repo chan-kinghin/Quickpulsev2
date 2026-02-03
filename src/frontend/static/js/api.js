@@ -78,11 +78,27 @@ const api = {
         formData.append('username', username);
         formData.append('password', password);
 
-        const response = await fetch(`${this.baseUrl}/auth/token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData
-        });
+        // Add timeout for network issues
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+        let response;
+        try {
+            response = await fetch(`${this.baseUrl}/auth/token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData,
+                signal: controller.signal
+            });
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+                throw new Error('连接超时，请检查网络后重试');
+            }
+            throw new Error('网络连接失败，请检查网络后重试');
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
         if (!response.ok) {
             const contentType = response.headers.get('content-type') || '';
