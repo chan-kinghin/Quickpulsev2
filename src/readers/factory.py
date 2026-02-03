@@ -123,12 +123,13 @@ class GenericReader(Generic[T]):
         escaped_mto = mto_number.replace("'", "''")
 
         # Special case for SAL_SaleOrder: query both entry and header MTO fields
+        # Use LIKE prefix match to include related MTOs (e.g., AS2509048 matches AS2509048-1, AS2509048-2)
         if self.form_id == "SAL_SaleOrder":
             filter_string = (
-                f"(FMtoNo='{escaped_mto}' OR F_QWJI_JHGZH='{escaped_mto}')"
+                f"(FMtoNo LIKE '{escaped_mto}%' OR F_QWJI_JHGZH LIKE '{escaped_mto}%')"
             )
         else:
-            filter_string = f"{self.mto_field}='{escaped_mto}'"
+            filter_string = f"{self.mto_field} LIKE '{escaped_mto}%'"
 
         if self.config.extra_filter:
             filter_string = f"{filter_string} AND {self.config.extra_filter}"

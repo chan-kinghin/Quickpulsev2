@@ -45,17 +45,17 @@ class CacheReader:
         self.ttl = timedelta(minutes=ttl_minutes)
 
     async def get_production_orders(self, mto_number: str) -> CacheResult:
-        """Get cached production orders for MTO number."""
+        """Get cached production orders for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT bill_no, mto_number, workshop, material_code,
                    material_name, specification, aux_attributes, qty,
                    status, create_date, synced_at
             FROM cached_production_orders
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             ORDER BY synced_at DESC
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
 
         if not rows:
@@ -102,105 +102,105 @@ class CacheReader:
         return CacheResult(data=bom_entries, synced_at=oldest_sync, is_fresh=is_fresh)
 
     async def get_purchase_orders(self, mto_number: str) -> CacheResult:
-        """Get cached purchase orders (外购件) for MTO number."""
+        """Get cached purchase orders (外购件) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT bill_no, mto_number, material_code, material_name, specification,
                    aux_attributes, aux_prop_id, order_qty, stock_in_qty,
                    remain_stock_in_qty, raw_data, synced_at
             FROM cached_purchase_orders
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_purchase_order, synced_at_index=11
         )
 
     async def get_subcontracting_orders(self, mto_number: str) -> CacheResult:
-        """Get cached subcontracting orders (委外件) for MTO number."""
+        """Get cached subcontracting orders (委外件) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT bill_no, mto_number, material_code, order_qty, stock_in_qty,
                    no_stock_in_qty, raw_data, synced_at
             FROM cached_subcontracting_orders
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_subcontracting_order, synced_at_index=7
         )
 
     async def get_production_receipts(self, mto_number: str) -> CacheResult:
-        """Get cached production receipts (自制件入库) for MTO number."""
+        """Get cached production receipts (自制件入库) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
             FROM cached_production_receipts
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_production_receipt, synced_at_index=6
         )
 
     async def get_purchase_receipts(self, mto_number: str) -> CacheResult:
-        """Get cached purchase receipts (外购/委外入库) for MTO number."""
+        """Get cached purchase receipts (外购/委外入库) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT mto_number, material_code, real_qty, must_qty, bill_type_number,
                    raw_data, synced_at
             FROM cached_purchase_receipts
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_purchase_receipt, synced_at_index=6
         )
 
     async def get_material_picking(self, mto_number: str) -> CacheResult:
-        """Get cached material picking records (生产领料) for MTO number."""
+        """Get cached material picking records (生产领料) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
                    aux_prop_id, raw_data, synced_at
             FROM cached_material_picking
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_material_picking, synced_at_index=7
         )
 
     async def get_sales_delivery(self, mto_number: str) -> CacheResult:
-        """Get cached sales delivery records (销售出库) for MTO number."""
+        """Get cached sales delivery records (销售出库) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
             FROM cached_sales_delivery
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_sales_delivery, synced_at_index=6
         )
 
     async def get_sales_orders(self, mto_number: str) -> CacheResult:
-        """Get cached sales orders (客户/交期) for MTO number."""
+        """Get cached sales orders (客户/交期) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT bill_no, mto_number, material_code, material_name, specification,
                    aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
                    bom_short_name, raw_data, synced_at
             FROM cached_sales_orders
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
         return self._build_cache_result(
             rows, self._row_to_sales_order, synced_at_index=12
@@ -225,14 +225,14 @@ class CacheReader:
         return CacheResult(data=data, synced_at=oldest_sync, is_fresh=is_fresh)
 
     async def check_freshness(self, mto_number: str) -> tuple[bool, Optional[datetime]]:
-        """Quick check if MTO data exists and is fresh without loading full data."""
+        """Quick check if MTO data exists and is fresh without loading full data (prefix match)."""
         rows = await self.db.execute_read(
             """
             SELECT MAX(synced_at) as latest_sync
             FROM cached_production_orders
-            WHERE mto_number = ?
+            WHERE mto_number LIKE ?
             """,
-            [mto_number],
+            [f"{mto_number}%"],
         )
 
         if not rows or not rows[0][0]:
