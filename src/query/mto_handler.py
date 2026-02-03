@@ -175,11 +175,18 @@ class MTOQueryHandler:
         result = None
         if use_cache and self._cache_reader:
             result = await self._try_cache(mto_number)
-            if result:
+            if result and result.children:
                 self._sqlite_hits += 1
                 logger.debug("L2 SQLite cache hit for MTO %s", mto_number)
             else:
                 self._sqlite_misses += 1
+                # Cache returned no children - fall back to live mode
+                if result and not result.children:
+                    logger.info(
+                        "MTO %s: cache has no children, falling back to live mode",
+                        mto_number
+                    )
+                    result = None  # Force fallback to live
 
         # L3: Fallback to live Kingdee API
         if not result:
