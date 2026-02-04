@@ -422,6 +422,24 @@ class MTOQueryHandler:
                 child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
                 children.append(child)
 
+        # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
+        # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
+        prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for po in prod_orders:
+            class_id, _ = self._get_material_class(po.material_code)
+            if class_id == "self_made":
+                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
+                key = (po.material_code, aux_prop_id)
+                prd_mo_05_by_key[key].append(po)
+
+        # Only add items NOT already in selfmade_receipt_by_key or pickmtrl_05_by_key
+        for key, po_list in prd_mo_05_by_key.items():
+            if key not in selfmade_receipt_by_key and key not in pickmtrl_05_by_key:
+                child = self._build_selfmade_child_from_prd_mo(
+                    po_list, prod_receipts, material_picks, aux_descriptions
+                )
+                children.append(child)
+
         # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
         # Each aux variant is displayed as a separate row
         # NOTE: PRD_PickMtrl picking data is by material_code only, so picking is shared across variants
@@ -641,6 +659,24 @@ class MTOQueryHandler:
         for key, pick_list in pickmtrl_05_by_key.items():
             if key not in selfmade_receipt_by_key:
                 child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
+                children.append(child)
+
+        # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
+        # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
+        prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        for po in prod_orders:
+            class_id, _ = self._get_material_class(po.material_code)
+            if class_id == "self_made":
+                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
+                key = (po.material_code, aux_prop_id)
+                prd_mo_05_by_key[key].append(po)
+
+        # Only add items NOT already in selfmade_receipt_by_key or pickmtrl_05_by_key
+        for key, po_list in prd_mo_05_by_key.items():
+            if key not in selfmade_receipt_by_key and key not in pickmtrl_05_by_key:
+                child = self._build_selfmade_child_from_prd_mo(
+                    po_list, prod_receipts, material_picks, aux_descriptions
+                )
                 children.append(child)
 
         # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
@@ -1039,6 +1075,56 @@ class MTOQueryHandler:
             prod_instock_must_qty=app_qty,    # 申请量 → "生产入库单.应收数量" 列
             prod_instock_real_qty=ZERO,       # 无入库记录
             pick_actual_qty=actual_qty,       # 实发量 → "生产领料单.实发数量" 列
+        )
+
+    def _build_selfmade_child_from_prd_mo(
+        self,
+        prod_orders: list,
+        prod_receipts: list,
+        material_picks: list,
+        aux_descriptions: dict[int, str],
+    ) -> ChildItem:
+        """Build ChildItem for 05.xx.xxx (自制) from PRD_MO (生产订单).
+
+        当生产订单已下达但尚未开始生产时使用（如 计划确认 状态）。
+        这些物料在 PRD_INSTOCK 和 PRD_PickMtrl 中没有记录。
+
+        字段映射:
+        - prod_instock_must_qty: PRD_MO.FQty (订单数量，作为应收数量)
+        - prod_instock_real_qty: sum from PRD_INSTOCK (实际入库，通常为 0)
+        - pick_actual_qty: sum from PRD_PickMtrl (实际领料，通常为 0)
+        """
+        first = prod_orders[0]
+        code = first.material_code
+        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
+        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
+
+        # PRD_MO.FQty as order/expected quantity
+        order_qty = sum(getattr(po, "qty", ZERO) for po in prod_orders)
+
+        # Look up actual receipt qty from PRD_INSTOCK (usually 0 for unprocessed orders)
+        receipt_qty = sum(
+            r.real_qty for r in prod_receipts
+            if r.material_code == code and (getattr(r, "aux_prop_id", 0) or 0) == aux_prop_id
+        )
+
+        # Look up actual pick qty from PRD_PickMtrl (usually 0 for unprocessed orders)
+        pick_qty = sum(
+            p.actual_qty for p in material_picks
+            if p.material_code == code and (getattr(p, "aux_prop_id", 0) or 0) == aux_prop_id
+        )
+
+        return ChildItem(
+            material_code=code,
+            material_name=getattr(first, "material_name", ""),
+            specification=getattr(first, "specification", ""),
+            aux_attributes=aux_attrs,
+            material_type=MaterialType.SELF_MADE,
+            material_type_name="自制",
+            # PRD_MO 字段映射到显示列
+            prod_instock_must_qty=order_qty,   # 订单量 → "生产入库单.应收数量" 列
+            prod_instock_real_qty=receipt_qty, # 实际入库 → "生产入库单.实收数量" 列
+            pick_actual_qty=pick_qty,          # 实际领料 → "生产领料单.实发数量" 列
         )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
