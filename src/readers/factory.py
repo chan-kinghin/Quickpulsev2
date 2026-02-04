@@ -266,6 +266,7 @@ PRODUCTION_ORDER_CONFIG = ReaderConfig(
         "material_name": FieldMapping("FMaterialId.FName"),
         "specification": FieldMapping("FMaterialId.FSpecification"),
         # Note: FAuxPropId.FName doesn't exist in this form, aux_attributes defaults to ""
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),  # For multi-material orders
         "qty": FieldMapping("FQty", _decimal),
         "status": FieldMapping("FStatus"),
         "create_date": FieldMapping("FCreateDate", _optional_str),

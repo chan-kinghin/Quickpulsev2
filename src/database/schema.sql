@@ -6,17 +6,19 @@ PRAGMA busy_timeout=5000;
 CREATE TABLE IF NOT EXISTS cached_production_orders (
     id INTEGER PRIMARY KEY,
     mto_number TEXT NOT NULL,
-    bill_no TEXT NOT NULL UNIQUE,
+    bill_no TEXT NOT NULL,
     workshop TEXT,
     material_code TEXT,
     material_name TEXT,
     specification TEXT,
     aux_attributes TEXT,
+    aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
     qty REAL,
     status TEXT,       -- Denormalized from raw_data for faster access
     create_date TEXT,  -- Denormalized from raw_data for faster access
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bill_no, material_code, aux_prop_id)  -- Allow multiple materials per order
 );
 CREATE INDEX IF NOT EXISTS idx_po_mto ON cached_production_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_po_synced ON cached_production_orders(synced_at);

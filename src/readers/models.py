@@ -16,6 +16,7 @@ class ProductionOrderModel(BaseModel):
     material_name: str
     specification: str
     aux_attributes: str = ""  # Field may not exist in all Kingdee setups
+    aux_prop_id: int = 0  # FAuxPropId - reference to BD_FLEXSITEMDETAILV
     qty: Decimal
     status: str
     create_date: Optional[str] = None

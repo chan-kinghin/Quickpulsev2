@@ -476,6 +476,7 @@ class SyncService:
             (
                 o.mto_number, o.bill_no, o.workshop, o.material_code,
                 o.material_name, o.specification, o.aux_attributes,
+                getattr(o, 'aux_prop_id', 0) or 0,  # For variant-aware matching
                 float(o.qty),
                 getattr(o, 'status', ''),  # Denormalized
                 getattr(o, 'create_date', None),  # Denormalized
@@ -488,12 +489,12 @@ class SyncService:
             f"""
             INSERT INTO {TABLE_ORDERS} (
                 mto_number, bill_no, workshop, material_code, material_name,
-                specification, aux_attributes, qty, status, create_date, raw_data, synced_at
+                specification, aux_attributes, aux_prop_id, qty, status, create_date, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, material_code, aux_prop_id) DO UPDATE SET
                 mto_number=excluded.mto_number, workshop=excluded.workshop,
-                material_code=excluded.material_code, material_name=excluded.material_name,
+                material_name=excluded.material_name,
                 specification=excluded.specification, aux_attributes=excluded.aux_attributes,
                 qty=excluded.qty, status=excluded.status, create_date=excluded.create_date,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
