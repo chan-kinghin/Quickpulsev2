@@ -61,13 +61,13 @@ class TestCreateAccessToken:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         exp_timestamp = payload["exp"]
 
-        # Expiry should be roughly 30 minutes from now (default)
+        # Expiry should be roughly 24 hours from now (default)
         exp_datetime = datetime.utcfromtimestamp(exp_timestamp)
         now = datetime.utcnow()
         diff = exp_datetime - now
 
-        # Should be between 29 and 31 minutes (accounting for test execution time)
-        assert timedelta(minutes=29) < diff < timedelta(minutes=31)
+        # Should be between 1439 and 1441 minutes (accounting for test execution time)
+        assert timedelta(minutes=1439) < diff < timedelta(minutes=1441)
 
 
 class TestGetCurrentUser:

@@ -168,7 +168,7 @@ class TestReaderConfigs:
     def test_subcontracting_order_config(self):
         """Test SUBCONTRACTING_ORDER_CONFIG."""
         config = SUBCONTRACTING_ORDER_CONFIG
-        assert config.form_id == "SUB_POORDER"
+        assert config.form_id == "SUB_SUBREQORDER"
 
     def test_sales_delivery_config(self):
         """Test SALES_DELIVERY_CONFIG."""
@@ -261,7 +261,7 @@ class TestGenericReader:
     async def test_fetch_by_mto(self, mock_kingdee_client):
         """Test fetch_by_mto calls client correctly."""
         reader = ProductionOrderReader(mock_kingdee_client)
-        mock_kingdee_client.query_by_mto = AsyncMock(
+        mock_kingdee_client.query_all = AsyncMock(
             return_value=[SAMPLE_PRODUCTION_ORDER_RAW]
         )
 
@@ -269,13 +269,13 @@ class TestGenericReader:
 
         assert len(results) == 1
         assert results[0].mto_number == "AK2510034"
-        mock_kingdee_client.query_by_mto.assert_called_once()
+        mock_kingdee_client.query_all.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_fetch_by_mto_empty(self, mock_kingdee_client):
         """Test fetch_by_mto with no results."""
         reader = ProductionOrderReader(mock_kingdee_client)
-        mock_kingdee_client.query_by_mto = AsyncMock(return_value=[])
+        mock_kingdee_client.query_all = AsyncMock(return_value=[])
 
         results = await reader.fetch_by_mto("NONEXISTENT")
 
@@ -353,4 +353,4 @@ class TestTypedReaders:
     def test_subcontracting_order_reader(self, mock_kingdee_client):
         """Test SubcontractingOrderReader initialization."""
         reader = SubcontractingOrderReader(mock_kingdee_client)
-        assert reader.form_id == "SUB_POORDER"
+        assert reader.form_id == "SUB_SUBREQORDER"

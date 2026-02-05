@@ -21,6 +21,7 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends
 from pydantic import Field, field_validator
@@ -225,14 +226,19 @@ class Config:
         self.reports_dir = reports_dir
 
     @classmethod
-    def load(cls, sync_path: str = "sync_config.json") -> "Config":
+    def load(
+        cls,
+        ini_path: Optional[str] = None,
+        sync_path: str = "sync_config.json",
+    ) -> "Config":
         """Factory method to load config.
 
-        Kingdee credentials: Environment variables > .env > conf.ini
-        Sync config: sync_config.json
+        Kingdee credentials: Environment variables/.env by default, or conf.ini
+        when ini_path is provided. Sync config: sync_config.json
         """
+        kingdee = KingdeeConfig.from_ini(ini_path) if ini_path else KingdeeConfig.load()
         return cls(
-            kingdee=KingdeeConfig.load(),
+            kingdee=kingdee,
             sync=SyncConfig.load(sync_path),
         )
 

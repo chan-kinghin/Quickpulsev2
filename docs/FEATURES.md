@@ -22,9 +22,7 @@ Query a **计划跟踪号** (MTO Number) to get the complete BOM status:
 |------------|-------------|
 | **Parent Item** | Customer name, delivery date |
 | **Child Items** | All BOM components with material types |
-| **Quantities** | Required, picked, ordered, received, unreceived |
-| **Stock** | Real-time inventory levels |
-| **Over-picking** | Highlighted in red when `picked_qty < 0` |
+| **Quantities** | Sales order, instock must/real, purchase order, pick actual, purchase stock-in |
 
 **API Endpoint**: `GET /api/mto/{mto_number}`
 
@@ -43,15 +41,16 @@ Query a **计划跟踪号** (MTO Number) to get the complete BOM status:
       "material_code": "07.01.001",
       "material_name": "Product Name",
       "specification": "Spec",
-      "material_type": "自制",
-      "required_qty": "100",
-      "picked_qty": "80",
-      "unpicked_qty": "20",
-      "order_qty": "100",
-      "received_qty": "100",
-      "unreceived_qty": "0",
-      "sales_outbound_qty": "100",
-      "current_stock": "50"
+      "bom_short_name": "BOM-Name",
+      "aux_attributes": "Blue",
+      "material_type": "成品",
+      "material_type_code": 1,
+      "sales_order_qty": "100",
+      "prod_instock_must_qty": "0",
+      "purchase_order_qty": "0",
+      "pick_actual_qty": "0",
+      "prod_instock_real_qty": "80",
+      "purchase_stock_in_qty": "0"
     }
   ],
   "query_time": "2025-02-02T10:30:45.123Z",
@@ -83,15 +82,15 @@ Query a **计划跟踪号** (MTO Number) to get the complete BOM status:
 | 物料编码 | `material_code` | Material code |
 | 物料名称 | `material_name` | Material name |
 | 规格型号 | `specification` | Specification |
-| 物料类型 | `material_type` | 自制/外购/委外 |
-| 需求量 | `required_qty` | Required quantity |
-| 已领量 | `picked_qty` | Picked quantity (red if negative) |
-| 未领量 | `unpicked_qty` | Unpicked quantity |
-| 订单数量 | `order_qty` | Order quantity |
-| 入库量 | `received_qty` | Received quantity |
-| 未入库量 | `unreceived_qty` | Unreceived quantity |
-| 销售出库 | `sales_outbound_qty` | Sales outbound quantity |
-| 即时库存 | `current_stock` | Current stock |
+| BOM简称 | `bom_short_name` | BOM short name (07.xx only) |
+| 辅助属性 | `aux_attributes` | Color/size variants |
+| 物料类型 | `material_type` | 成品/自制/包材 |
+| 销售订单.数量 | `sales_order_qty` | Sales order quantity (07.xx only) |
+| 生产入库单.应收数量 | `prod_instock_must_qty` | PRD_INSTOCK must qty (05.xx only) |
+| 采购订单.数量 | `purchase_order_qty` | Purchase order qty (03.xx only) |
+| 生产领料单.实发数量 | `pick_actual_qty` | Picked qty (05.xx/03.xx) |
+| 生产入库单.实收数量 | `prod_instock_real_qty` | PRD_INSTOCK real qty (07.xx/05.xx) |
+| 采购订单.累计入库数量 | `purchase_stock_in_qty` | Purchase stock-in qty (03.xx only) |
 
 ### Related Orders Section
 Shows all linked orders by type:

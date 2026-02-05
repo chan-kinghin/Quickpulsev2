@@ -218,16 +218,15 @@ MTO 单号 → 7个并行查询 → 按物料聚合 → 按类型构建 ChildIte
 | 物料编码 | `material_code` | 源单 | 等宽字体 |
 | 物料名称 | `material_name` | 源单 | - |
 | 规格型号 | `specification` | 源单 | 空值显示"-" |
+| BOM简称 | `bom_short_name` | SAL_SaleOrder | 仅成品(07.xx)显示 |
 | 辅助属性 | `aux_attributes` | BD_FLEXSITEMDETAILV | 空值显示"-" |
 | 物料类型 | `material_type` | 代码判断 | 徽章颜色 |
-| **需求量** | `required_qty` | 源单 FQty | 翠绿底 |
-| **已领量** | `picked_qty` | PRD_PickMtrl / SAL_OUTSTOCK | 翠绿底 |
-| **未领量** | `unpicked_qty` | 计算: 需求-已领 | **<0 红色+超领** |
-| **订单数量** | `order_qty` | 源单 FQty | 天蓝底 |
-| **入库量** | `received_qty` | PRD_INSTOCK / PUR.FStockInQty | 天蓝底 |
-| **未入库量** | `unreceived_qty` | 计算或 FRemainStockInQty | >0琥珀, =0翠绿 |
-| 销售出库 | `sales_outbound_qty` | SAL_OUTSTOCK | 紫罗兰底 |
-| 即时库存 | `current_stock` | - | ≤0 红色警告 |
+| **销售订单.数量** | `sales_order_qty` | SAL_SaleOrder.FQty | 成品(07.xx)显示 |
+| **生产入库单.应收数量** | `prod_instock_must_qty` | PRD_INSTOCK.FMustQty | 自制(05.xx)显示 |
+| **采购订单.数量** | `purchase_order_qty` | PUR_PurchaseOrder.FQty | 包材(03.xx)显示 |
+| **生产领料单.实发数量** | `pick_actual_qty` | PRD_PickMtrl.FActualQty | 05.xx/03.xx显示 |
+| **生产入库单.实收数量** | `prod_instock_real_qty` | PRD_INSTOCK.FRealQty | 07.xx/05.xx显示 |
+| **采购订单.累计入库数量** | `purchase_stock_in_qty` | PUR_PurchaseOrder.FStockInQty | 03.xx显示 |
 
 ---
 

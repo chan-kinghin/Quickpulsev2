@@ -32,7 +32,7 @@ class TestMaterialType:
     def test_display_names(self):
         """Test display name properties."""
         assert MaterialType.SELF_MADE.display_name == "自制"
-        assert MaterialType.PURCHASED.display_name == "外购"
+        assert MaterialType.PURCHASED.display_name == "包材"
         assert MaterialType.SUBCONTRACTED.display_name == "委外"
 
 
@@ -176,15 +176,13 @@ class TestMTOQueryHandler:
 
         assert result.mto_number == "AS2509076"
         assert result.data_source == "live"
-        # Should have 2 children (2 separate sales order rows, no aggregation)
-        assert len(result.children) == 2
-        # First child
-        assert result.children[0].material_code == "07.02.037"
-        assert result.children[0].required_qty == Decimal("2016")
-        assert result.children[0].material_type_name == "成品"
-        # Second child (different order)
-        assert result.children[1].material_code == "07.02.037"
-        assert result.children[1].required_qty == Decimal("1")
+        # Aggregated by (material_code, aux_prop_id)
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "07.02.037"
+        assert child.sales_order_qty == Decimal("2017")
+        assert child.prod_instock_real_qty == Decimal("2017")
+        assert child.material_type_name == "成品"
 
     @pytest.mark.asyncio
     async def test_get_status_purchase_order_03_class(
@@ -213,9 +211,9 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         for child in result.children:
             assert child.material_code.startswith("03.")
-            assert child.material_type_name == "外购"
-            # Purchase orders use their own stock_in_qty for receipt
-            assert child.receipt_source == "PUR_PurchaseOrder"
+            assert child.material_type_name == "包材"
+            assert child.purchase_order_qty == Decimal("100")
+            assert child.purchase_stock_in_qty == Decimal("80")
 
     @pytest.mark.asyncio
     async def test_get_status_production_order_05_class(
@@ -243,7 +241,9 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "05.01.001"
         assert child.material_type_name == "自制"
-        assert child.receipt_source == "PRD_INSTOCK"
+        assert child.prod_instock_must_qty == Decimal("50")
+        assert child.prod_instock_real_qty == Decimal("0")
+        assert child.pick_actual_qty == Decimal("0")
 
     @pytest.mark.asyncio
     async def test_get_status_cache_miss_fallback_to_live(
@@ -273,6 +273,9 @@ class TestMTOQueryHandler:
             return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
         )
         mock_cache.get_sales_delivery = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
+        )
+        mock_cache.get_production_bom_by_mto = AsyncMock(
             return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
         )
 
@@ -331,6 +334,9 @@ class TestMTOQueryHandler:
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
         mock_cache.get_sales_delivery = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        )
+        mock_cache.get_production_bom_by_mto = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
 
@@ -399,6 +405,7 @@ def mock_readers():
         mock = MagicMock()
         mock.client = MagicMock()
         mock.client.lookup_aux_properties = AsyncMock(return_value={})
+        mock.fetch_by_mto = AsyncMock(return_value=[])
         readers[name] = mock
     return readers
 

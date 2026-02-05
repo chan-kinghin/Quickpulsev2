@@ -179,7 +179,7 @@ class TestSalesOrderAggregation:
     async def test_single_sales_order_required_qty(
         self, mock_readers, sales_orders_single_material
     ):
-        """Test required_qty equals sum of sales order FQty."""
+        """Test sales_order_qty equals sum of sales order FQty."""
         mock_readers["sales_order"].fetch_by_mto = AsyncMock(
             return_value=sales_orders_single_material
         )
@@ -196,8 +196,8 @@ class TestSalesOrderAggregation:
         child = children_07[0]
         raw_qty = sum(so.qty for so in sales_orders_single_material)
 
-        assert child.required_qty == raw_qty
-        assert child.required_qty == Decimal("100")
+        assert child.sales_order_qty == raw_qty
+        assert child.sales_order_qty == Decimal("100")
 
     @pytest.mark.asyncio
     async def test_multiple_lines_aggregation(
@@ -218,8 +218,8 @@ class TestSalesOrderAggregation:
         # Should have 2 ChildItems: one for aux 1001, one for aux 1002
         assert len(children_07) == 2
 
-        # Total required should match raw total
-        qp_total = sum(c.required_qty for c in children_07)
+        # Total sales order qty should match raw total
+        qp_total = sum(c.sales_order_qty for c in children_07)
         raw_total = sum(so.qty for so in sales_orders_multiple_lines)
         assert qp_total == raw_total
         assert qp_total == Decimal("180")  # 100 + 50 + 30
@@ -228,7 +228,7 @@ class TestSalesOrderAggregation:
     async def test_receipt_qty_matches_instock(
         self, mock_readers, sales_orders_multiple_lines, receipts_matching_sales
     ):
-        """Test receipt_qty equals sum of PRD_INSTOCK FRealQty."""
+        """Test prod_instock_real_qty equals sum of PRD_INSTOCK FRealQty."""
         mock_readers["sales_order"].fetch_by_mto = AsyncMock(
             return_value=sales_orders_multiple_lines
         )
@@ -243,20 +243,20 @@ class TestSalesOrderAggregation:
         children_07 = [c for c in result.children if c.material_code.startswith("07.")]
 
         # Total receipt should match raw total
-        qp_total = sum(c.receipt_qty for c in children_07)
+        qp_total = sum(c.prod_instock_real_qty for c in children_07)
         raw_total = sum(r.real_qty for r in receipts_matching_sales)
         assert qp_total == raw_total
         assert qp_total == Decimal("130")  # 80 + 50
 
     @pytest.mark.asyncio
-    async def test_picked_qty_matches_outstock(
+    async def test_pick_actual_qty_ignored_for_finished_goods(
         self,
         mock_readers,
         sales_orders_multiple_lines,
         receipts_matching_sales,
         deliveries_matching_sales,
     ):
-        """Test picked_qty equals sum of SAL_OUTSTOCK FRealQty."""
+        """Test pick_actual_qty remains zero for finished goods."""
         mock_readers["sales_order"].fetch_by_mto = AsyncMock(
             return_value=sales_orders_multiple_lines
         )
@@ -273,36 +273,8 @@ class TestSalesOrderAggregation:
         children_07 = [c for c in result.children if c.material_code.startswith("07.")]
 
         # Total picked should match raw total
-        qp_total = sum(c.picked_qty for c in children_07)
-        raw_total = sum(d.real_qty for d in deliveries_matching_sales)
-        assert qp_total == raw_total
-        assert qp_total == Decimal("100")  # 60 + 40
-
-
-class TestUnreceivedCalculation:
-    """Tests for unreceived_qty calculation."""
-
-    @pytest.mark.asyncio
-    async def test_unreceived_equals_required_minus_receipt(
-        self, mock_readers, sales_orders_multiple_lines, receipts_matching_sales
-    ):
-        """Test unreceived_qty = required_qty - receipt_qty for each variant."""
-        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
-            return_value=sales_orders_multiple_lines
-        )
-        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
-            return_value=receipts_matching_sales
-        )
-        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
-
-        handler = create_test_handler(mock_readers)
-        result = await handler.get_status("TEST002", use_cache=False)
-
-        children_07 = [c for c in result.children if c.material_code.startswith("07.")]
-
-        for child in children_07:
-            expected_unreceived = child.required_qty - child.receipt_qty
-            assert child.unreceived_qty == expected_unreceived
+        qp_total = sum(c.pick_actual_qty for c in children_07)
+        assert qp_total == Decimal("0")
 
 
 class TestAuxPropertyGrouping:
@@ -355,9 +327,9 @@ class TestAuxPropertyGrouping:
         assert red_l is not None
 
         # Red-M: 100 + 30 = 130
-        assert red_m.required_qty == Decimal("130")
+        assert red_m.sales_order_qty == Decimal("130")
         # Red-L: 50
-        assert red_l.required_qty == Decimal("50")
+        assert red_l.sales_order_qty == Decimal("50")
 
 
 class TestEdgeCases:
@@ -389,7 +361,7 @@ class TestEdgeCases:
 
         children_07 = [c for c in result.children if c.material_code.startswith("07.")]
         assert len(children_07) == 1
-        assert children_07[0].required_qty == Decimal("0")
+        assert children_07[0].sales_order_qty == Decimal("0")
 
     @pytest.mark.asyncio
     async def test_no_receipts_no_deliveries(
@@ -409,10 +381,9 @@ class TestEdgeCases:
         assert len(children_07) == 1
 
         child = children_07[0]
-        assert child.required_qty == Decimal("100")
-        assert child.receipt_qty == Decimal("0")
-        assert child.picked_qty == Decimal("0")
-        assert child.unreceived_qty == Decimal("100")
+        assert child.sales_order_qty == Decimal("100")
+        assert child.prod_instock_real_qty == Decimal("0")
+        assert child.pick_actual_qty == Decimal("0")
 
     @pytest.mark.asyncio
     async def test_receipts_exceed_required(self, mock_readers):
@@ -453,6 +424,6 @@ class TestEdgeCases:
         assert len(children_07) == 1
 
         child = children_07[0]
-        assert child.required_qty == Decimal("100")
-        assert child.receipt_qty == Decimal("150")
-        assert child.unreceived_qty == Decimal("-50")  # Negative unreceived
+        assert child.sales_order_qty == Decimal("100")
+        assert child.prod_instock_real_qty == Decimal("150")
+        assert child.prod_instock_real_qty > child.sales_order_qty

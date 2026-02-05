@@ -159,7 +159,7 @@ class TestCacheOperations:
             (mto_number, bill_no, workshop, material_code, material_name,
              specification, aux_attributes, qty)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(bill_no) DO UPDATE SET
+            ON CONFLICT(bill_no, material_code, aux_prop_id) DO UPDATE SET
                 qty = excluded.qty,
                 material_name = excluded.material_name
             """,

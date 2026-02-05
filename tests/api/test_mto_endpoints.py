@@ -51,18 +51,13 @@ def sample_mto_response():
                 specification="Spec C1",
                 aux_attributes="",
                 material_type=1,
-                material_type_name="Self-made",
-                required_qty=Decimal("50"),
-                picked_qty=Decimal("30"),
-                unpicked_qty=Decimal("20"),
-                order_qty=Decimal("50"),
-                receipt_qty=Decimal("25"),
-                unreceived_qty=Decimal("25"),
-                pick_request_qty=Decimal("50"),
+                material_type_name="自制",
+                sales_order_qty=Decimal("0"),
+                prod_instock_must_qty=Decimal("50"),
+                purchase_order_qty=Decimal("0"),
                 pick_actual_qty=Decimal("30"),
-                delivered_qty=Decimal("10"),
-                inventory_qty=Decimal("15"),
-                receipt_source="PRD_INSTOCK",
+                prod_instock_real_qty=Decimal("25"),
+                purchase_stock_in_qty=Decimal("0"),
             ),
         ],
         query_time=datetime(2025, 1, 15, 10, 0),
@@ -313,7 +308,8 @@ class TestExportMTO:
         # Check Chinese headers
         assert "物料编码" in header_line
         assert "物料名称" in header_line
-        assert "需求量" in header_line
+        assert "销售订单.数量" in header_line
+        assert "生产领料单.实发数量" in header_line
 
     @pytest.mark.asyncio
     async def test_export_not_found(

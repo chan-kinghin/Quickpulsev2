@@ -42,21 +42,16 @@ class TestChildItem:
             aux_attributes="Blue",
             material_type=1,
             material_type_name="Self-made",
-            required_qty=Decimal("100"),
-            picked_qty=Decimal("50"),
-            unpicked_qty=Decimal("50"),
-            order_qty=Decimal("100"),
-            receipt_qty=Decimal("30"),
-            unreceived_qty=Decimal("70"),
-            pick_request_qty=Decimal("10"),
+            sales_order_qty=Decimal("0"),
+            prod_instock_must_qty=Decimal("100"),
+            purchase_order_qty=Decimal("0"),
             pick_actual_qty=Decimal("8"),
-            delivered_qty=Decimal("20"),
-            inventory_qty=Decimal("5"),
-            receipt_source="PRD_INSTOCK",
+            prod_instock_real_qty=Decimal("30"),
+            purchase_stock_in_qty=Decimal("0"),
         )
         assert child.material_code == "M001"
         assert child.material_type == 1
-        assert child.required_qty == Decimal("100")
+        assert child.prod_instock_must_qty == Decimal("100")
 
     def test_serialization_aliases(self):
         """Test serialization aliases are applied."""
@@ -67,17 +62,12 @@ class TestChildItem:
             aux_attributes="",
             material_type=2,
             material_type_name="Purchased",
-            required_qty=Decimal("100"),
-            picked_qty=Decimal("0"),
-            unpicked_qty=Decimal("100"),
-            order_qty=Decimal("100"),
-            receipt_qty=Decimal("80"),
-            unreceived_qty=Decimal("20"),
-            pick_request_qty=Decimal("0"),
+            sales_order_qty=Decimal("0"),
+            prod_instock_must_qty=Decimal("0"),
+            purchase_order_qty=Decimal("100"),
             pick_actual_qty=Decimal("0"),
-            delivered_qty=Decimal("0"),
-            inventory_qty=Decimal("0"),
-            receipt_source="STK_InStock",
+            prod_instock_real_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("80"),
         )
 
         # Serialize with aliases
@@ -86,14 +76,13 @@ class TestChildItem:
         # Check aliases are used
         assert "material_type_code" in data
         assert "material_type" in data  # This is material_type_name aliased
-        assert "received_qty" in data
-        assert "sales_outbound_qty" in data
-        assert "current_stock" in data
+        assert "sales_order_qty" in data
+        assert "prod_instock_real_qty" in data
 
         # Check values
         assert data["material_type_code"] == 2
         assert data["material_type"] == "Purchased"
-        assert data["received_qty"] == Decimal("80")
+        assert data["purchase_stock_in_qty"] == Decimal("80")
 
     def test_zero_decimal_values(self):
         """Test ChildItem with all zero decimal values."""
@@ -104,19 +93,14 @@ class TestChildItem:
             aux_attributes="",
             material_type=1,
             material_type_name="Self-made",
-            required_qty=Decimal("0"),
-            picked_qty=Decimal("0"),
-            unpicked_qty=Decimal("0"),
-            order_qty=Decimal("0"),
-            receipt_qty=Decimal("0"),
-            unreceived_qty=Decimal("0"),
-            pick_request_qty=Decimal("0"),
+            sales_order_qty=Decimal("0"),
+            prod_instock_must_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
             pick_actual_qty=Decimal("0"),
-            delivered_qty=Decimal("0"),
-            inventory_qty=Decimal("0"),
-            receipt_source="",
+            prod_instock_real_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
         )
-        assert child.required_qty == Decimal("0")
+        assert child.prod_instock_must_qty == Decimal("0")
 
 
 class TestMTOStatusResponse:
