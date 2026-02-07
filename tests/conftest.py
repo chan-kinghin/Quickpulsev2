@@ -16,6 +16,29 @@ pytest_plugins = ("pytest_asyncio",)
 
 
 # ============================================================================
+# E2E Marker Default Skip
+# ============================================================================
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-e2e",
+        action="store_true",
+        default=False,
+        help="Run tests marked as e2e (Playwright browser tests)",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if config.getoption("--run-e2e"):
+        return
+    skip_e2e = pytest.mark.skip(reason="use --run-e2e to run end-to-end tests")
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip_e2e)
+
+
+# ============================================================================
 # Event Loop Fixture
 # ============================================================================
 
