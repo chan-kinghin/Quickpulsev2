@@ -41,7 +41,9 @@ function mtoSearch() {
             // 领料/入库列
             { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '05,03' },
             { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '07,05' },
-            { key: 'purchase_stock_in_qty', label: '采购订单.累计入库数量', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '03' }
+            { key: 'purchase_stock_in_qty', label: '采购订单.累计入库数量', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '03' },
+            // 语义层：完成率列（从 metrics 计算得出）
+            { key: 'fulfillment_rate', label: '完成率', width: 100, minWidth: 70, resizable: true, visible: true, sortable: true, locked: false, group: 'semantic' }
         ],
 
         // === Sorting ===
@@ -178,9 +180,14 @@ function mtoSearch() {
                 // Material type filter
                 if (!this.filters.materialTypes[item.material_type]) return false;
 
-                // Status filter - 简化版，不再使用计算字段
-                // 由于不再计算未领/未入库数量，状态筛选功能暂时禁用
-                // 保留代码结构以便未来需要时恢复
+                // Status filter — uses server-computed completion_status from semantic layer
+                if (this.filters.status !== 'all' && item.metrics?.completion_status?.status) {
+                    const itemStatus = item.metrics.completion_status.status;
+                    if (this.filters.status === 'completed' && itemStatus !== 'completed') return false;
+                    if (this.filters.status === 'in_progress' && itemStatus !== 'in_progress') return false;
+                    if (this.filters.status === 'not_started' && itemStatus !== 'not_started') return false;
+                    if (this.filters.status === 'warning' && itemStatus !== 'warning') return false;
+                }
 
                 // Text search (material code + name + spec + aux)
                 if (this.filters.searchText) {
@@ -203,8 +210,21 @@ function mtoSearch() {
 
             if (this.sort.column && this.sort.direction) {
                 items.sort((a, b) => {
-                    let valA = a[this.sort.column];
-                    let valB = b[this.sort.column];
+                    let valA, valB;
+
+                    // Handle metric columns (nested in metrics dict)
+                    if (this.sort.column === 'fulfillment_rate') {
+                        valA = this.getFulfillmentRate(a);
+                        valB = this.getFulfillmentRate(b);
+                        // Nulls sort last
+                        if (valA === null && valB === null) return 0;
+                        if (valA === null) return 1;
+                        if (valB === null) return -1;
+                        return this.sort.direction === 'asc' ? valA - valB : valB - valA;
+                    }
+
+                    valA = a[this.sort.column];
+                    valB = b[this.sort.column];
 
                     // Handle numeric values
                     const numA = parseFloat(valA);
@@ -301,14 +321,16 @@ function mtoSearch() {
         },
 
         // === Column Resize Methods ===
-        startResize(event, columnIndex) {
+        startResize(event, columnKey) {
             event.preventDefault();
             event.stopPropagation();
+            const colIndex = this.columns.findIndex(c => c.key === columnKey);
+            if (colIndex === -1) return;
             this.resizing = {
                 active: true,
-                columnIndex,
+                columnIndex: colIndex,
                 startX: event.clientX,
-                startWidth: this.columns[columnIndex].width
+                startWidth: this.columns[colIndex].width
             };
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
@@ -332,6 +354,11 @@ function mtoSearch() {
         getColumnStyle(columnKey) {
             const col = this.columns.find(c => c.key === columnKey);
             return col ? `width: ${col.width}px; min-width: ${col.minWidth}px;` : '';
+        },
+
+        colVisible(key) {
+            const col = this.columns.find(c => c.key === key);
+            return col ? col.visible : false;
         },
 
         // === Search History Methods ===
@@ -451,6 +478,7 @@ function mtoSearch() {
                         const is05 = code.startsWith('05');
                         const is03 = code.startsWith('03');
 
+                        const rate = this.getFulfillmentRate(item);
                         return {
                             '序号': index + 1,
                             '物料编码': code,
@@ -463,7 +491,8 @@ function mtoSearch() {
                             '采购订单.数量': is03 ? parseFloat(item.purchase_order_qty) || 0 : '-',
                             '生产领料单.实发数量': (is05 || is03) ? parseFloat(item.pick_actual_qty) || 0 : '-',
                             '生产入库单.实收数量': (is07 || is05) ? parseFloat(item.prod_instock_real_qty) || 0 : '-',
-                            '采购订单.累计入库数量': is03 ? parseFloat(item.purchase_stock_in_qty) || 0 : '-'
+                            '采购订单.累计入库数量': is03 ? parseFloat(item.purchase_stock_in_qty) || 0 : '-',
+                            '完成率': rate !== null ? `${(rate * 100).toFixed(0)}%` : '-'
                         };
                     });
 
@@ -475,7 +504,7 @@ function mtoSearch() {
                     ws['!cols'] = [
                         { wch: 6 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 },
                         { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 18 },
-                        { wch: 18 }, { wch: 20 }
+                        { wch: 18 }, { wch: 20 }, { wch: 10 }
                     ];
 
                     XLSX.writeFile(wb, `MTO_${this.mtoNumber}_${this.getTimestamp()}.xlsx`);
@@ -523,6 +552,44 @@ function mtoSearch() {
             } finally {
                 this.relatedOrdersLoading = false;
             }
+        },
+
+        // === Semantic Metric Helpers ===
+        getFulfillmentRate(item) {
+            const rate = item.metrics?.fulfillment_rate?.value;
+            if (rate === null || rate === undefined) return null;
+            return parseFloat(rate);
+        },
+
+        formatPercent(value) {
+            if (value === null || value === undefined) return '-';
+            const num = parseFloat(value);
+            if (isNaN(num)) return '-';
+            return (num * 100).toFixed(0) + '%';
+        },
+
+        getCompletionStatus(item) {
+            return item.metrics?.completion_status?.status || null;
+        },
+
+        getStatusColor(status) {
+            const colors = {
+                'completed': 'text-emerald-400',
+                'in_progress': 'text-amber-400',
+                'warning': 'text-rose-400',
+                'not_started': 'text-slate-500'
+            };
+            return colors[status] || 'text-slate-400';
+        },
+
+        getStatusBgColor(status) {
+            const colors = {
+                'completed': 'bg-emerald-500/15',
+                'in_progress': 'bg-amber-500/15',
+                'warning': 'bg-rose-500/15',
+                'not_started': 'bg-slate-500/10'
+            };
+            return colors[status] || '';
         },
 
         // === Utility Methods ===

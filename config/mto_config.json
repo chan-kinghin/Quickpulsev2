@@ -40,6 +40,29 @@
         "aux_attributes": "FAuxPropId",
         "bill_no": "FBillNo",
         "qty": "FQty"
+      },
+      "semantic": {
+        "demand_field": "sales_order_qty",
+        "fulfilled_field": "prod_instock_real_qty",
+        "picking_field": null,
+        "metrics": [
+          {
+            "name": "fulfillment_rate",
+            "label": "入库完成率",
+            "format": "percent",
+            "thresholds": { "completed": 1.0, "warning": 0.5 }
+          },
+          {
+            "name": "completion_status",
+            "label": "完成状态",
+            "format": "status",
+            "thresholds": { "completed": 1.0, "warning": 0.5 }
+          }
+        ],
+        "provenance": {
+          "sales_order_qty": { "source_form": "SAL_SaleOrder", "kingdee_field": "FQty" },
+          "prod_instock_real_qty": { "source_form": "PRD_INSTOCK", "kingdee_field": "FRealQty" }
+        }
       }
     },
     {
@@ -84,6 +107,35 @@
         "specification": "FMaterialId.FSpecification",
         "bill_no": "FBillNo",
         "qty": "FQty"
+      },
+      "semantic": {
+        "demand_field": "prod_instock_must_qty",
+        "fulfilled_field": "prod_instock_real_qty",
+        "picking_field": "pick_actual_qty",
+        "metrics": [
+          {
+            "name": "fulfillment_rate",
+            "label": "入库完成率",
+            "format": "percent",
+            "thresholds": { "completed": 1.0, "warning": 0.5 }
+          },
+          {
+            "name": "completion_status",
+            "label": "完成状态",
+            "format": "status",
+            "thresholds": { "completed": 1.0, "warning": 0.5 }
+          },
+          {
+            "name": "over_pick_amount",
+            "label": "超领量",
+            "format": "number"
+          }
+        ],
+        "provenance": {
+          "prod_instock_must_qty": { "source_form": "PRD_INSTOCK", "kingdee_field": "FMustQty" },
+          "prod_instock_real_qty": { "source_form": "PRD_INSTOCK", "kingdee_field": "FRealQty" },
+          "pick_actual_qty": { "source_form": "PRD_PickMtrl", "kingdee_field": "FActualQty" }
+        }
       }
     },
     {
@@ -126,6 +178,35 @@
         "aux_attributes": "FAuxPropId",
         "bill_no": "FBillNo",
         "qty": "FQty"
+      },
+      "semantic": {
+        "demand_field": "purchase_order_qty",
+        "fulfilled_field": "purchase_stock_in_qty",
+        "picking_field": "pick_actual_qty",
+        "metrics": [
+          {
+            "name": "fulfillment_rate",
+            "label": "入库完成率",
+            "format": "percent",
+            "thresholds": { "completed": 1.0, "warning": 0.5 }
+          },
+          {
+            "name": "completion_status",
+            "label": "完成状态",
+            "format": "status",
+            "thresholds": { "completed": 1.0, "warning": 0.5 }
+          },
+          {
+            "name": "over_pick_amount",
+            "label": "超领量",
+            "format": "number"
+          }
+        ],
+        "provenance": {
+          "purchase_order_qty": { "source_form": "PUR_PurchaseOrder", "kingdee_field": "FQty" },
+          "purchase_stock_in_qty": { "source_form": "PUR_PurchaseOrder", "kingdee_field": "FStockInQty" },
+          "pick_actual_qty": { "source_form": "PRD_PickMtrl", "kingdee_field": "FActualQty" }
+        }
       }
     }
   ],

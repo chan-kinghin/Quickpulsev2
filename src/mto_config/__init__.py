@@ -5,6 +5,8 @@ from src.mto_config.mto_config import (
     MaterialClassConfig,
     MTOConfig,
     ReceiptSourceConfig,
+    SemanticConfig,
+    SemanticMetricConfig,
 )
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "MaterialClassConfig",
     "MTOConfig",
     "ReceiptSourceConfig",
+    "SemanticConfig",
+    "SemanticMetricConfig",
 ]

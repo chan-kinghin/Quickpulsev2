@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,6 +34,54 @@ class ColumnConfig:
 
 
 @dataclass
+class SemanticMetricConfig:
+    """Configuration for a single computed metric."""
+
+    name: str
+    label: str
+    format: str = "number"
+    thresholds: dict[str, float] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SemanticMetricConfig":
+        return cls(
+            name=data["name"],
+            label=data.get("label", ""),
+            format=data.get("format", "number"),
+            thresholds=data.get("thresholds", {}),
+        )
+
+
+@dataclass
+class SemanticConfig:
+    """Semantic layer configuration for a material class.
+
+    Maps unified concepts (demand, fulfilled, picking) to
+    material-type-specific ChildItem field names.
+    """
+
+    demand_field: Optional[str] = None
+    fulfilled_field: Optional[str] = None
+    picking_field: Optional[str] = None
+    metrics: list[SemanticMetricConfig] = field(default_factory=list)
+    provenance: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SemanticConfig":
+        metrics = [
+            SemanticMetricConfig.from_dict(m)
+            for m in data.get("metrics", [])
+        ]
+        return cls(
+            demand_field=data.get("demand_field"),
+            fulfilled_field=data.get("fulfilled_field"),
+            picking_field=data.get("picking_field"),
+            metrics=metrics,
+            provenance=data.get("provenance", {}),
+        )
+
+
+@dataclass
 class MaterialClassConfig:
     """Configuration for a material class (e.g., 07.xx.xxx finished goods)."""
 
@@ -42,9 +93,13 @@ class MaterialClassConfig:
     mto_field: str
     columns: dict[str, ColumnConfig]
     item_fields: dict[str, str]
+    semantic: Optional[SemanticConfig] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaterialClassConfig":
+        semantic = None
+        if "semantic" in data:
+            semantic = SemanticConfig.from_dict(data["semantic"])
         return cls(
             id=data["id"],
             pattern=re.compile(data["pattern"]),
@@ -56,6 +111,7 @@ class MaterialClassConfig:
                 k: ColumnConfig.from_dict(v) for k, v in data["columns"].items()
             },
             item_fields=data["item_fields"],
+            semantic=semantic,
         )
 
     def matches(self, material_code: str) -> bool:
@@ -169,3 +225,90 @@ class MTOConfig:
                 if col.source:
                     forms.add(col.source)
         return forms
+
+    def build_metric_engine(self):
+        """Build a MetricEngine from the semantic config of all material classes.
+
+        Returns:
+            A MetricEngine with registered material class configs,
+            or None if no semantic configs are defined.
+
+        Raises:
+            ValueError: If a semantic field name does not exist on ChildItem.
+        """
+        from src.models.mto_status import ChildItem
+        from src.semantic.metrics import MaterialClassMetrics, MetricDefinition, MetricEngine
+
+        valid_fields = set(ChildItem.model_fields.keys())
+        engine = MetricEngine()
+        registered = 0
+
+        for mc in self._material_classes:
+            if not mc.semantic:
+                continue
+
+            sem = mc.semantic
+            self._validate_semantic_fields(mc.id, sem, valid_fields)
+
+            try:
+                metric_defs = [
+                    MetricDefinition(
+                        name=m.name,
+                        label=m.label,
+                        format=m.format,
+                        thresholds=m.thresholds,
+                    )
+                    for m in sem.metrics
+                ]
+
+                engine.register_class(MaterialClassMetrics(
+                    class_id=mc.id,
+                    pattern=mc.pattern,
+                    demand_field=sem.demand_field,
+                    fulfilled_field=sem.fulfilled_field,
+                    picking_field=sem.picking_field,
+                    metrics=metric_defs,
+                ))
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to build MetricDefinition for material class '{mc.id}': {exc}"
+                ) from exc
+
+            logger.debug("Registered semantic config for material class '%s'", mc.id)
+            registered += 1
+
+        if registered == 0:
+            logger.info("No semantic configs found in MTO config")
+            return None
+
+        logger.info("Built MetricEngine with %d material classes", registered)
+        return engine
+
+    @staticmethod
+    def _validate_semantic_fields(
+        class_id: str, sem: SemanticConfig, valid_fields: set[str]
+    ) -> None:
+        """Validate that semantic field names exist on the ChildItem model.
+
+        Args:
+            class_id: Material class identifier (for error messages).
+            sem: The semantic config whose fields are being validated.
+            valid_fields: Set of valid field names from ChildItem.model_fields.
+
+        Raises:
+            ValueError: If any configured field name is not a ChildItem field.
+        """
+        field_mapping = {
+            "demand_field": sem.demand_field,
+            "fulfilled_field": sem.fulfilled_field,
+            "picking_field": sem.picking_field,
+        }
+        for role, field_name in field_mapping.items():
+            if field_name is None:
+                continue
+            if field_name not in valid_fields:
+                raise ValueError(
+                    f"Material class '{class_id}': semantic {role}='{field_name}' "
+                    f"does not exist on ChildItem. "
+                    f"Valid fields: {sorted(valid_fields)}"
+                )

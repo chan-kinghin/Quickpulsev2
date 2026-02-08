@@ -7,6 +7,19 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
+class MetricValue(BaseModel):
+    """A single computed business metric attached to a ChildItem.
+
+    Represents unified concepts (e.g., fulfillment rate) that abstract over
+    material-type-specific Kingdee fields.
+    """
+
+    value: Optional[Decimal] = None
+    label: str = ""
+    format: str = "number"  # "number" | "percent" | "status"
+    status: Optional[str] = None  # "completed" | "in_progress" | "warning" | "not_started"
+
+
 class ParentItem(BaseModel):
     """Order info with sales order details."""
 
@@ -45,6 +58,12 @@ class ChildItem(BaseModel):
     pick_actual_qty: Decimal = Field(default=Decimal(0), description="生产领料单.实发数量")
     prod_instock_real_qty: Decimal = Field(default=Decimal(0), description="生产入库单.实收数量")
     purchase_stock_in_qty: Decimal = Field(default=Decimal(0), description="采购订单.累计入库数量")
+
+    # Semantic layer — computed business metrics (None when semantic layer is disabled)
+    metrics: Optional[dict[str, MetricValue]] = Field(
+        default=None,
+        description="Computed business metrics from the semantic layer",
+    )
 
 
 class MTOStatusResponse(BaseModel):

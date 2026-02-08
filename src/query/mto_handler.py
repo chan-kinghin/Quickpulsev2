@@ -23,6 +23,7 @@ from src.models.mto_status import (
     DocumentNode,
     MTORelatedOrdersResponse,
 )
+from src.semantic.enrichment import enrich_response
 
 logger = logging.getLogger(__name__)
 from src.readers import (
@@ -82,6 +83,7 @@ class MTOQueryHandler:
         sales_order_reader: SalesOrderReader,
         cache_reader: Optional["CacheReader"] = None,
         mto_config: Optional[MTOConfig] = None,
+        metric_engine=None,
         memory_cache_enabled: bool = True,
         memory_cache_size: int = 600,
         memory_cache_ttl: int = 300,
@@ -102,6 +104,9 @@ class MTOQueryHandler:
 
         # Load MTO configuration (material class mappings)
         self._mto_config = mto_config or MTOConfig()
+
+        # Semantic layer metric engine (None = disabled)
+        self._metric_engine = metric_engine
 
         # L2: SQLite cache reader
         self._cache_reader = cache_reader
@@ -508,7 +513,7 @@ class MTOQueryHandler:
                 cache_age = int((datetime.utcnow() - result.synced_at).total_seconds())
                 break
 
-        return MTOStatusResponse(
+        result = MTOStatusResponse(
             mto_number=mto_number,
             parent=parent,
             children=children,
@@ -516,6 +521,11 @@ class MTOQueryHandler:
             data_source="cache",
             cache_age_seconds=cache_age,
         )
+
+        if self._metric_engine:
+            enrich_response(result, self._metric_engine)
+
+        return result
 
     async def _fetch_live(self, mto_number: str) -> MTOStatusResponse:
         """Fetch data from live Kingdee API using config-driven logic.
@@ -745,13 +755,18 @@ class MTOQueryHandler:
         if not children and not sales_orders and not prod_orders and not purchase_orders:
             raise ValueError(f"No data found for MTO {mto_number}")
 
-        return MTOStatusResponse(
+        result = MTOStatusResponse(
             mto_number=mto_number,
             parent=parent,
             children=children,
             query_time=datetime.now(),
             data_source="live",
         )
+
+        if self._metric_engine:
+            enrich_response(result, self._metric_engine)
+
+        return result
 
     # NOTE: _build_sales_child and _build_production_child were removed as dead code.
     # These single-record build methods would cause double-counting bugs if activated.

@@ -81,6 +81,9 @@ async def lifespan(app: FastAPI):
     mto_config = MTOConfig("config/mto_config.json")
     logger.info("Loaded MTO config with %d material classes", len(mto_config.material_classes))
 
+    # Build semantic metric engine from config
+    metric_engine = mto_config.build_metric_engine()
+
     # Initialize MTO handler with memory cache configuration
     memory_cfg = config.sync.memory_cache
     mto_handler = MTOQueryHandler(
@@ -95,6 +98,7 @@ async def lifespan(app: FastAPI):
         sales_order_reader=readers["sales_order"],
         cache_reader=cache_reader,
         mto_config=mto_config,
+        metric_engine=metric_engine,
         memory_cache_enabled=memory_cfg.enabled,
         memory_cache_size=memory_cfg.max_size,
         memory_cache_ttl=memory_cfg.ttl_seconds,

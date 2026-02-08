@@ -251,6 +251,31 @@
                         </button>
                     </div>
 
+                    <!-- Status Filter -->
+                    <div class="filter-group">
+                        <span class="filter-label">状态:</span>
+                        <button @click="setStatusFilter('all')"
+                                class="filter-chip"
+                                :class="filters.status === 'all' ? 'filter-chip-active bg-slate-600 text-slate-200' : 'filter-chip-inactive'">
+                            全部
+                        </button>
+                        <button @click="setStatusFilter('completed')"
+                                class="filter-chip"
+                                :class="filters.status === 'completed' ? 'filter-chip-active bg-emerald-900/60 text-emerald-300 border-emerald-700' : 'filter-chip-inactive'">
+                            已完成
+                        </button>
+                        <button @click="setStatusFilter('in_progress')"
+                                class="filter-chip"
+                                :class="filters.status === 'in_progress' ? 'filter-chip-active bg-amber-900/60 text-amber-300 border-amber-700' : 'filter-chip-inactive'">
+                            进行中
+                        </button>
+                        <button @click="setStatusFilter('not_started')"
+                                class="filter-chip"
+                                :class="filters.status === 'not_started' ? 'filter-chip-active bg-slate-700 text-slate-300 border-slate-600' : 'filter-chip-inactive'">
+                            未开始
+                        </button>
+                    </div>
+
                     <!-- Text Search -->
                     <div class="filter-search relative">
                         <i data-lucide="search" class="w-4 h-4 filter-search-icon"></i>
@@ -272,13 +297,13 @@
                         <thead class="sticky top-0 z-10">
                             <tr role="row" class="border-b border-slate-700">
                                 <!-- 序号 - not sortable, not resizable -->
-                                <th scope="col" x-show="columns[0].visible"
+                                <th scope="col" x-show="colVisible('index')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sticky left-0 z-20"
                                     :style="getColumnStyle('index')">
                                     序号
                                 </th>
                                 <!-- 物料编码 - sortable -->
-                                <th scope="col" x-show="columns[1].visible"
+                                <th scope="col" x-show="colVisible('material_code')"
                                     @click="toggleSort('material_code')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('material_code')">
@@ -287,10 +312,10 @@
                                         <i :data-lucide="getSortIcon('material_code')" class="w-3 h-3"
                                            :class="sort.column === 'material_code' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 1)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_code')"></div>
                                 </th>
                                 <!-- 物料名称 - sortable -->
-                                <th scope="col" x-show="columns[2].visible"
+                                <th scope="col" x-show="colVisible('material_name')"
                                     @click="toggleSort('material_name')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('material_name')">
@@ -299,10 +324,10 @@
                                         <i :data-lucide="getSortIcon('material_name')" class="w-3 h-3"
                                            :class="sort.column === 'material_name' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 2)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_name')"></div>
                                 </th>
                                 <!-- 规格型号 - sortable -->
-                                <th scope="col" x-show="columns[3].visible"
+                                <th scope="col" x-show="colVisible('specification')"
                                     @click="toggleSort('specification')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('specification')">
@@ -311,10 +336,10 @@
                                         <i :data-lucide="getSortIcon('specification')" class="w-3 h-3"
                                            :class="sort.column === 'specification' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 3)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'specification')"></div>
                                 </th>
                                 <!-- BOM简称 - sortable, only for 07.xx.xxx (成品) -->
-                                <th scope="col" x-show="columns[4].visible"
+                                <th scope="col" x-show="colVisible('bom_short_name')"
                                     @click="toggleSort('bom_short_name')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('bom_short_name')">
@@ -323,17 +348,17 @@
                                         <i :data-lucide="getSortIcon('bom_short_name')" class="w-3 h-3"
                                            :class="sort.column === 'bom_short_name' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 4)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'bom_short_name')"></div>
                                 </th>
                                 <!-- 辅助属性 - not sortable -->
-                                <th scope="col" x-show="columns[5].visible"
+                                <th scope="col" x-show="colVisible('aux_attributes')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap relative resizable"
                                     :style="getColumnStyle('aux_attributes')">
                                     辅助属性
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 5)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'aux_attributes')"></div>
                                 </th>
                                 <!-- 物料类型 - sortable -->
-                                <th scope="col" x-show="columns[6].visible"
+                                <th scope="col" x-show="colVisible('material_type')"
                                     @click="toggleSort('material_type')"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('material_type')">
@@ -342,10 +367,10 @@
                                         <i :data-lucide="getSortIcon('material_type')" class="w-3 h-3"
                                            :class="sort.column === 'material_type' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 6)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_type')"></div>
                                 </th>
                                 <!-- 绿色组: 数量 (根据物料类型来源不同) -->
-                                <th scope="col" x-show="columns[7].visible"
+                                <th scope="col" x-show="colVisible('sales_order_qty')"
                                     @click="toggleSort('sales_order_qty')"
                                     class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900 sortable-header relative resizable"
                                     :style="getColumnStyle('sales_order_qty')">
@@ -354,9 +379,9 @@
                                         <i :data-lucide="getSortIcon('sales_order_qty')" class="w-3 h-3"
                                            :class="sort.column === 'sales_order_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 7)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'sales_order_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="columns[8].visible"
+                                <th scope="col" x-show="colVisible('prod_instock_must_qty')"
                                     @click="toggleSort('prod_instock_must_qty')"
                                     class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('prod_instock_must_qty')">
@@ -365,9 +390,9 @@
                                         <i :data-lucide="getSortIcon('prod_instock_must_qty')" class="w-3 h-3"
                                            :class="sort.column === 'prod_instock_must_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 8)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_must_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="columns[9].visible"
+                                <th scope="col" x-show="colVisible('purchase_order_qty')"
                                     @click="toggleSort('purchase_order_qty')"
                                     class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900 sortable-header relative resizable"
                                     :style="getColumnStyle('purchase_order_qty')">
@@ -376,10 +401,10 @@
                                         <i :data-lucide="getSortIcon('purchase_order_qty')" class="w-3 h-3"
                                            :class="sort.column === 'purchase_order_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 9)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_order_qty')"></div>
                                 </th>
                                 <!-- 领料/入库列 -->
-                                <th scope="col" x-show="columns[10].visible"
+                                <th scope="col" x-show="colVisible('pick_actual_qty')"
                                     @click="toggleSort('pick_actual_qty')"
                                     class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-l border-sky-900 sortable-header relative resizable"
                                     :style="getColumnStyle('pick_actual_qty')">
@@ -388,9 +413,9 @@
                                         <i :data-lucide="getSortIcon('pick_actual_qty')" class="w-3 h-3"
                                            :class="sort.column === 'pick_actual_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 10)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'pick_actual_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="columns[11].visible"
+                                <th scope="col" x-show="colVisible('prod_instock_real_qty')"
                                     @click="toggleSort('prod_instock_real_qty')"
                                     class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
                                     :style="getColumnStyle('prod_instock_real_qty')">
@@ -399,9 +424,9 @@
                                         <i :data-lucide="getSortIcon('prod_instock_real_qty')" class="w-3 h-3"
                                            :class="sort.column === 'prod_instock_real_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 11)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_real_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="columns[12].visible"
+                                <th scope="col" x-show="colVisible('purchase_stock_in_qty')"
                                     @click="toggleSort('purchase_stock_in_qty')"
                                     class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-r border-sky-900 sortable-header relative resizable"
                                     :style="getColumnStyle('purchase_stock_in_qty')">
@@ -410,69 +435,90 @@
                                         <i :data-lucide="getSortIcon('purchase_stock_in_qty')" class="w-3 h-3"
                                            :class="sort.column === 'purchase_stock_in_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
                                     </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 12)"></div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_stock_in_qty')"></div>
+                                </th>
+                                <!-- 完成率（语义层） -->
+                                <th scope="col" x-show="colVisible('fulfillment_rate')"
+                                    @click="toggleSort('fulfillment_rate')"
+                                    class="px-4 py-3 text-center font-medium text-amber-400 bg-slate-900 whitespace-nowrap border-l border-amber-900/50 sortable-header relative resizable"
+                                    :style="getColumnStyle('fulfillment_rate')">
+                                    <div class="flex items-center justify-center gap-1">
+                                        <span>完成率</span>
+                                        <i :data-lucide="getSortIcon('fulfillment_rate')" class="w-3 h-3"
+                                           :class="sort.column === 'fulfillment_rate' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'fulfillment_rate')"></div>
                                 </th>
                             </tr>
                         </thead>
                         <tbody role="rowgroup">
                             <template x-for="(item, index) in getSortedItems()" :key="item.material_code + '-' + index">
                                 <tr role="row" class="border-b border-slate-800 hover:bg-slate-800/50 transition">
-                                    <td x-show="columns[0].visible" role="cell" class="px-4 py-3 text-slate-500 bg-slate-900 sticky left-0 z-[5]" x-text="index + 1"></td>
-                                    <td x-show="columns[1].visible" role="cell" class="px-4 py-3 font-mono text-sm text-slate-300" x-text="item.material_code"></td>
-                                    <td x-show="columns[2].visible" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
-                                    <td x-show="columns[3].visible" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
+                                    <td x-show="colVisible('index')" role="cell" class="px-4 py-3 text-slate-500 bg-slate-900 sticky left-0 z-[5]" x-text="index + 1"></td>
+                                    <td x-show="colVisible('material_code')" role="cell" class="px-4 py-3 font-mono text-sm text-slate-300" x-text="item.material_code"></td>
+                                    <td x-show="colVisible('material_name')" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
+                                    <td x-show="colVisible('specification')" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
                                     <!-- BOM简称 - only for 07.xx.xxx (成品) -->
-                                    <td x-show="columns[4].visible" role="cell" class="px-4 py-3 text-slate-400"
+                                    <td x-show="colVisible('bom_short_name')" role="cell" class="px-4 py-3 text-slate-400"
                                         x-text="item.material_code?.startsWith('07') ? (item.bom_short_name || '-') : '-'"></td>
-                                    <td x-show="columns[5].visible" role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
+                                    <td x-show="colVisible('aux_attributes')" role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
                                         :title="item.aux_attributes || ''"
                                         x-text="item.aux_attributes || '-'"></td>
-                                    <td x-show="columns[6].visible" role="cell" class="px-4 py-3">
+                                    <td x-show="colVisible('material_type')" role="cell" class="px-4 py-3">
                                         <span class="px-2 py-1 rounded text-xs font-medium"
                                               :class="getMaterialTypeBadge(item.material_type)"
                                               x-text="item.material_type"></span>
                                     </td>
                                     <!-- 绿色组: 数量列 (根据物料类型显示) -->
-                                    <td x-show="columns[7].visible" role="cell"
+                                    <td x-show="colVisible('sales_order_qty')" role="cell"
                                         class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('07') ? formatNumber(item.sales_order_qty) : '-'"></td>
-                                    <td x-show="columns[8].visible" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
+                                    <td x-show="colVisible('prod_instock_must_qty')" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('05') ? formatNumber(item.prod_instock_must_qty) : '-'"></td>
-                                    <td x-show="columns[9].visible" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
+                                    <td x-show="colVisible('purchase_order_qty')" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('03') ? formatNumber(item.purchase_order_qty) : '-'"></td>
                                     <!-- 领料/入库列 -->
-                                    <td x-show="columns[10].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td x-show="colVisible('pick_actual_qty')" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="['03', '05'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.pick_actual_qty) : '-'"></td>
-                                    <td x-show="columns[11].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td x-show="colVisible('prod_instock_real_qty')" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="['05', '07'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.prod_instock_real_qty) : '-'"></td>
-                                    <td x-show="columns[12].visible" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td x-show="colVisible('purchase_stock_in_qty')" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="item.material_code?.startsWith('03') ? formatNumber(item.purchase_stock_in_qty) : '-'"></td>
+                                    <!-- 完成率 -->
+                                    <td x-show="colVisible('fulfillment_rate')" role="cell"
+                                        class="px-4 py-3 text-center font-medium"
+                                        :class="getFulfillmentRate(item) !== null ? getStatusColor(getCompletionStatus(item)) + ' ' + getStatusBgColor(getCompletionStatus(item)) : ''">
+                                        <span x-show="getFulfillmentRate(item) !== null" x-text="formatPercent(getFulfillmentRate(item))"></span>
+                                        <span x-show="getFulfillmentRate(item) === null" class="text-slate-600 cursor-help" title="语义层数据不可用">-</span>
+                                    </td>
                                 </tr>
                             </template>
                         </tbody>
                         <tfoot class="sticky bottom-0 z-10" x-data="{ totals: calculateTotals() }" x-effect="totals = calculateTotals()">
                             <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
-                                <td x-show="columns[0].visible" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
-                                <td x-show="columns[1].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="columns[2].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="columns[3].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="columns[4].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="columns[5].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="columns[6].visible" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="colVisible('index')" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
+                                <td x-show="colVisible('material_code')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="colVisible('material_name')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="colVisible('specification')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="colVisible('bom_short_name')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="colVisible('aux_attributes')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td x-show="colVisible('material_type')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <!-- 绿色组合计 -->
-                                <td x-show="columns[7].visible" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td x-show="colVisible('sales_order_qty')" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
                                     x-text="formatNumber(totals.sales_order_qty)"></td>
-                                <td x-show="columns[8].visible" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td x-show="colVisible('prod_instock_must_qty')" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
                                     x-text="formatNumber(totals.prod_instock_must_qty)"></td>
-                                <td x-show="columns[9].visible" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td x-show="colVisible('purchase_order_qty')" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
                                     x-text="formatNumber(totals.purchase_order_qty)"></td>
                                 <!-- 领料/入库合计 -->
-                                <td x-show="columns[10].visible" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td x-show="colVisible('pick_actual_qty')" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(totals.pick_actual_qty)"></td>
-                                <td x-show="columns[11].visible" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td x-show="colVisible('prod_instock_real_qty')" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(totals.prod_instock_real_qty)"></td>
-                                <td x-show="columns[12].visible" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td x-show="colVisible('purchase_stock_in_qty')" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(totals.purchase_stock_in_qty)"></td>
+                                <!-- 完成率合计 - 留空 (百分比合计无意义) -->
+                                <td x-show="colVisible('fulfillment_rate')" class="px-4 py-3 text-center text-slate-500 bg-slate-800">-</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -517,6 +563,17 @@
                                 <div class="bom-card-item" x-show="item.material_code?.startsWith('03')">
                                     <span class="bom-card-label">采购订单.累计入库数量</span>
                                     <span class="bom-card-value" x-text="formatNumber(item.purchase_stock_in_qty)"></span>
+                                </div>
+                                <!-- 完成率 -->
+                                <div class="bom-card-item">
+                                    <span class="bom-card-label">完成率</span>
+                                    <span x-show="getFulfillmentRate(item) !== null"
+                                          class="bom-card-value font-medium"
+                                          :class="getStatusColor(getCompletionStatus(item))"
+                                          x-text="formatPercent(getFulfillmentRate(item))"></span>
+                                    <span x-show="getFulfillmentRate(item) === null"
+                                          class="bom-card-value text-slate-600 cursor-help"
+                                          title="语义层数据不可用">-</span>
                                 </div>
                             </div>
                         </div>
