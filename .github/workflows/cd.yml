@@ -1,0 +1,37 @@
+name: CD
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - prod
+          - dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "env=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "env=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to CVM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.CVM_HOST }}
+          username: ${{ secrets.CVM_USER }}
+          key: ${{ secrets.CVM_SSH_KEY }}
+          timeout: 600s
+          script: /opt/ops/scripts/deploy.sh quickpulse ${{ steps.env.outputs.env }}
