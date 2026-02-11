@@ -410,126 +410,124 @@ Every `.md` plan must include:
 
 **Local development**:
 ```bash
-# Copy template and fill in credentials
 cp .env.example .env
 # Edit .env with your credentials
 ```
 
-**CVM/Production** (use env-file approach):
-```bash
-# Create credential file on CVM (one-time setup)
-cat > /home/ubuntu/.quickpulse.env << 'EOF'
-KINGDEE_SERVER_URL=http://flt.hotker.com:8200/k3cloud/
-KINGDEE_ACCT_ID=696f1cca847085
-KINGDEE_USER_NAME=张增辉
-KINGDEE_APP_ID=334941_QY7BWcsOTNoX1X+FS0RNSzxF2I16RBMJ
-KINGDEE_APP_SEC=b3ab5bd2958b4563a86fd80f6e68c872
-KINGDEE_LCID=2052
-EOF
-chmod 600 /home/ubuntu/.quickpulse.env
+**CVM credentials** are managed server-side at `/opt/ops/secrets/quickpulse/{prod,dev}.env`. Credentials are NOT baked into Docker images — the app will fail to start with a clear error if `KINGDEE_*` env vars are missing.
+
+### CVM Deployment (Shared Aliyun Ops Platform)
+
+**Server**: `root@121.41.81.36` (shared Aliyun CVM)
+**Platform root**: `/opt/ops/`
+**SSH password**: `!Fluent1234@` (use `expect` — special chars break `sshpass`)
+
+#### Directory Layout
+```
+/opt/ops/
+├── apps/quickpulse/
+│   ├── prod/
+│   │   ├── docker-compose.yml    # Compose for prod
+│   │   └── repo/                 # Git clone (main branch)
+│   └── dev/
+│       ├── docker-compose.yml    # Compose for dev
+│       └── repo/                 # Git clone (develop→main fallback)
+├── secrets/quickpulse/
+│   ├── prod.env                  # KINGDEE_* credentials (chmod 600)
+│   └── dev.env
+├── scripts/
+│   └── deploy.sh                 # Universal deploy script
+├── infra/
+│   ├── docker-compose.yml        # ops-nginx container
+│   └── nginx/conf.d/
+│       └── 20-quickpulse.conf    # Nginx routing rules
+├── monitoring/                   # Prometheus, Grafana, Loki, Promtail
+└── backups/                      # Automated daily/weekly backups
 ```
 
-**IMPORTANT**: Credentials are NOT baked into Docker images. The app will fail to start with a clear error if KINGDEE_* env vars are missing.
+#### Environments
 
-### CVM Deployment
+| Environment | Container | External Port | Nginx Route | Branch |
+|---|---|---|---|---|
+| **Prod** | `quickpulse-prod` | `:8003` | `quickpulse-prod:8000` | `main` |
+| **Dev** | `quickpulse-dev` | `:8004` | `quickpulse-dev:8000` | `develop` (fallback: `main`) |
 
-**Server**: `ubuntu@175.27.161.234`
-**Project Path**: `/home/ubuntu/Quickpulsev2`
-**SSH Password**: `+Vb~W^{zB4|*8`
+#### Docker Networking
 
-| Environment | Container | Port | Image |
-|-------------|-----------|------|-------|
-| **Prod** | `quickpulse-prod` | 8000 | `quickpulse:latest` |
-| **Dev** | `quickpulse-dev` | 8003 | `dev-quickpulse:latest` |
+All containers join the `ops-infra` external network so `ops-nginx` can route by container name. No host ports are exposed directly from app containers — nginx owns all external ports.
 
-### Auto-Deploy After Push
-
-**IMPORTANT**: After every `git push` to main, Claude MUST use the deployment helper script:
-
-```bash
-sshpass -p '+Vb~W^{zB4|*8' ssh ubuntu@175.27.161.234 './deploy.sh'
+```
+Client → :8003 → ops-nginx → quickpulse-prod:8000 (via ops-infra network)
+Client → :8004 → ops-nginx → quickpulse-dev:8000  (via ops-infra network)
 ```
 
-### Deployment Helper Script (`/home/ubuntu/deploy.sh`)
+#### Volumes (Docker named volumes)
 
-A helper script exists on the CVM that handles deployments reliably:
+| Volume | Container Path | Purpose |
+|---|---|---|
+| `qp-prod-data` / `qp-dev-data` | `/app/data` | SQLite DB |
+| `qp-prod-reports` / `qp-dev-reports` | `/app/reports` | Reports |
 
-| Command | Description |
-|---------|-------------|
-| `./deploy.sh` | **Smart deploy prod**: pulls code, detects changes, rebuilds if needed |
-| `./deploy.sh dev` | Smart deploy dev environment |
-| `./deploy.sh --all` | Deploy both prod and dev |
-| `./deploy.sh --force` | Force full rebuild prod with `--no-cache` |
-| `./deploy.sh dev --force` | Force full rebuild dev |
-| `./deploy.sh --restart` | Quick restart prod only (no rebuild) |
-| `./deploy.sh dev --restart` | Quick restart dev only |
-| `./deploy.sh --logs` | Show prod container logs |
-| `./deploy.sh dev --logs` | Show dev container logs |
-| `./deploy.sh --status` | Check all containers & health status |
+Config (`mto_config.json`) lives in the repo clone at `/opt/ops/apps/quickpulse/{env}/repo/config/`.
 
-**Smart Deploy Logic**:
-| Files Changed | Action |
-|---------------|--------|
-| `Dockerfile*`, `pyproject.toml`, `requirements*.txt` | Full rebuild with `--no-cache` |
-| `src/**` | Rebuild with `--no-cache` (prevents Docker cache bugs) |
-| `config/`, `sync_config.json` | Restart only |
-| `docs/**`, `*.md`, `tests/**` | No action |
+### Deploying
 
-**Why use this script**: Docker layer caching can cause issues where code changes aren't deployed even after `docker build`. The script always uses `--no-cache` for source changes to guarantee fresh code is deployed.
+#### CI/CD (Preferred)
 
-**Manual Commands** (only if deploy.sh fails):
+GitHub Actions CD workflow (`.github/workflows/cd.yml`):
+- **Push to `develop`** → auto-deploys to dev
+- **Manual dispatch** → choose prod or dev
+
+The workflow SSHes into the CVM using an ed25519 key (stored in GitHub Secrets as `CVM_SSH_KEY`) and runs the universal deploy script.
+
+#### Manual Deploy
+
 ```bash
-ssh ubuntu@175.27.161.234
-cd /home/ubuntu/Quickpulsev2
-git pull origin main
+# Deploy prod
+ssh root@121.41.81.36 '/opt/ops/scripts/deploy.sh quickpulse prod'
 
-# Build images
-docker build --no-cache -t quickpulse:latest -f docker/Dockerfile.dev .
-docker build --no-cache -t dev-quickpulse:latest -f docker/Dockerfile.dev .
-
-# Restart Prod (port 8000)
-docker stop quickpulse-prod && docker rm quickpulse-prod
-docker run -d \
-  --name quickpulse-prod \
-  --restart unless-stopped \
-  -p 8000:8000 \
-  --env-file /home/ubuntu/.quickpulse.env \
-  -v /home/ubuntu/quickpulse-data:/app/data \
-  -v /home/ubuntu/quickpulse-reports:/app/reports \
-  -v /home/ubuntu/quickpulse-config:/app/config:ro \
-  -v /home/ubuntu/sync_config.json:/app/sync_config.json:ro \
-  --health-cmd="curl -f http://localhost:8000/health || exit 1" \
-  --health-interval=30s \
-  quickpulse:latest
-
-# Restart Dev (port 8003)
-docker stop quickpulse-dev && docker rm quickpulse-dev
-docker run -d \
-  --name quickpulse-dev \
-  --restart unless-stopped \
-  -p 8003:8000 \
-  --env-file /home/ubuntu/.quickpulse.env \
-  -v /home/ubuntu/quickpulse-data:/app/data \
-  -v /home/ubuntu/quickpulse-reports:/app/reports \
-  -v /home/ubuntu/quickpulse-config:/app/config:ro \
-  -v /home/ubuntu/sync_config.json:/app/sync_config.json:ro \
-  --health-cmd="curl -f http://localhost:8000/health || exit 1" \
-  --health-interval=30s \
-  dev-quickpulse:latest
+# Deploy dev
+ssh root@121.41.81.36 '/opt/ops/scripts/deploy.sh quickpulse dev'
 ```
 
-**View Logs**:
+The deploy script (`/opt/ops/scripts/deploy.sh quickpulse <env>`):
+1. Backs up data (prod only)
+2. `git fetch && git reset --hard origin/<branch>`
+3. `docker compose build --no-cache`
+4. `docker compose up -d`
+5. Health check with retries (5 attempts, 30s interval)
+6. Auto-rollback on failure
+7. Image cleanup
+
+#### Quick SSH Access
+
+SSH password has special chars, so use `expect` instead of `sshpass`:
 ```bash
-./deploy.sh --logs
-# or manually:
-docker logs quickpulse-prod --tail 50
-docker logs quickpulse-dev --tail 50
+# Interactive SSH
+expect -c 'spawn ssh root@121.41.81.36; expect "password:"; send "!Fluent1234@\r"; interact'
+
+# Run a command
+expect -c 'spawn ssh root@121.41.81.36 "/opt/ops/scripts/deploy.sh quickpulse prod"; expect "password:"; send "!Fluent1234@\r"; interact'
 ```
 
-**Volume Mounts**:
-| Host Path | Container Path | Purpose |
-|-----------|---------------|---------|
-| `/home/ubuntu/quickpulse-data` | `/app/data` | SQLite DB |
-| `/home/ubuntu/quickpulse-reports` | `/app/reports` | Reports |
-| `/home/ubuntu/quickpulse-config` | `/app/config` | MTO config |
-| `/home/ubuntu/sync_config.json` | `/app/sync_config.json` | Sync settings |
+#### View Logs
+
+```bash
+ssh root@121.41.81.36 'cd /opt/ops/apps/quickpulse/prod && docker compose logs --tail 50'
+ssh root@121.41.81.36 'cd /opt/ops/apps/quickpulse/dev && docker compose logs --tail 50'
+```
+
+### Monitoring & Backups
+
+- **Grafana**: `:3100` on CVM (Prometheus + Loki datasources)
+- **Daily backups**: Automated via cron → `/opt/ops/backups/daily/`
+- **Deploy log**: `/opt/ops/deploy.log`
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| 502 Bad Gateway | Container not on `ops-infra` network | `docker network connect ops-infra quickpulse-prod` |
+| Container unhealthy | App crash or missing env vars | Check `docker compose logs` in app dir |
+| Deploy fails at health check | Slow startup or port conflict | Check deploy log, increase `start_period` in compose |
+| Nginx can't resolve container | Container name mismatch | Verify `container_name` in compose matches nginx `$upstream_*` var |
