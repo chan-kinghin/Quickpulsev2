@@ -366,8 +366,8 @@ python scripts/explore_all_api_fields.py
 
 ### CVM 测试 (远程部署)
 1. 推送到 `develop` 分支 → 自动部署到 dev 环境
-2. 访问 `http://121.41.81.36:8004` (dev)
+2. 访问 `https://dev.fltpulse.szfluent.cn` (dev)
 3. 手动部署 prod: `/opt/ops/scripts/deploy.sh quickpulse prod`
-4. 访问 `http://121.41.81.36:8003` (prod)
+4. 访问 `https://fltpulse.szfluent.cn` (prod)
 
 > 详细 CVM 信息见 `docs/CVM_INFRASTRUCTURE.md`

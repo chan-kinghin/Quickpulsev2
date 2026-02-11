@@ -423,21 +423,21 @@ cp .env.example .env
 **Server**: `root@121.41.81.36` (shared Aliyun ECS)
 **OS**: Ubuntu 22.04.5 LTS | 4 cores, 7.1 GB RAM, 59 GB disk
 **Platform root**: `/opt/ops/` — README at `/opt/ops/README.md`
-**SSH password**: `!Fluent1234@` (use `expect` with `-o PubkeyAuthentication=no`)
+**SSH**: Use `expect` with `-o PubkeyAuthentication=no` (password in `.env` or CVM secrets)
 
-#### Co-Hosted Apps (21 containers total)
+#### Domain Names (HTTPS — Let's Encrypt)
 
-| Port | Service | Stack |
-|------|---------|-------|
-| `:8001` | Fluent Skills **Prod** | Next.js 14 + Redis + SQLite |
-| `:8002` | Fluent Skills **Dev** | Next.js 14 + Redis + SQLite |
-| `:8003` | **QuickPulse Prod** | Python/FastAPI |
-| `:8004` | **QuickPulse Dev** | Python/FastAPI |
-| `:8010` | jiejiawater API **Prod** | NestJS + PG + Redis |
-| `:8011` | jiejiawater Admin **Prod** | Vue 3 + Naive UI |
-| `:8020` | jiejiawater API **Dev** | NestJS + PG + Redis |
-| `:8021` | jiejiawater Admin **Dev** | Vue 3 + Naive UI |
-| `:3100` | Grafana | Monitoring |
+| Domain | Service |
+|--------|---------|
+| **https://fltpulse.szfluent.cn** | **QuickPulse Prod** |
+| **https://dev.fltpulse.szfluent.cn** | **QuickPulse Dev** |
+| `https://fltskills.szfluent.cn` | Fluent Skills Prod |
+| `https://dev.fltskills.szfluent.cn` | Fluent Skills Dev |
+| `https://water.jiejia1997.com` | jiejiawater Prod |
+| `https://dev.water.jiejia1997.com` | jiejiawater Dev |
+| `http://121.41.81.36:3100` | Grafana (IP-only) |
+
+SSL certs auto-renew via certbot (expire 2026-05-12). Port-based access (`:8001-8021`) still works as legacy fallback.
 
 #### Directory Layout
 ```
@@ -518,13 +518,13 @@ The deploy script (`/opt/ops/scripts/deploy.sh quickpulse <env>`):
 
 #### Quick SSH Access
 
-SSH password has special chars, so use `expect` with `-o PubkeyAuthentication=no` (local SSH key has a passphrase that blocks non-interactive sessions):
+SSH password has special chars, so use `expect` with `-o PubkeyAuthentication=no` (local SSH key has a passphrase that blocks non-interactive sessions). Password is stored in `.env` as `CVM_PASSWORD`:
 ```bash
-# Interactive SSH
-expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36; expect "password:"; send "!Fluent1234@\r"; interact'
+# Interactive SSH (replace $CVM_PASSWORD with value from .env)
+expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36; expect "password:"; send "$CVM_PASSWORD\r"; interact'
 
 # Run a command
-expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36 "/opt/ops/scripts/deploy.sh quickpulse prod"; expect "password:"; send "!Fluent1234@\r"; expect eof'
+expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36 "<COMMAND>"; expect "password:"; send "$CVM_PASSWORD\r"; expect eof'
 ```
 
 #### View Logs

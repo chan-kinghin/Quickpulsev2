@@ -299,17 +299,18 @@ Response: MTOStatusResponse
 
 > Full infrastructure docs: `docs/CVM_INFRASTRUCTURE.md`
 
-| Environment | URL | Port | Branch |
+| Environment | Domain (HTTPS) | Legacy Port | Branch |
 |---|---|---|---|
-| **Prod** | `http://121.41.81.36:8003` | `:8003` | `main` |
-| **Dev** | `http://121.41.81.36:8004` | `:8004` | `develop` |
+| **Prod** | `https://fltpulse.szfluent.cn` | `:8003` | `main` |
+| **Dev** | `https://dev.fltpulse.szfluent.cn` | `:8004` | `develop` |
 
 - **Server**: `root@121.41.81.36` (Ubuntu 22.04.5 LTS, 4 cores, 7.1 GB RAM)
 - **Deploy**: `/opt/ops/scripts/deploy.sh quickpulse <prod|dev>`
 - **CI/CD**: Push to `develop` auto-deploys dev; manual dispatch for prod
 - **Secrets**: `/opt/ops/secrets/quickpulse/{prod,dev}.env` (KINGDEE_* credentials)
 - **Volumes**: `qp-{prod,dev}-data` (SQLite), `qp-{prod,dev}-reports` (reports)
-- **Co-hosted with**: Fluent Skills (`:8001/:8002`), jiejiawater (`:8010-8021`), Grafana (`:3100`)
+- **SSL**: Let's Encrypt (auto-renewal via certbot, expires 2026-05-12)
+- **Co-hosted with**: Fluent Skills (`fltskills.szfluent.cn`), jiejiawater (`water.jiejia1997.com`), Grafana (`:3100`)
 
 ### Local Development
 

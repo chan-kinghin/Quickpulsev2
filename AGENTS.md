@@ -19,8 +19,9 @@
 
 ## Deployment (CVM)
 - **Server**: `root@121.41.81.36` (shared Aliyun ECS)
-- **Prod**: `http://121.41.81.36:8003` (branch: `main`)
-- **Dev**: `http://121.41.81.36:8004` (branch: `develop`)
+- **Prod**: `https://fltpulse.szfluent.cn` (branch: `main`, legacy `:8003`)
+- **Dev**: `https://dev.fltpulse.szfluent.cn` (branch: `develop`, legacy `:8004`)
+- **SSL**: Let's Encrypt, auto-renewal via certbot (expires 2026-05-12)
 - **Deploy**: `/opt/ops/scripts/deploy.sh quickpulse <prod|dev>`
 - **CI/CD**: Push to `develop` auto-deploys dev; manual dispatch for prod
 - **Full docs**: `docs/CVM_INFRASTRUCTURE.md`

@@ -8,7 +8,7 @@
 |-------|-------|
 | **Host** | `121.41.81.36` |
 | **User** | `root` |
-| **Password** | `!Fluent1234@` |
+| **Password** | *(stored in `.env` as `CVM_PASSWORD`)* |
 | **OS** | Ubuntu 22.04.5 LTS |
 | **CPU** | 4 cores |
 | **RAM** | 7.1 GB |
@@ -17,24 +17,63 @@
 
 ### SSH Access
 
-The password contains special characters that break `sshpass`. Use `expect` with `-o PubkeyAuthentication=no` (local SSH key has a passphrase):
+The password contains special characters that break `sshpass`. Use `expect` with `-o PubkeyAuthentication=no` (local SSH key has a passphrase). Password is stored in `.env` as `CVM_PASSWORD`:
 
 ```bash
-# Interactive SSH
-expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36; expect "password:"; send "!Fluent1234@\r"; interact'
+# Interactive SSH (replace $CVM_PASSWORD with value from .env)
+expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36; expect "password:"; send "$CVM_PASSWORD\r"; interact'
 
 # Run a remote command
-expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36 "<COMMAND>"; expect "password:"; send "!Fluent1234@\r"; expect eof'
+expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36 "<COMMAND>"; expect "password:"; send "$CVM_PASSWORD\r"; expect eof'
 ```
 
 ---
 
-## Port Map
+## Domain Names (HTTPS)
+
+All services are accessible via custom subdomains with Let's Encrypt SSL certificates.
+
+| Domain | Service | Internal Route |
+|--------|---------|---------------|
+| **https://fltpulse.szfluent.cn** | **QuickPulse Prod** | `quickpulse-prod:8000` |
+| **https://dev.fltpulse.szfluent.cn** | **QuickPulse Dev** | `quickpulse-dev:8000` |
+| **https://fltskills.szfluent.cn** | Fluent Skills Prod | `fluent-skills-prod:3000` |
+| **https://dev.fltskills.szfluent.cn** | Fluent Skills Dev | `fluent-skills-dev:3000` |
+| **https://water.jiejia1997.com** | jiejiawater Prod | `/` → admin:80, `/api/` → api:3000 |
+| **https://dev.water.jiejia1997.com** | jiejiawater Dev | `/` → admin:80, `/api/` → api:3000 |
+| **http://121.41.81.36:3100** | Grafana | IP-only (not exposed via subdomain) |
+
+### SSL Certificates
+
+| Certificate | Domains | Expiry |
+|-------------|---------|--------|
+| `szfluent` | fltskills.szfluent.cn, dev.fltskills.szfluent.cn, fltpulse.szfluent.cn, dev.fltpulse.szfluent.cn | 2026-05-12 |
+| `jiejia1997` | water.jiejia1997.com, dev.water.jiejia1997.com | 2026-05-12 |
+
+- **Issuer**: Let's Encrypt (certbot webroot)
+- **Auto-renewal**: systemd timer (`certbot.timer`, twice daily)
+- **Deploy hook**: `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`
+- **ACME webroot**: `/opt/ops/certbot/www/`
+- **Cert paths**: `/etc/letsencrypt/live/{jiejia1997,szfluent}/`
+- **Nginx config**: `/opt/ops/infra/nginx/conf.d/40-subdomains.conf`
+
+### SSL Security
+
+- TLS 1.2 and 1.3 only (no SSLv3, TLS 1.0, 1.1)
+- Modern cipher suite (ECDHE + AES-GCM + CHACHA20-POLY1305)
+- HSTS: `max-age=63072000; includeSubDomains` (2 years)
+- HTTP/2 enabled
+- DH parameters: 2048-bit (`/opt/ops/infra/nginx/ssl/dhparam.pem`)
+- HTTP → HTTPS 301 permanent redirect on all subdomains
+
+---
+
+## Port Map (legacy, still active)
 
 | Port | Service | Stack |
 |------|---------|-------|
-| **80** | Ops Portal (nginx status) | Infrastructure |
-| **443** | HTTPS (reserved) | Infrastructure |
+| **80** | HTTP → HTTPS redirect + ACME challenges | Infrastructure |
+| **443** | HTTPS (all subdomains) | Infrastructure |
 | **8001** | Fluent Skills **Prod** | Next.js 14 |
 | **8002** | Fluent Skills **Dev** | Next.js 14 |
 | **8003** | QuickPulse **Prod** | Python/FastAPI |
@@ -96,7 +135,7 @@ expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root
 
 | Container | Memory Limit | Purpose |
 |-----------|-------------|---------|
-| `ops-nginx` | 32 MB | Reverse proxy (all traffic) |
+| `ops-nginx` | 32 MB | Reverse proxy (all traffic, HTTPS termination) |
 | `ops-prometheus` | 64 MB | Metrics (7-day retention) |
 | `ops-grafana` | 96 MB | Dashboards |
 | `ops-loki` | 64 MB | Log aggregation |
@@ -121,15 +160,20 @@ expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root
 │       ├── docker-compose.yml
 │       ├── nginx-admin.conf             ← Vue admin nginx config
 │       └── repo/
+├── certbot/                             ← Let's Encrypt ACME
+│   └── www/                             ← Webroot for domain validation
 ├── infra/                               ← Shared infrastructure
-│   ├── docker-compose.yml               ← ops-nginx
+│   ├── docker-compose.yml               ← ops-nginx (+certbot volumes)
 │   └── nginx/
 │       ├── nginx.conf
-│       └── conf.d/
-│           ├── 00-status.conf           ← Ops portal + health endpoint
-│           ├── 10-fluent-skills.conf    ← FS proxy (8001/8002)
-│           ├── 20-quickpulse.conf       ← QP proxy (8003/8004)
-│           └── 30-jiejiawater.conf      ← JW proxy (8010-8021)
+│       ├── conf.d/
+│       │   ├── 00-status.conf           ← Ops portal + health endpoint
+│       │   ├── 10-fluent-skills.conf    ← FS proxy (8001/8002)
+│       │   ├── 20-quickpulse.conf       ← QP proxy (8003/8004)
+│       │   ├── 30-jiejiawater.conf      ← JW proxy (8010-8021)
+│       │   └── 40-subdomains.conf       ← Domain-based routing + SSL
+│       └── ssl/
+│           └── dhparam.pem              ← DH parameters (2048-bit)
 ├── monitoring/                          ← Observability stack
 │   ├── docker-compose.yml
 │   ├── prometheus/prometheus.yml
@@ -155,18 +199,27 @@ expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root
 
 ## Networking
 
-All traffic enters through `ops-nginx`, which routes by port to containers via Docker DNS on `ops-infra`:
+All traffic enters through `ops-nginx` on ports 80 (HTTP redirect) and 443 (HTTPS), routing by domain name to containers via Docker DNS on `ops-infra`:
 
 ```
-Internet → ops-nginx
-              ├─ :8001 → fluent-skills-prod:3000
-              ├─ :8002 → fluent-skills-dev:3000
-              ├─ :8003 → quickpulse-prod:8000
-              ├─ :8004 → quickpulse-dev:8000
-              ├─ :8010 → jiejia-api-prod:3000
-              ├─ :8011 → jiejia-admin-prod:80
-              ├─ :8020 → jiejia-api-dev:3000
-              └─ :8021 → jiejia-admin-dev:80
+Internet
+  │
+  ├─ HTTPS (:443) — Domain-based routing
+  │   ├─ fltpulse.szfluent.cn       → quickpulse-prod:8000
+  │   ├─ dev.fltpulse.szfluent.cn   → quickpulse-dev:8000
+  │   ├─ fltskills.szfluent.cn      → fluent-skills-prod:3000
+  │   ├─ dev.fltskills.szfluent.cn  → fluent-skills-dev:3000
+  │   ├─ water.jiejia1997.com
+  │   │   ├─ /api/*  → jiejia-api-prod:3000
+  │   │   └─ /*      → jiejia-admin-prod:80
+  │   └─ dev.water.jiejia1997.com
+  │       ├─ /api/*  → jiejia-api-dev:3000
+  │       └─ /*      → jiejia-admin-dev:80
+  │
+  ├─ HTTP (:80) — Redirects to HTTPS (+ ACME challenges)
+  │
+  └─ Port-based routing (legacy, still active)
+      ├─ :8001-8004, :8010-8011, :8020-8021
 ```
 
 ### Docker Networks
@@ -230,9 +283,17 @@ ssh root@121.41.81.36 'cd /opt/ops/apps/jiejiawater/prod && docker compose logs 
 
 ---
 
+## Automated Operations (Cron)
+
+| Schedule | Command | Purpose |
+|----------|---------|---------|
+| Daily 3 AM | `backup.sh daily` | Daily database + config backups |
+| Sunday 4 AM | `backup.sh weekly` | Weekly full backups |
+| Twice daily | `certbot renew` (systemd timer) | SSL certificate auto-renewal |
+
 ## Monitoring & Backups
 
-- **Grafana**: `http://121.41.81.36:3100` (Prometheus + Loki datasources)
+- **Grafana**: `http://121.41.81.36:3100` (IP-only, not exposed via subdomain)
 - **Daily backups**: 3 AM → `/opt/ops/backups/daily/`
 - **Weekly backups**: Sunday 4 AM → `/opt/ops/backups/weekly/`
 - **Deploy log**: `/opt/ops/deploy.log`
@@ -245,6 +306,9 @@ ssh root@121.41.81.36 'cd /opt/ops/apps/jiejiawater/prod && docker compose logs 
 - Nginx rate limiting on production endpoints (`limit_req zone=general/api`)
 - No container ports exposed directly — all proxied through nginx
 - SSH key-based CI/CD (ed25519 at `/root/.ssh/id_cicd_ed25519`)
+- SSL: TLS 1.2/1.3 only, modern cipher suite, HSTS (2 years), 2048-bit DH params
+- Certbot auto-renewal with nginx reload deploy hook
+- HTTP → HTTPS redirect enforced on all subdomains
 
 ---
 
@@ -257,3 +321,5 @@ ssh root@121.41.81.36 'cd /opt/ops/apps/jiejiawater/prod && docker compose logs 
 | Deploy fails at health check | Slow startup or port conflict | Check deploy log, increase `start_period` |
 | Nginx can't resolve container | Container name mismatch | Verify `container_name` matches nginx `$upstream_*` |
 | SSH passphrase prompt | Local key has passphrase | Use `-o PubkeyAuthentication=no` flag |
+| SSL cert expired | Certbot renewal failed | `certbot renew --dry-run`, check `certbot.timer` |
+| Mixed content warnings | HTTP assets on HTTPS page | Ensure all URLs use `https://` or `//` |

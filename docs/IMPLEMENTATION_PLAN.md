@@ -2180,8 +2180,9 @@ tests/
 ### CVM Deployment ✅ COMPLETE (2026-02-11)
 
 Deployed to shared Aliyun CVM at `121.41.81.36`:
-- **Prod**: `:8003` → `quickpulse-prod` container (128 MB, `main` branch)
-- **Dev**: `:8004` → `quickpulse-dev` container (96 MB, `develop` branch)
+- **Prod**: `https://fltpulse.szfluent.cn` → `quickpulse-prod` (128 MB, `main` branch)
+- **Dev**: `https://dev.fltpulse.szfluent.cn` → `quickpulse-dev` (96 MB, `develop` branch)
+- **SSL**: Let's Encrypt (auto-renewal via certbot, expires 2026-05-12)
 - **CI/CD**: Push to `develop` auto-deploys dev; manual dispatch for prod
 - **Infrastructure**: See `docs/CVM_INFRASTRUCTURE.md` for full details
 

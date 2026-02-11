@@ -195,10 +195,10 @@ pick_actual_qty = Σ PRD_PickMtrl.FActualQty
 
 ### CVM (共享阿里云 ECS)
 
-| 环境 | 地址 | 端口 | 分支 |
-|------|------|------|------|
-| **生产** | `http://121.41.81.36:8003` | `:8003` | `main` |
-| **开发** | `http://121.41.81.36:8004` | `:8004` | `develop` |
+| 环境 | 域名 (HTTPS) | 旧端口 | 分支 |
+|------|-------------|--------|------|
+| **生产** | `https://fltpulse.szfluent.cn` | `:8003` | `main` |
+| **开发** | `https://dev.fltpulse.szfluent.cn` | `:8004` | `develop` |
 
 - **部署命令**: `/opt/ops/scripts/deploy.sh quickpulse <prod|dev>`
 - **CI/CD**: 推送到 `develop` 自动部署 dev；手动触发部署 prod
