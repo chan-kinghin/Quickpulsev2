@@ -15,6 +15,7 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .[dev]
 
 COPY src/ ./src/
+COPY config/ ./config/
 # NOTE: conf.ini is NOT copied - credentials must come from environment variables
 COPY sync_config.json ./
 
