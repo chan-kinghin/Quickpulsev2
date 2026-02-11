@@ -63,6 +63,27 @@ class Database:
                         )
                         continue
 
+                if migration_file.name == "004_fix_receipt_unique_constraints.sql":
+                    # Check if bill_no column already exists (schema.sql may have it on fresh DB)
+                    if await self._column_exists("cached_production_receipts", "bill_no"):
+                        # Column exists — just fix the indexes (idempotent part)
+                        await self._connection.executescript("""
+                            DROP INDEX IF EXISTS idx_prdr_unique;
+                            DROP INDEX IF EXISTS idx_sald_unique;
+                            DROP INDEX IF EXISTS idx_purr_unique;
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_prdr_unique
+                            ON cached_production_receipts(bill_no, mto_number, material_code, aux_prop_id);
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_sald_unique
+                            ON cached_sales_delivery(bill_no, mto_number, material_code, aux_prop_id);
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_purr_unique
+                            ON cached_purchase_receipts(bill_no, mto_number, material_code, bill_type_number);
+                        """)
+                        await self._connection.execute(
+                            "INSERT INTO _migrations (name) VALUES (?)",
+                            [migration_file.name]
+                        )
+                        continue
+
                 sql = migration_file.read_text(encoding="utf-8")
                 await self._connection.executescript(sql)
                 await self._connection.execute(

@@ -89,6 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_subo_mto_synced ON cached_subcontracting_orders(m
 -- Production receipts cache (自制件入库)
 CREATE TABLE IF NOT EXISTS cached_production_receipts (
     id INTEGER PRIMARY KEY,
+    bill_no TEXT DEFAULT '',        -- Receipt document number (multiple per variant)
     mto_number TEXT NOT NULL,
     material_code TEXT NOT NULL,
     real_qty REAL,
@@ -104,6 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_prdr_material_aux ON cached_production_receipts(m
 -- Purchase receipts cache (外购/委外入库)
 CREATE TABLE IF NOT EXISTS cached_purchase_receipts (
     id INTEGER PRIMARY KEY,
+    bill_no TEXT DEFAULT '',        -- Receipt document number (multiple per variant)
     mto_number TEXT NOT NULL,
     material_code TEXT NOT NULL,
     real_qty REAL,
@@ -135,6 +137,7 @@ CREATE INDEX IF NOT EXISTS idx_pick_material_aux ON cached_material_picking(mate
 -- Sales delivery cache (销售出库)
 CREATE TABLE IF NOT EXISTS cached_sales_delivery (
     id INTEGER PRIMARY KEY,
+    bill_no TEXT DEFAULT '',        -- Delivery document number (multiple per variant)
     mto_number TEXT NOT NULL,
     material_code TEXT NOT NULL,
     real_qty REAL,

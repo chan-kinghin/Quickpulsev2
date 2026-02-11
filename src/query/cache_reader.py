@@ -166,29 +166,30 @@ class CacheReader:
         """Get cached production receipts (自制件入库) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
-            SELECT mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
+            SELECT bill_no, mto_number, material_code, real_qty, must_qty,
+                   aux_prop_id, raw_data, synced_at
             FROM cached_production_receipts
             WHERE mto_number LIKE ?
             """,
             [f"{mto_number}%"],
         )
         return self._build_cache_result(
-            rows, self._row_to_production_receipt, synced_at_index=6
+            rows, self._row_to_production_receipt, synced_at_index=7
         )
 
     async def get_purchase_receipts(self, mto_number: str) -> CacheResult:
         """Get cached purchase receipts (外购/委外入库) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
-            SELECT mto_number, material_code, real_qty, must_qty, bill_type_number,
-                   raw_data, synced_at
+            SELECT bill_no, mto_number, material_code, real_qty, must_qty,
+                   bill_type_number, raw_data, synced_at
             FROM cached_purchase_receipts
             WHERE mto_number LIKE ?
             """,
             [f"{mto_number}%"],
         )
         return self._build_cache_result(
-            rows, self._row_to_purchase_receipt, synced_at_index=6
+            rows, self._row_to_purchase_receipt, synced_at_index=7
         )
 
     async def get_material_picking(self, mto_number: str) -> CacheResult:
@@ -210,14 +211,15 @@ class CacheReader:
         """Get cached sales delivery records (销售出库) for MTO number (prefix match)."""
         rows = await self.db.execute_read(
             """
-            SELECT mto_number, material_code, real_qty, must_qty, aux_prop_id, raw_data, synced_at
+            SELECT bill_no, mto_number, material_code, real_qty, must_qty,
+                   aux_prop_id, raw_data, synced_at
             FROM cached_sales_delivery
             WHERE mto_number LIKE ?
             """,
             [f"{mto_number}%"],
         )
         return self._build_cache_result(
-            rows, self._row_to_sales_delivery, synced_at_index=6
+            rows, self._row_to_sales_delivery, synced_at_index=7
         )
 
     async def get_sales_orders(self, mto_number: str) -> CacheResult:
@@ -364,8 +366,8 @@ class CacheReader:
         """Convert database row to ProductionReceiptModel.
 
         Row columns:
-        0: mto_number, 1: material_code, 2: real_qty, 3: must_qty,
-        4: aux_prop_id, 5: raw_data, 6: synced_at
+        0: bill_no, 1: mto_number, 2: material_code, 3: real_qty, 4: must_qty,
+        5: aux_prop_id, 6: raw_data, 7: synced_at
 
         Note: material_name and specification come from raw_data JSON if available,
         otherwise default to empty string (will be populated from live API).
@@ -373,33 +375,40 @@ class CacheReader:
         # Try to extract material_name and specification from raw_data JSON
         material_name = ""
         specification = ""
-        if row[5]:
+        if row[6]:
             try:
                 import json
-                raw_data = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                raw_data = json.loads(row[6]) if isinstance(row[6], str) else row[6]
                 material_name = raw_data.get("material_name", "")
                 specification = raw_data.get("specification", "")
             except (json.JSONDecodeError, TypeError, AttributeError):
                 pass  # Use defaults
 
         return ProductionReceiptModel(
-            mto_number=row[0] or "",
-            material_code=row[1] or "",
+            bill_no=row[0] or "",
+            mto_number=row[1] or "",
+            material_code=row[2] or "",
             material_name=material_name,
             specification=specification,
-            real_qty=Decimal(str(row[2] or 0)),
-            must_qty=Decimal(str(row[3] or 0)),
-            aux_prop_id=row[4] or 0,  # For variant-aware matching
+            real_qty=Decimal(str(row[3] or 0)),
+            must_qty=Decimal(str(row[4] or 0)),
+            aux_prop_id=row[5] or 0,
         )
 
     def _row_to_purchase_receipt(self, row: tuple) -> PurchaseReceiptModel:
-        """Convert database row to PurchaseReceiptModel."""
+        """Convert database row to PurchaseReceiptModel.
+
+        Row columns:
+        0: bill_no, 1: mto_number, 2: material_code, 3: real_qty, 4: must_qty,
+        5: bill_type_number, 6: raw_data, 7: synced_at
+        """
         return PurchaseReceiptModel(
-            mto_number=row[0] or "",
-            material_code=row[1] or "",
-            real_qty=Decimal(str(row[2] or 0)),
-            must_qty=Decimal(str(row[3] or 0)),
-            bill_type_number=row[4] or "",
+            bill_no=row[0] or "",
+            mto_number=row[1] or "",
+            material_code=row[2] or "",
+            real_qty=Decimal(str(row[3] or 0)),
+            must_qty=Decimal(str(row[4] or 0)),
+            bill_type_number=row[5] or "",
         )
 
     def _row_to_material_picking(self, row: tuple) -> MaterialPickingModel:
@@ -422,15 +431,16 @@ class CacheReader:
         """Convert database row to SalesDeliveryModel.
 
         Row columns:
-        0: mto_number, 1: material_code, 2: real_qty, 3: must_qty,
-        4: aux_prop_id, 5: raw_data, 6: synced_at
+        0: bill_no, 1: mto_number, 2: material_code, 3: real_qty, 4: must_qty,
+        5: aux_prop_id, 6: raw_data, 7: synced_at
         """
         return SalesDeliveryModel(
-            mto_number=row[0] or "",
-            material_code=row[1] or "",
-            real_qty=Decimal(str(row[2] or 0)),
-            must_qty=Decimal(str(row[3] or 0)),
-            aux_prop_id=row[4] or 0,  # For variant-aware matching
+            bill_no=row[0] or "",
+            mto_number=row[1] or "",
+            material_code=row[2] or "",
+            real_qty=Decimal(str(row[3] or 0)),
+            must_qty=Decimal(str(row[4] or 0)),
+            aux_prop_id=row[5] or 0,
         )
 
     def _row_to_sales_order(self, row: tuple) -> SalesOrderModel:
