@@ -112,6 +112,37 @@ class KingdeeConfig(BaseSettings):
         return bool(self.server_url and self.acct_id and self.app_id and self.app_sec)
 
 
+class DeepSeekConfig(BaseSettings):
+    """DeepSeek LLM API Configuration.
+
+    Loaded from DEEPSEEK_* environment variables.
+    Feature is disabled when api_key is empty.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="DEEPSEEK_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    api_key: str = Field(default="", description="DeepSeek API key")
+    base_url: str = Field(
+        default="https://api.deepseek.com", description="OpenAI-compatible endpoint"
+    )
+    model: str = Field(default="deepseek-chat", description="Model name")
+    max_tokens: int = Field(default=1024, description="Max response tokens")
+    temperature: float = Field(default=0.3, description="Sampling temperature")
+    timeout_seconds: int = Field(default=30, description="Request timeout")
+    max_history_messages: int = Field(
+        default=20, description="Max conversation messages to send"
+    )
+
+    def is_available(self) -> bool:
+        """Check if DeepSeek API is configured."""
+        return bool(self.api_key)
+
+
 class AutoSyncConfig(BaseSettings):
     """Auto Sync Configuration"""
 
@@ -219,11 +250,13 @@ class Config:
         sync: SyncConfig,
         db_path: Path = Path("data/quickpulse.db"),
         reports_dir: Path = Path("reports"),
+        deepseek: Optional[DeepSeekConfig] = None,
     ):
         self.kingdee = kingdee
         self.sync = sync
         self.db_path = db_path
         self.reports_dir = reports_dir
+        self.deepseek = deepseek or DeepSeekConfig()
 
     @classmethod
     def load(
@@ -240,6 +273,7 @@ class Config:
         return cls(
             kingdee=kingdee,
             sync=SyncConfig.load(sync_path),
+            deepseek=DeepSeekConfig(),
         )
 
 

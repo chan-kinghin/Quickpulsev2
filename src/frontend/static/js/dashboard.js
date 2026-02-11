@@ -69,6 +69,16 @@ function mtoSearch() {
         searchHistory: [],
         MAX_HISTORY_ITEMS: 10,
 
+        // === Chat State ===
+        chatAvailable: false,
+        chatOpen: false,
+        chatMessages: [],   // [{role, content, sql?, sqlResult?}]
+        chatInput: '',
+        chatLoading: false,
+        chatMode: 'mto',    // 'mto' or 'analytics'
+        chatModel: '',
+        _chatAbort: null,    // AbortController for active stream
+
         // === Preferences ===
         STORAGE_KEY: 'quickpulse_preferences',
         STORAGE_VERSION: 1,
@@ -87,6 +97,7 @@ function mtoSearch() {
 
             this.setupKeyboardListeners();
             this.setupResizeListeners();
+            this.initChat();
         },
 
         setupKeyboardListeners() {
@@ -98,6 +109,14 @@ function mtoSearch() {
                 if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
                     event.preventDefault();
                     document.getElementById('mto-search')?.focus();
+                }
+            });
+            // Listen for MTO link clicks from chat messages
+            document.addEventListener('chat-mto-click', (event) => {
+                const mtoNum = event.detail;
+                if (mtoNum) {
+                    this.mtoNumber = mtoNum;
+                    this.search();
                 }
             });
         },
@@ -663,6 +682,168 @@ function mtoSearch() {
             if (mins < 60) return `${mins}分钟前`;
             const hours = Math.floor(mins / 60);
             return `${hours}小时前`;
+        },
+
+        // === Chat Methods ===
+        async initChat() {
+            try {
+                const resp = await fetch('/api/chat/status');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    this.chatAvailable = data.available;
+                    this.chatModel = data.model || '';
+                }
+            } catch (e) {
+                this.chatAvailable = false;
+            }
+        },
+
+        toggleChat() {
+            this.chatOpen = !this.chatOpen;
+        },
+
+        clearChat() {
+            if (this._chatAbort) {
+                this._chatAbort.abort();
+                this._chatAbort = null;
+            }
+            this.chatMessages = [];
+            this.chatLoading = false;
+            this.chatInput = '';
+        },
+
+        async sendChat() {
+            const text = this.chatInput.trim();
+            if (!text || this.chatLoading) return;
+
+            // Add user message
+            this.chatMessages.push({ role: 'user', content: text });
+            this.chatInput = '';
+            this.chatLoading = true;
+
+            // Reset textarea height
+            this.$nextTick(() => {
+                const ta = this.$el.querySelector('.chat-sidebar textarea');
+                if (ta) ta.style.height = 'auto';
+            });
+
+            // Build messages payload (keep last N messages)
+            const maxHistory = 20;
+            const historyMessages = this.chatMessages
+                .filter(m => m.role === 'user' || m.role === 'assistant')
+                .slice(-maxHistory)
+                .map(m => ({ role: m.role, content: m.content }));
+
+            // Build MTO context if in mto mode and we have data
+            let mtoContext = null;
+            if (this.chatMode === 'mto' && this.parentItem) {
+                mtoContext = {
+                    parent_item: this.parentItem,
+                    child_items: this.childItems
+                };
+            }
+
+            const body = {
+                messages: historyMessages,
+                mode: this.chatMode,
+                mto_context: mtoContext
+            };
+
+            // Add a placeholder assistant message for streaming
+            const assistantIdx = this.chatMessages.length;
+            this.chatMessages.push({ role: 'assistant', content: '' });
+
+            try {
+                const token = localStorage.getItem('token');
+                this._chatAbort = new AbortController();
+                const resp = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(body),
+                    signal: this._chatAbort.signal
+                });
+
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.detail || `HTTP ${resp.status}`);
+                }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const jsonStr = line.slice(6).trim();
+                        if (!jsonStr) continue;
+
+                        try {
+                            const evt = JSON.parse(jsonStr);
+                            if (evt.type === 'token') {
+                                this.chatMessages[assistantIdx].content += evt.content;
+                                this._scrollChat();
+                            } else if (evt.type === 'sql') {
+                                this.chatMessages[assistantIdx].sql = evt.query;
+                            } else if (evt.type === 'sql_result') {
+                                this.chatMessages[assistantIdx].sqlResult = {
+                                    columns: evt.columns,
+                                    rows: evt.rows,
+                                    total_rows: evt.total_rows
+                                };
+                                this._scrollChat();
+                            } else if (evt.type === 'error') {
+                                this.chatMessages[assistantIdx].content += '\n\n⚠️ ' + evt.message;
+                            } else if (evt.type === 'done') {
+                                break;
+                            }
+                        } catch (parseErr) {
+                            // Ignore malformed SSE lines
+                        }
+                    }
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                // Show error in the assistant message
+                if (this.chatMessages[assistantIdx]) {
+                    this.chatMessages[assistantIdx].content = '⚠️ 请求失败: ' + err.message;
+                }
+            } finally {
+                this.chatLoading = false;
+                this._chatAbort = null;
+                this._scrollChat();
+            }
+        },
+
+        _scrollChat() {
+            this.$nextTick(() => {
+                const el = this.$refs.chatMessages;
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+
+        renderChatContent(text) {
+            if (!text) return '';
+            // Escape HTML
+            let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // Convert MTO numbers to clickable links
+            html = html.replace(/\b(AK\d{7,})\b/g,
+                '<a class="mto-link" href="javascript:void(0)" onclick="document.dispatchEvent(new CustomEvent(\'chat-mto-click\', {detail: \'$1\'}))">' +
+                '$1</a>');
+            // Basic markdown: **bold**, newlines
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\n/g, '<br>');
+            return html;
         },
 
         // === Summary Calculations for Footer ===

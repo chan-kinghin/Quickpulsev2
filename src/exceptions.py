@@ -21,6 +21,22 @@ class KingdeeQueryError(KingdeeError):
     """Query execution failed."""
 
 
+class ChatError(QuickPulseError):
+    """Chat/LLM service errors."""
+
+
+class ChatConnectionError(ChatError):
+    """Connection to LLM API failed."""
+
+
+class ChatRateLimitError(ChatError):
+    """LLM API rate limit exceeded."""
+
+
+class ChatSQLError(ChatError):
+    """SQL validation or execution failed."""
+
+
 class DatabaseError(QuickPulseError):
     """Database operation errors."""
 

@@ -1,0 +1,199 @@
+"""Tests for /api/chat/* endpoints."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from src.api.middleware.rate_limit import setup_rate_limiting
+from src.api.routers.auth import create_access_token, router as auth_router
+from src.api.routers.chat import router as chat_router
+from src.config import DeepSeekConfig
+
+
+@pytest.fixture
+def auth_headers():
+    token = create_access_token(data={"sub": "testuser"})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def mock_chat_client():
+    client = MagicMock()
+    client.stream_chat = AsyncMock()
+    client.chat = AsyncMock(return_value="```sql\nSELECT 1\n```")
+    return client
+
+
+@pytest.fixture
+def mock_db():
+    db = MagicMock()
+    db.execute_read = AsyncMock(return_value=[(1,)])
+    db._connection = MagicMock()
+
+    # Mock the async context manager for _get_column_names
+    mock_cursor = MagicMock()
+    mock_cursor.description = [("result",)]
+    mock_cursor.__aenter__ = AsyncMock(return_value=mock_cursor)
+    mock_cursor.__aexit__ = AsyncMock(return_value=False)
+    db._connection.execute = MagicMock(return_value=mock_cursor)
+
+    return db
+
+
+@pytest.fixture
+def mock_config():
+    config = MagicMock()
+    config.deepseek = DeepSeekConfig(api_key="test-key", model="test-model")
+    return config
+
+
+@pytest.fixture
+def app_with_chat(mock_chat_client, mock_db, mock_config):
+    app = FastAPI()
+    setup_rate_limiting(app)
+    app.state.chat_client = mock_chat_client
+    app.state.db = mock_db
+    app.state.config = mock_config
+    app.include_router(auth_router)
+    app.include_router(chat_router)
+    return app
+
+
+@pytest.fixture
+def app_without_chat():
+    app = FastAPI()
+    setup_rate_limiting(app)
+    app.state.chat_client = None
+    app.state.config = MagicMock()
+    app.state.config.deepseek = DeepSeekConfig()
+    app.include_router(auth_router)
+    app.include_router(chat_router)
+    return app
+
+
+class TestChatStatus:
+    """Tests for GET /api/chat/status."""
+
+    @pytest.mark.asyncio
+    async def test_status_available(self, app_with_chat):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_with_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.get("/api/chat/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["available"] is True
+        assert data["model"] == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_status_unavailable(self, app_without_chat):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_without_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.get("/api/chat/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["available"] is False
+        assert data["model"] is None
+
+
+class TestChatStream:
+    """Tests for POST /api/chat/stream."""
+
+    @pytest.mark.asyncio
+    async def test_requires_auth(self, app_with_chat):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_with_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.post(
+                "/api/chat/stream",
+                json={"messages": [{"role": "user", "content": "hi"}]},
+            )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_503_when_no_client(self, app_without_chat, auth_headers):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_without_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.post(
+                "/api/chat/stream",
+                json={"messages": [{"role": "user", "content": "hi"}]},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_invalid_mode(self, app_with_chat, auth_headers):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_with_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.post(
+                "/api/chat/stream",
+                json={
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "mode": "invalid",
+                },
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_mto_mode_streams(self, app_with_chat, auth_headers, mock_chat_client):
+        async def mock_stream(messages, system_prompt):
+            yield "Hello"
+            yield " world"
+
+        mock_chat_client.stream_chat = mock_stream
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_with_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.post(
+                "/api/chat/stream",
+                json={"messages": [{"role": "user", "content": "test"}]},
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+        body = resp.text
+        assert '"type": "token"' in body
+        assert '"type": "done"' in body
+
+    @pytest.mark.asyncio
+    async def test_mto_mode_with_context(self, app_with_chat, auth_headers, mock_chat_client):
+        async def mock_stream(messages, system_prompt):
+            assert "当前MTO数据" in system_prompt
+            yield "Response"
+
+        mock_chat_client.stream_chat = mock_stream
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_with_chat),
+            base_url="http://test",
+        ) as client:
+            resp = await client.post(
+                "/api/chat/stream",
+                json={
+                    "messages": [{"role": "user", "content": "test"}],
+                    "mode": "mto",
+                    "mto_context": {
+                        "parent_item": {"mto_number": "AK2510034"},
+                        "child_items": [],
+                    },
+                },
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200

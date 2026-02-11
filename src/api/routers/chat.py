@@ -1,0 +1,196 @@
+"""Chat endpoints — SSE streaming for DeepSeek LLM integration."""
+
+import json
+import logging
+import re
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from src.api.middleware.rate_limit import limiter
+from src.api.routers.auth import get_current_user
+from src.chat.context import build_mto_context, build_sql_result_context
+from src.chat.prompts import SYSTEM_PROMPT_ANALYTICS, SYSTEM_PROMPT_MTO
+from src.chat.sql_guard import validate_sql
+from src.exceptions import ChatError, ChatSQLError
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    mode: str = Field(default="mto", pattern="^(mto|analytics)$")
+    mto_context: Optional[dict] = None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _sse_event(data: dict) -> str:
+    """Format a dict as an SSE data line."""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _extract_sql(text: str) -> Optional[str]:
+    """Extract a SQL query from a ```sql ... ``` fenced block."""
+    m = re.search(r"```sql\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+    return m.group(1).strip() if m else None
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/status")
+async def chat_status(request: Request):
+    """Check if the chat feature is available."""
+    client = request.app.state.chat_client
+    if client is None:
+        return {"available": False, "model": None}
+    config = request.app.state.config.deepseek
+    return {"available": True, "model": config.model}
+
+
+@router.post("/stream")
+@limiter.limit("20/minute")
+async def stream_chat(
+    request: Request,
+    body: ChatRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """SSE streaming chat endpoint.
+
+    Modes:
+    - mto: Conversational Q&A about the current MTO data
+    - analytics: LLM generates SQL → server executes → LLM summarizes
+    """
+    client = request.app.state.chat_client
+    if client is None:
+        raise HTTPException(status_code=503, detail="Chat service not configured")
+
+    if body.mode == "analytics":
+        return StreamingResponse(
+            _analytics_stream(client, body, request),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # MTO mode — straightforward streaming
+    return StreamingResponse(
+        _mto_stream(client, body),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _mto_stream(client, body: ChatRequest):
+    """Stream MTO-mode chat responses."""
+    system = SYSTEM_PROMPT_MTO
+    if body.mto_context:
+        context_text = build_mto_context(body.mto_context)
+        system += f"\n\n## 当前MTO数据\n{context_text}"
+
+    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    try:
+        async for delta in client.stream_chat(messages, system):
+            yield _sse_event({"type": "token", "content": delta})
+    except ChatError as exc:
+        yield _sse_event({"type": "error", "message": str(exc)})
+    finally:
+        yield _sse_event({"type": "done"})
+
+
+async def _analytics_stream(client, body: ChatRequest, request: Request):
+    """Analytics mode: generate SQL → validate → execute → summarize."""
+    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    # Step 1: Ask LLM for SQL
+    try:
+        sql_response = await client.chat(messages, SYSTEM_PROMPT_ANALYTICS)
+    except ChatError as exc:
+        yield _sse_event({"type": "error", "message": str(exc)})
+        yield _sse_event({"type": "done"})
+        return
+
+    raw_sql = _extract_sql(sql_response)
+    if not raw_sql:
+        # LLM didn't return SQL — stream its response as-is
+        yield _sse_event({"type": "token", "content": sql_response})
+        yield _sse_event({"type": "done"})
+        return
+
+    # Step 2: Validate SQL
+    try:
+        safe_sql = validate_sql(raw_sql)
+    except ChatSQLError as exc:
+        yield _sse_event({"type": "error", "message": f"SQL验证失败: {exc}"})
+        yield _sse_event({"type": "done"})
+        return
+
+    yield _sse_event({"type": "sql", "query": safe_sql})
+
+    # Step 3: Execute SQL
+    db = request.app.state.db
+    try:
+        rows = await db.execute_read(safe_sql)
+        # Get column names from cursor description
+        column_names = await _get_column_names(db, safe_sql)
+    except Exception as exc:
+        logger.warning("SQL execution failed: %s", exc)
+        yield _sse_event({"type": "error", "message": f"SQL执行失败: {exc}"})
+        yield _sse_event({"type": "done"})
+        return
+
+    yield _sse_event({
+        "type": "sql_result",
+        "columns": column_names,
+        "rows": [list(r) for r in rows[:50]],
+        "total_rows": len(rows),
+    })
+
+    # Step 4: Stream a natural-language summary of the results
+    result_context = build_sql_result_context(rows, column_names)
+    summary_messages = messages + [
+        {"role": "assistant", "content": f"```sql\n{safe_sql}\n```"},
+        {"role": "user", "content": f"查询结果如下，请用中文简要总结：\n{result_context}"},
+    ]
+
+    try:
+        async for delta in client.stream_chat(summary_messages, SYSTEM_PROMPT_MTO):
+            yield _sse_event({"type": "token", "content": delta})
+    except ChatError as exc:
+        yield _sse_event({"type": "error", "message": str(exc)})
+    finally:
+        yield _sse_event({"type": "done"})
+
+
+async def _get_column_names(db, query: str) -> list[str]:
+    """Get column names for a query by executing it with LIMIT 0 workaround."""
+    try:
+        async with db._connection.execute(query) as cursor:
+            if cursor.description:
+                return [desc[0] for desc in cursor.description]
+    except Exception:
+        pass
+    return []

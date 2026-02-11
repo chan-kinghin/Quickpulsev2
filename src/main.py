@@ -17,7 +17,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.middleware.rate_limit import setup_rate_limiting
-from src.api.routers import auth, cache, mto, sync
+from src.api.routers import auth, cache, chat, mto, sync
+from src.chat.client import DeepSeekClient
 from src.config import Config
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
@@ -130,6 +131,14 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Startup cache warming failed: %s", exc)
 
+    # Initialize DeepSeek chat client (optional — graceful degradation)
+    chat_client = None
+    if config.deepseek.is_available():
+        chat_client = DeepSeekClient(config.deepseek)
+        logger.info("DeepSeek chat enabled (model=%s)", config.deepseek.model)
+    else:
+        logger.info("DeepSeek chat disabled (no API key)")
+
     loop = asyncio.get_running_loop()
     scheduler = SyncScheduler(config.sync, sync_service, loop=loop)
     scheduler.start()
@@ -141,10 +150,13 @@ async def lifespan(app: FastAPI):
     app.state.sync_service = sync_service
     app.state.mto_handler = mto_handler
     app.state.scheduler = scheduler
+    app.state.chat_client = chat_client
 
     yield
 
     scheduler.stop()
+    if chat_client:
+        await chat_client.close()
     await db.close()
 
 
@@ -157,6 +169,7 @@ app.include_router(auth.router)
 app.include_router(sync.router)
 app.include_router(mto.router)
 app.include_router(cache.router)
+app.include_router(chat.router)
 
 
 @app.get("/")
