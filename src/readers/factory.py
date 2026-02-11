@@ -307,8 +307,8 @@ PRODUCTION_RECEIPT_CONFIG = ReaderConfig(
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
         "mo_bill_no": FieldMapping("FMoBillNo"),
     },
-    # Include approved/confirmed/completed docs (C=确认, D=完工), exclude drafts (A, B)
-    extra_filter="FDocumentStatus IN ('C', 'D')",
+    # Include approved/confirmed/completed docs (B=已审核, C=已确认, D=重新审核)
+    extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
 PURCHASE_ORDER_CONFIG = ReaderConfig(
