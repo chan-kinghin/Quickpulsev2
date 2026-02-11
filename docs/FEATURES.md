@@ -10,7 +10,7 @@ QuickPulse V2 is a web dashboard for querying **计划跟踪号** (MTO/Productio
 - Backend: Python 3.11+, FastAPI, SQLite (WAL mode), aiosqlite
 - Frontend: Alpine.js, Tailwind CSS (CDN), Lucide icons
 - External: Kingdee K3Cloud WebAPI SDK
-- Deployment: Docker Compose, Uvicorn
+- Deployment: Docker Compose, Uvicorn, Aliyun CVM (`121.41.81.36`)
 
 ---
 
@@ -290,3 +290,32 @@ Response: MTOStatusResponse
 | `cached_sales_orders` | SAL_SaleOrder data |
 | `sync_history` | Sync operation history |
 | `_migrations` | Schema migration tracking |
+
+---
+
+## Deployment
+
+### CVM (Shared Aliyun ECS)
+
+> Full infrastructure docs: `docs/CVM_INFRASTRUCTURE.md`
+
+| Environment | URL | Port | Branch |
+|---|---|---|---|
+| **Prod** | `http://121.41.81.36:8003` | `:8003` | `main` |
+| **Dev** | `http://121.41.81.36:8004` | `:8004` | `develop` |
+
+- **Server**: `root@121.41.81.36` (Ubuntu 22.04.5 LTS, 4 cores, 7.1 GB RAM)
+- **Deploy**: `/opt/ops/scripts/deploy.sh quickpulse <prod|dev>`
+- **CI/CD**: Push to `develop` auto-deploys dev; manual dispatch for prod
+- **Secrets**: `/opt/ops/secrets/quickpulse/{prod,dev}.env` (KINGDEE_* credentials)
+- **Volumes**: `qp-{prod,dev}-data` (SQLite), `qp-{prod,dev}-reports` (reports)
+- **Co-hosted with**: Fluent Skills (`:8001/:8002`), jiejiawater (`:8010-8021`), Grafana (`:3100`)
+
+### Local Development
+
+```bash
+cp .env.example .env   # Fill in Kingdee credentials
+uvicorn src.main:app --reload --port 8000
+# or
+docker-compose -f docker-compose.dev.yml up --build
+```

@@ -418,31 +418,48 @@ cp .env.example .env
 
 ### CVM Deployment (Shared Aliyun Ops Platform)
 
-**Server**: `root@121.41.81.36` (shared Aliyun CVM)
-**Platform root**: `/opt/ops/`
-**SSH password**: `!Fluent1234@` (use `expect` — special chars break `sshpass`)
+> Full CVM infrastructure docs: `docs/CVM_INFRASTRUCTURE.md`
+
+**Server**: `root@121.41.81.36` (shared Aliyun ECS)
+**OS**: Ubuntu 22.04.5 LTS | 4 cores, 7.1 GB RAM, 59 GB disk
+**Platform root**: `/opt/ops/` — README at `/opt/ops/README.md`
+**SSH password**: `!Fluent1234@` (use `expect` with `-o PubkeyAuthentication=no`)
+
+#### Co-Hosted Apps (21 containers total)
+
+| Port | Service | Stack |
+|------|---------|-------|
+| `:8001` | Fluent Skills **Prod** | Next.js 14 + Redis + SQLite |
+| `:8002` | Fluent Skills **Dev** | Next.js 14 + Redis + SQLite |
+| `:8003` | **QuickPulse Prod** | Python/FastAPI |
+| `:8004` | **QuickPulse Dev** | Python/FastAPI |
+| `:8010` | jiejiawater API **Prod** | NestJS + PG + Redis |
+| `:8011` | jiejiawater Admin **Prod** | Vue 3 + Naive UI |
+| `:8020` | jiejiawater API **Dev** | NestJS + PG + Redis |
+| `:8021` | jiejiawater Admin **Dev** | Vue 3 + Naive UI |
+| `:3100` | Grafana | Monitoring |
 
 #### Directory Layout
 ```
 /opt/ops/
-├── apps/quickpulse/
-│   ├── prod/
-│   │   ├── docker-compose.yml    # Compose for prod
-│   │   └── repo/                 # Git clone (main branch)
-│   └── dev/
-│       ├── docker-compose.yml    # Compose for dev
-│       └── repo/                 # Git clone (develop→main fallback)
-├── secrets/quickpulse/
-│   ├── prod.env                  # KINGDEE_* credentials (chmod 600)
-│   └── dev.env
-├── scripts/
-│   └── deploy.sh                 # Universal deploy script
+├── apps/
+│   ├── quickpulse/{prod,dev}/    # docker-compose.yml + repo/
+│   ├── fluent-skills/{prod,dev}/ # docker-compose.yml + repo/
+│   └── jiejiawater/{prod,dev}/   # docker-compose.yml + repo/
+├── secrets/
+│   ├── quickpulse/{prod,dev}.env # KINGDEE_* credentials (chmod 600)
+│   ├── fluent-skills/{prod,dev}.env
+│   └── jiejiawater/{prod,dev}.env + pg_*_password.txt
+├── scripts/deploy.sh             # Universal deploy script
 ├── infra/
 │   ├── docker-compose.yml        # ops-nginx container
 │   └── nginx/conf.d/
-│       └── 20-quickpulse.conf    # Nginx routing rules
-├── monitoring/                   # Prometheus, Grafana, Loki, Promtail
-└── backups/                      # Automated daily/weekly backups
+│       ├── 10-fluent-skills.conf
+│       ├── 20-quickpulse.conf
+│       └── 30-jiejiawater.conf
+├── monitoring/                   # Prometheus, Grafana, Loki, Promtail, Alertmanager
+├── backups/{daily,weekly}/       # Automated backups (3 AM daily, 4 AM Sunday)
+└── README.md                     # Full CVM documentation
 ```
 
 #### Environments
@@ -501,13 +518,13 @@ The deploy script (`/opt/ops/scripts/deploy.sh quickpulse <env>`):
 
 #### Quick SSH Access
 
-SSH password has special chars, so use `expect` instead of `sshpass`:
+SSH password has special chars, so use `expect` with `-o PubkeyAuthentication=no` (local SSH key has a passphrase that blocks non-interactive sessions):
 ```bash
 # Interactive SSH
-expect -c 'spawn ssh root@121.41.81.36; expect "password:"; send "!Fluent1234@\r"; interact'
+expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36; expect "password:"; send "!Fluent1234@\r"; interact'
 
 # Run a command
-expect -c 'spawn ssh root@121.41.81.36 "/opt/ops/scripts/deploy.sh quickpulse prod"; expect "password:"; send "!Fluent1234@\r"; interact'
+expect -c 'spawn ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@121.41.81.36 "/opt/ops/scripts/deploy.sh quickpulse prod"; expect "password:"; send "!Fluent1234@\r"; expect eof'
 ```
 
 #### View Logs

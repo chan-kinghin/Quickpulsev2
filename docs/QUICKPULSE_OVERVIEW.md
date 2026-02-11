@@ -188,3 +188,19 @@ pick_actual_qty = Σ PRD_PickMtrl.FActualQty
 2. **辅助属性是关键** - 同一物料编码可能有多个颜色/尺码变体，系统按 (material_code, aux_prop_id) 分别显示，避免合并导致数据混淆
 
 3. **三种包材数据来源** - 包材(03.xx)物料可能来自采购订单、BOM 领料清单或直接领料，系统会分别显示为独立行
+
+---
+
+## 八、部署环境
+
+### CVM (共享阿里云 ECS)
+
+| 环境 | 地址 | 端口 | 分支 |
+|------|------|------|------|
+| **生产** | `http://121.41.81.36:8003` | `:8003` | `main` |
+| **开发** | `http://121.41.81.36:8004` | `:8004` | `develop` |
+
+- **部署命令**: `/opt/ops/scripts/deploy.sh quickpulse <prod|dev>`
+- **CI/CD**: 推送到 `develop` 自动部署 dev；手动触发部署 prod
+- **配置文件**: `/opt/ops/secrets/quickpulse/{prod,dev}.env` (KINGDEE_* 凭据)
+- **详细文档**: `docs/CVM_INFRASTRUCTURE.md`

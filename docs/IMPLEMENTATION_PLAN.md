@@ -2174,8 +2174,16 @@ tests/
 - [ ] Add comprehensive test suite (`tests/`)
 - [ ] Implement real-time inventory lookup (F_QWJI_JSKC field)
 - [ ] Add Excel export with openpyxl (current uses CSV with .xlsx extension)
-- [ ] Production Nginx reverse proxy configuration
-- [ ] CI/CD pipeline setup
+- [x] Production Nginx reverse proxy configuration ✅ (ops-nginx on CVM)
+- [x] CI/CD pipeline setup ✅ (`.github/workflows/cd.yml` — SSH-based deploy)
+
+### CVM Deployment ✅ COMPLETE (2026-02-11)
+
+Deployed to shared Aliyun CVM at `121.41.81.36`:
+- **Prod**: `:8003` → `quickpulse-prod` container (128 MB, `main` branch)
+- **Dev**: `:8004` → `quickpulse-dev` container (96 MB, `develop` branch)
+- **CI/CD**: Push to `develop` auto-deploys dev; manual dispatch for prod
+- **Infrastructure**: See `docs/CVM_INFRASTRUCTURE.md` for full details
 
 ### Bug Fixes In Progress
 
