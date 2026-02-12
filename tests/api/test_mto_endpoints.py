@@ -29,6 +29,7 @@ def mock_db():
     """Create mock database."""
     db = MagicMock()
     db.execute = AsyncMock(return_value=[])
+    db.execute_read = AsyncMock(return_value=[])
     return db
 
 
@@ -184,7 +185,7 @@ class TestGetMTOStatus:
             response = await client.get("/api/mto/AK2510034", headers=auth_headers)
 
         assert response.status_code == 500
-        assert "connection failed" in response.json()["detail"].lower()
+        assert response.json()["detail"] == "Internal server error"
 
 
 class TestSearchMTO:
@@ -193,10 +194,10 @@ class TestSearchMTO:
     @pytest.mark.asyncio
     async def test_search_success(self, app_with_mto, auth_headers, mock_db):
         """Test successful search returns results."""
-        mock_db.execute.return_value = [
-            ("AK2510034", "Product 1", 100),
-            ("AK2510035", "Product 2", 200),
-        ]
+        mock_db.execute_read = AsyncMock(side_effect=[
+            [(2,)],  # COUNT query
+            [("AK2510034", "Product 1", 100), ("AK2510035", "Product 2", 200)],
+        ])
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_mto),
@@ -213,7 +214,7 @@ class TestSearchMTO:
     @pytest.mark.asyncio
     async def test_search_empty_results(self, app_with_mto, auth_headers, mock_db):
         """Test search with no results."""
-        mock_db.execute.return_value = []
+        mock_db.execute_read = AsyncMock(side_effect=[[(0,)], []])
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_mto),

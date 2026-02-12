@@ -5,13 +5,15 @@ import pytest
 from fastapi import FastAPI
 from jose import jwt
 
+from src.api.middleware.rate_limit import setup_rate_limiting
 from src.api.routers.auth import router as auth_router, SECRET_KEY, ALGORITHM
 
 
 @pytest.fixture
 def app_with_auth():
-    """Create app with auth router."""
+    """Create app with auth router and rate limiting."""
     app = FastAPI()
+    setup_rate_limiting(app)
     app.include_router(auth_router)
     return app
 

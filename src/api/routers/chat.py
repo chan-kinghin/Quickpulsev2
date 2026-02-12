@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -31,7 +31,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
+    messages: List[ChatMessage]
     mode: str = Field(default="mto", pattern="^(mto|analytics)$")
     mto_context: Optional[dict] = None
 
@@ -153,9 +153,7 @@ async def _analytics_stream(client, body: ChatRequest, request: Request):
     # Step 3: Execute SQL
     db = request.app.state.db
     try:
-        rows = await db.execute_read(safe_sql)
-        # Get column names from cursor description
-        column_names = await _get_column_names(db, safe_sql)
+        rows, column_names = await db.execute_read_with_columns(safe_sql)
     except Exception as exc:
         logger.warning("SQL execution failed: %s", exc)
         yield _sse_event({"type": "error", "message": f"SQL执行失败: {exc}"})
@@ -185,12 +183,3 @@ async def _analytics_stream(client, body: ChatRequest, request: Request):
         yield _sse_event({"type": "done"})
 
 
-async def _get_column_names(db, query: str) -> list[str]:
-    """Get column names for a query by executing it with LIMIT 0 workaround."""
-    try:
-        async with db._connection.execute(query) as cursor:
-            if cursor.description:
-                return [desc[0] for desc in cursor.description]
-    except Exception:
-        pass
-    return []

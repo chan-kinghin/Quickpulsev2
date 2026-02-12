@@ -106,6 +106,13 @@ class Database:
         async with self._connection.execute(query, params or []) as cursor:
             return await cursor.fetchall()
 
+    async def execute_read_with_columns(self, query: str, params=None):
+        """Execute a read query and return (rows, column_names) tuple."""
+        async with self._connection.execute(query, params or []) as cursor:
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = await cursor.fetchall()
+            return rows, columns
+
     async def execute_write(self, query: str, params=None) -> None:
         await self._connection.execute(query, params or [])
         await self._connection.commit()

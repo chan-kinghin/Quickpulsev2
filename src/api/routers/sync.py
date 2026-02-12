@@ -1,10 +1,9 @@
 """Sync-related API endpoints."""
 
-from __future__ import annotations
-
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
 from src.models.sync import SyncConfigResponse, SyncConfigUpdateRequest, SyncTriggerRequest
 
@@ -12,33 +11,35 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 
 @router.post("/trigger")
+@limiter.limit("2/minute")
 async def trigger_sync(
-    request: SyncTriggerRequest,
-    api_request: Request,
+    request: Request,
+    body: SyncTriggerRequest,
     current_user: str = Depends(get_current_user),
 ):
-    sync_service = api_request.app.state.sync_service
+    sync_service = request.app.state.sync_service
 
     if sync_service.is_running():
         raise HTTPException(status_code=409, detail="Sync task already running")
 
     asyncio.create_task(
         sync_service.run_sync(
-            days_back=request.days_back,
-            chunk_days=request.chunk_days,
-            force_full=request.force_full,
+            days_back=body.days_back,
+            chunk_days=body.chunk_days,
+            force_full=body.force_full,
         )
     )
-    return {"status": "sync_started", "days_back": request.days_back}
+    return {"status": "sync_started", "days_back": body.days_back}
 
 
 @router.get("/status")
+@limiter.limit("30/minute")
 async def get_sync_status(
-    api_request: Request,
+    request: Request,
     current_user: str = Depends(get_current_user),
 ):
-    progress = api_request.app.state.sync_progress.load()
-    sync_service = api_request.app.state.sync_service
+    progress = request.app.state.sync_progress.load()
+    sync_service = request.app.state.sync_service
     is_running = sync_service.is_running()
     percent = progress.progress.get("percent", 0)
     records_synced = progress.progress.get("records_synced")
@@ -95,7 +96,7 @@ async def update_sync_config(
 @router.get("/history")
 async def get_sync_history(
     api_request: Request,
-    limit: int = 10,
+    limit: int = Query(10, ge=1, le=100),
     current_user: str = Depends(get_current_user),
 ):
     db = api_request.app.state.db

@@ -1,11 +1,10 @@
 """Cache management API endpoints."""
 
-from __future__ import annotations
-
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/cache", tags=["cache"])
@@ -28,8 +27,9 @@ async def get_cache_stats(
 
 
 @router.post("/clear")
+@limiter.limit("10/minute")
 async def clear_memory_cache(
-    api_request: Request,
+    request: Request,
     current_user: str = Depends(get_current_user),
 ):
     """Clear the in-memory cache.
@@ -37,7 +37,7 @@ async def clear_memory_cache(
     Use this after manual data updates in Kingdee to force fresh data.
     Does not affect the SQLite cache.
     """
-    mto_handler = api_request.app.state.mto_handler
+    mto_handler = request.app.state.mto_handler
     cleared = mto_handler.clear_memory_cache()
     return {"status": "cleared", "entries_cleared": cleared}
 
@@ -72,8 +72,9 @@ async def invalidate_mto(
 
 
 @router.post("/warm")
+@limiter.limit("5/minute")
 async def warm_cache(
-    api_request: Request,
+    request: Request,
     count: int = Query(100, ge=1, le=500, description="Number of MTOs to warm"),
     use_hot: bool = Query(False, description="Use hot MTOs from query history instead of recent synced"),
     current_user: str = Depends(get_current_user),
@@ -84,8 +85,8 @@ async def warm_cache(
     - use_hot=false (default): Load recently synced MTOs from SQLite
     - use_hot=true: Load most frequently queried MTOs from query history
     """
-    mto_handler = api_request.app.state.mto_handler
-    db = api_request.app.state.db
+    mto_handler = request.app.state.mto_handler
+    db = request.app.state.db
 
     if use_hot:
         # Use hot MTOs from query history

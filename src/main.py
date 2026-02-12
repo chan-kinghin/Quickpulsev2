@@ -1,9 +1,8 @@
 """FastAPI application entrypoint for QuickPulse V2."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from src.logging_config import setup_logging
@@ -12,11 +11,28 @@ from src.logging_config import setup_logging
 setup_logging(log_level="INFO")
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from src.api.middleware.rate_limit import setup_rate_limiting
+from src.exceptions import KingdeeConnectionError, QuickPulseError
+
+# Map HTTP status codes to machine-readable error codes for consistent API responses.
+_STATUS_ERROR_CODES = {
+    400: "bad_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+    502: "erp_unavailable",
+    503: "service_unavailable",
+}
 from src.api.routers import auth, cache, chat, mto, sync
 from src.chat.client import DeepSeekClient
 from src.config import Config
@@ -162,6 +178,64 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="QuickPulse V2", lifespan=lifespan)
 setup_rate_limiting(app)
+
+cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if cors_origins:
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins.split(",")],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.middleware("http")
+async def add_api_version_header(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["X-API-Version"] = "1"
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Enrich all HTTPException responses with a consistent error_code field."""
+    error_code = _STATUS_ERROR_CODES.get(exc.status_code, "internal_error")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "error_code": error_code},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(KingdeeConnectionError)
+async def kingdee_connection_handler(request: Request, exc: KingdeeConnectionError):
+    logger.error("Kingdee connection error: %s", exc)
+    return JSONResponse(
+        status_code=502,
+        content={"detail": "ERP system unavailable", "error_code": "erp_unavailable"},
+    )
+
+
+@app.exception_handler(QuickPulseError)
+async def quickpulse_error_handler(request: Request, exc: QuickPulseError):
+    logger.error("Application error: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error_code": "internal_error"},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error_code": "internal_error"},
+    )
+
 
 app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
 
