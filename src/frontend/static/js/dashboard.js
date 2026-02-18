@@ -69,14 +69,22 @@ function mtoSearch() {
         searchHistory: [],
         MAX_HISTORY_ITEMS: 10,
 
+        // === MTO Search-as-you-type State ===
+        searchResults: [],
+        searchTotal: 0,
+        searchLoading: false,
+        showSearchResults: false,
+        _searchDebounce: null,
+
         // === Chat State ===
         chatAvailable: false,
         chatOpen: false,
         chatMessages: [],   // [{role, content, sql?, sqlResult?}]
         chatInput: '',
         chatLoading: false,
-        chatMode: 'mto',    // 'mto' or 'analytics'
         chatModel: '',
+        chatMode: 'simple',          // 'simple' or 'agent'
+        agentChatAvailable: false,
         _chatAbort: null,    // AbortController for active stream
 
         // === Preferences ===
@@ -411,6 +419,50 @@ function mtoSearch() {
             this.savePreferences();
         },
 
+        // === MTO Fuzzy Search ===
+        performSearch() {
+            const query = this.mtoNumber.trim();
+            if (this._searchDebounce) clearTimeout(this._searchDebounce);
+
+            if (query.length < 2) {
+                this.searchResults = [];
+                this.searchTotal = 0;
+                this.showSearchResults = false;
+                return;
+            }
+
+            this._searchDebounce = setTimeout(async () => {
+                this.searchLoading = true;
+                try {
+                    const token = localStorage.getItem('token');
+                    const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=10`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const total = parseInt(resp.headers.get('X-Total-Count') || '0');
+                    const results = await resp.json();
+                    this.searchResults = results;
+                    this.searchTotal = total;
+                    this.showSearchResults = true;
+                    this.showSearchHistory = false;
+                } catch (err) {
+                    console.warn('Search-as-you-type failed:', err);
+                    this.searchResults = [];
+                    this.searchTotal = 0;
+                    this.showSearchResults = false;
+                } finally {
+                    this.searchLoading = false;
+                }
+            }, 300);
+        },
+
+        selectSearchResult(mtoNumber) {
+            this.mtoNumber = mtoNumber;
+            this.showSearchResults = false;
+            this.searchResults = [];
+            this.search();
+        },
+
         // === Core Search Method ===
         async search() {
             if (!this.mtoNumber?.trim()) {
@@ -527,7 +579,7 @@ function mtoSearch() {
                     ];
 
                     XLSX.writeFile(wb, `MTO_${this.mtoNumber}_${this.getTimestamp()}.xlsx`);
-                    this.showSuccess('Excel导出成功');
+                    this.showSuccess('Excel 文件已生成');
                 } else {
                     // Fallback to server-side CSV
                     const blob = await api.get(`/export/mto/${encodeURIComponent(this.mtoNumber.trim())}`);
@@ -539,7 +591,7 @@ function mtoSearch() {
                     anchor.click();
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(anchor);
-                    this.showSuccess('CSV导出成功');
+                    this.showSuccess('CSV 文件已生成');
                 }
 
                 this.showExportMenu = false;
@@ -696,6 +748,22 @@ function mtoSearch() {
             } catch (e) {
                 this.chatAvailable = false;
             }
+            // Also check agent chat availability
+            try {
+                const agentResp = await fetch('/api/agent-chat/status');
+                if (agentResp.ok) {
+                    const agentData = await agentResp.json();
+                    this.agentChatAvailable = agentData.available;
+                }
+            } catch (e) {
+                this.agentChatAvailable = false;
+            }
+        },
+
+        switchChatMode(mode) {
+            if (this.chatMode === mode) return;
+            this.chatMode = mode;
+            this.clearChat();
         },
 
         toggleChat() {
@@ -734,18 +802,16 @@ function mtoSearch() {
                 .slice(-maxHistory)
                 .map(m => ({ role: m.role, content: m.content }));
 
-            // Build MTO context if in mto mode and we have data
+            // Build MTO context when we have an active MTO search
             let mtoContext = null;
-            if (this.chatMode === 'mto' && this.parentItem) {
+            if (this.parentItem) {
                 mtoContext = {
-                    parent_item: this.parentItem,
-                    child_items: this.childItems
+                    parent_item: { mto_number: this.parentItem.mto_number }
                 };
             }
 
             const body = {
                 messages: historyMessages,
-                mode: this.chatMode,
                 mto_context: mtoContext
             };
 
@@ -756,7 +822,8 @@ function mtoSearch() {
             try {
                 const token = localStorage.getItem('token');
                 this._chatAbort = new AbortController();
-                const resp = await fetch('/api/chat/stream', {
+                const chatEndpoint = this.chatMode === 'agent' ? '/api/agent-chat/stream' : '/api/chat/stream';
+                const resp = await fetch(chatEndpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

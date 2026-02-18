@@ -503,7 +503,7 @@ th.resizable {
     top: 1.2rem;
     width: 1.5rem;
     height: 1px;
-    background: var(--slate-700);
+    background: var(--slate-600);
 }
 
 @media print {
@@ -635,6 +635,11 @@ th.resizable {
    Chat Sidebar
    ==================================================================== */
 
+/* Push main content when sidebar opens (desktop only) */
+.chat-content-push {
+    transition: margin 0.3s ease;
+}
+
 .chat-sidebar {
     position: fixed;
     top: 0;
@@ -661,7 +666,7 @@ th.resizable {
 /* Message bubbles */
 .chat-msg-user {
     margin-left: 2rem;
-    background: #1e3a5f;
+    background: #064e3b; /* emerald-950 */
     border-radius: 0.75rem 0.75rem 0.25rem 0.75rem;
     padding: 0.5rem 0.75rem;
 }
@@ -680,7 +685,7 @@ th.resizable {
 
 /* MTO clickable links in chat */
 .mto-link {
-    color: #60a5fa; /* blue-400 */
+    color: #34d399; /* emerald-400 */
     text-decoration: underline;
     text-underline-offset: 2px;
     cursor: pointer;
@@ -688,7 +693,7 @@ th.resizable {
 }
 
 .mto-link:hover {
-    color: #93bbfc; /* lighter blue */
+    color: #6ee7b7; /* emerald-300 */
 }
 
 /* Typing indicator dots */
@@ -720,9 +725,13 @@ th.resizable {
     border-radius: 2px;
 }
 
-/* Mobile: full-width sidebar */
+/* Mobile: full-width sidebar, no content push */
 @media (max-width: 767px) {
     .chat-sidebar {
         width: 100vw;
+    }
+
+    .chat-content-push {
+        margin-right: 0 !important;
     }
 }

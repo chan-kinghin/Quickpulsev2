@@ -132,7 +132,10 @@ class TestChatStream:
         assert resp.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_invalid_mode(self, app_with_chat, auth_headers):
+    async def test_unknown_fields_ignored(self, app_with_chat, auth_headers, mock_chat_client):
+        """Extra fields like 'mode' are ignored by Pydantic (no 422)."""
+        mock_chat_client.chat = AsyncMock(return_value="No SQL here")
+
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_chat),
             base_url="http://test",
@@ -141,19 +144,17 @@ class TestChatStream:
                 "/api/chat/stream",
                 json={
                     "messages": [{"role": "user", "content": "hi"}],
-                    "mode": "invalid",
+                    "mode": "anything",
                 },
                 headers=auth_headers,
             )
-        assert resp.status_code == 422
+        # Should not 422 — extra field is just ignored
+        assert resp.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_mto_mode_streams(self, app_with_chat, auth_headers, mock_chat_client):
-        async def mock_stream(messages, system_prompt):
-            yield "Hello"
-            yield " world"
-
-        mock_chat_client.stream_chat = mock_stream
+    async def test_analytics_streams(self, app_with_chat, auth_headers, mock_chat_client):
+        """Chat always uses analytics mode (SQL generation)."""
+        mock_chat_client.chat = AsyncMock(return_value="No SQL, just a response")
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_chat),
@@ -172,12 +173,15 @@ class TestChatStream:
         assert '"type": "done"' in body
 
     @pytest.mark.asyncio
-    async def test_mto_mode_with_context(self, app_with_chat, auth_headers, mock_chat_client):
-        async def mock_stream(messages, system_prompt):
-            assert "当前MTO数据" in system_prompt
-            yield "Response"
+    async def test_mto_context_injected(self, app_with_chat, auth_headers, mock_chat_client):
+        """When mto_context is provided, MTO number is injected into system prompt."""
+        captured_prompts = []
 
-        mock_chat_client.stream_chat = mock_stream
+        async def capture_chat(messages, system_prompt):
+            captured_prompts.append(system_prompt)
+            return "No SQL here"
+
+        mock_chat_client.chat = capture_chat
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_chat),
@@ -187,7 +191,6 @@ class TestChatStream:
                 "/api/chat/stream",
                 json={
                     "messages": [{"role": "user", "content": "test"}],
-                    "mode": "mto",
                     "mto_context": {
                         "parent_item": {"mto_number": "AK2510034"},
                         "child_items": [],
@@ -197,3 +200,6 @@ class TestChatStream:
             )
 
         assert resp.status_code == 200
+        assert len(captured_prompts) == 1
+        assert "AK2510034" in captured_prompts[0]
+        assert "WHERE mto_number" in captured_prompts[0]

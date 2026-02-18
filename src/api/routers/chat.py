@@ -7,12 +7,12 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
-from src.chat.context import build_mto_context, build_sql_result_context
-from src.chat.prompts import SYSTEM_PROMPT_ANALYTICS, SYSTEM_PROMPT_MTO
+from src.chat.context import build_sql_result_context
+from src.chat.prompts import SYSTEM_PROMPT_ANALYTICS, SYSTEM_PROMPT_SUMMARY
 from src.chat.sql_guard import validate_sql
 from src.exceptions import ChatError, ChatSQLError
 
@@ -32,7 +32,6 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
-    mode: str = Field(default="mto", pattern="^(mto|analytics)$")
     mto_context: Optional[dict] = None
 
 
@@ -49,6 +48,22 @@ def _extract_sql(text: str) -> Optional[str]:
     """Extract a SQL query from a ```sql ... ``` fenced block."""
     m = re.search(r"```sql\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
     return m.group(1).strip() if m else None
+
+
+def _build_system_prompt(body: ChatRequest) -> str:
+    """Build the analytics system prompt, optionally injecting MTO context."""
+    prompt = SYSTEM_PROMPT_ANALYTICS
+    if body.mto_context:
+        parent = body.mto_context.get("parent_item") or {}
+        mto_number = parent.get("mto_number")
+        if mto_number:
+            prompt += (
+                f"\n\n## 当前上下文\n"
+                f"用户正在查看 MTO: {mto_number}，"
+                f"如果问题与当前MTO相关，请在SQL中使用 "
+                f"WHERE mto_number = '{mto_number}'"
+            )
+    return prompt
 
 
 # ---------------------------------------------------------------------------
@@ -72,29 +87,13 @@ async def stream_chat(
     body: ChatRequest,
     current_user: str = Depends(get_current_user),
 ):
-    """SSE streaming chat endpoint.
-
-    Modes:
-    - mto: Conversational Q&A about the current MTO data
-    - analytics: LLM generates SQL → server executes → LLM summarizes
-    """
+    """SSE streaming chat endpoint — analytics mode (SQL generation + summarization)."""
     client = request.app.state.chat_client
     if client is None:
         raise HTTPException(status_code=503, detail="Chat service not configured")
 
-    if body.mode == "analytics":
-        return StreamingResponse(
-            _analytics_stream(client, body, request),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    # MTO mode — straightforward streaming
     return StreamingResponse(
-        _mto_stream(client, body),
+        _analytics_stream(client, body, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -103,31 +102,14 @@ async def stream_chat(
     )
 
 
-async def _mto_stream(client, body: ChatRequest):
-    """Stream MTO-mode chat responses."""
-    system = SYSTEM_PROMPT_MTO
-    if body.mto_context:
-        context_text = build_mto_context(body.mto_context)
-        system += f"\n\n## 当前MTO数据\n{context_text}"
-
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
-
-    try:
-        async for delta in client.stream_chat(messages, system):
-            yield _sse_event({"type": "token", "content": delta})
-    except ChatError as exc:
-        yield _sse_event({"type": "error", "message": str(exc)})
-    finally:
-        yield _sse_event({"type": "done"})
-
-
 async def _analytics_stream(client, body: ChatRequest, request: Request):
-    """Analytics mode: generate SQL → validate → execute → summarize."""
+    """Analytics mode: generate SQL -> validate -> execute -> summarize."""
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    system_prompt = _build_system_prompt(body)
 
     # Step 1: Ask LLM for SQL
     try:
-        sql_response = await client.chat(messages, SYSTEM_PROMPT_ANALYTICS)
+        sql_response = await client.chat(messages, system_prompt)
     except ChatError as exc:
         yield _sse_event({"type": "error", "message": str(exc)})
         yield _sse_event({"type": "done"})
@@ -175,11 +157,9 @@ async def _analytics_stream(client, body: ChatRequest, request: Request):
     ]
 
     try:
-        async for delta in client.stream_chat(summary_messages, SYSTEM_PROMPT_MTO):
+        async for delta in client.stream_chat(summary_messages, SYSTEM_PROMPT_SUMMARY):
             yield _sse_event({"type": "token", "content": delta})
     except ChatError as exc:
         yield _sse_event({"type": "error", "message": str(exc)})
     finally:
         yield _sse_event({"type": "done"})
-
-

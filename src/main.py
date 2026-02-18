@@ -33,7 +33,7 @@ _STATUS_ERROR_CODES = {
     502: "erp_unavailable",
     503: "service_unavailable",
 }
-from src.api.routers import auth, cache, chat, mto, sync
+from src.api.routers import agent_chat, auth, cache, chat, mto, sync
 from src.chat.client import DeepSeekClient
 from src.config import Config
 from src.database.connection import Database
@@ -167,6 +167,7 @@ async def lifespan(app: FastAPI):
     app.state.mto_handler = mto_handler
     app.state.scheduler = scheduler
     app.state.chat_client = chat_client
+    app.state.mto_config = mto_config
 
     yield
 
@@ -244,6 +245,7 @@ app.include_router(sync.router)
 app.include_router(mto.router)
 app.include_router(cache.router)
 app.include_router(chat.router)
+app.include_router(agent_chat.router)
 
 
 @app.get("/")
