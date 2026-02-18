@@ -2,10 +2,14 @@
 
 Accepts an async callback for streaming SSE events so the endpoint can
 push intermediate steps (agent_step, sql, token, done) to the client.
+
+Includes a fast-path detector that skips the RetrievalAgent when the
+question is simple enough (MTO lookup, basic SQL).
 """
 
 import json
 import logging
+import re
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 from src.agents.base import AgentLLMClient, AgentStep, ToolDefinition
@@ -13,6 +17,43 @@ from src.agents.chat.retrieval_agent import RetrievalAgent
 from src.agents.chat.reasoning_agent import ReasoningAgent
 
 logger = logging.getLogger(__name__)
+
+# Pattern for MTO numbers (e.g., AK2510034, DS261017S, AS2601037)
+_MTO_PATTERN = re.compile(r"[A-Z]{2}\d{5,}")
+
+
+def _detect_fast_path(question: str) -> Optional[str]:
+    """Detect if we can skip the RetrievalAgent and go straight to reasoning.
+
+    Returns a synthetic data plan if fast-path is possible, None otherwise.
+    """
+    q = question.strip()
+
+    # Fast path 1: MTO-specific question (contains an MTO number)
+    mto_match = _MTO_PATTERN.search(q)
+    if mto_match:
+        mto_no = mto_match.group()
+        return (
+            f"用户询问特定MTO编号 {mto_no} 的信息。\n"
+            f"直接使用 mto_lookup 工具查询 {mto_no} 的完整状态即可。"
+        )
+
+    # Fast path 2: Schema/field question
+    schema_keywords = ["哪些字段", "表结构", "有哪些列", "字段含义", "表有什么"]
+    if any(kw in q for kw in schema_keywords):
+        # Extract table name if mentioned
+        table_names = [
+            "cached_production_orders", "cached_production_bom",
+            "cached_production_receipts", "cached_purchase_receipts",
+            "cached_purchase_orders", "cached_picking_records",
+            "cached_delivery_records",
+        ]
+        for tn in table_names:
+            if tn in q:
+                return f"用户询问 {tn} 表的结构。使用 schema_lookup 工具查询表结构并回答。"
+        return "用户询问数据库表结构。所有表结构已在系统提示中提供，直接回答即可。"
+
+    return None
 
 # Type alias for the async event callback
 OnEvent = Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]
@@ -71,43 +112,58 @@ class AgentChatOrchestrator:
                     logger.warning("on_event callback failed: %s", exc)
 
         try:
-            # Phase 1: Retrieval
-            await emit({
-                "type": "agent_step",
-                "agent": "retrieval",
-                "step_number": 0,
-                "tool_name": "start",
-                "tool_args": {},
-            })
+            # Check fast path — skip retrieval for simple questions
+            fast_plan = _detect_fast_path(question)
 
-            retrieval = RetrievalAgent(
-                schema_tool=self._schema_tool,
-                config_tool=self._config_tool,
-                llm_client=self._llm_client,
-            )
-            retrieval_result = await retrieval.run(question, mto_context)
-
-            if retrieval_result.error:
+            if fast_plan:
+                logger.info("Fast path detected, skipping retrieval agent")
                 await emit({
-                    "type": "error",
-                    "message": f"检索规划失败: {retrieval_result.error}",
+                    "type": "agent_step",
+                    "agent": "retrieval",
+                    "step_number": 0,
+                    "tool_name": "fast_path",
+                    "tool_args": {},
                 })
-                await emit({"type": "done"})
-                return
+                data_plan = fast_plan
+                await emit({"type": "data_plan", "content": data_plan})
+            else:
+                # Phase 1: Full Retrieval
+                await emit({
+                    "type": "agent_step",
+                    "agent": "retrieval",
+                    "step_number": 0,
+                    "tool_name": "start",
+                    "tool_args": {},
+                })
 
-            data_plan = retrieval_result.answer
-            await emit({"type": "data_plan", "content": data_plan})
+                retrieval = RetrievalAgent(
+                    schema_tool=self._schema_tool,
+                    config_tool=self._config_tool,
+                    llm_client=self._llm_client,
+                )
+                retrieval_result = await retrieval.run(question, mto_context)
 
-            # Emit retrieval steps
-            for step in retrieval_result.steps:
-                if step.action == "tool_call":
+                if retrieval_result.error:
                     await emit({
-                        "type": "agent_step",
-                        "agent": "retrieval",
-                        "step_number": step.step_number,
-                        "tool_name": step.tool_name or "",
-                        "tool_args": step.tool_args or {},
+                        "type": "error",
+                        "message": f"检索规划失败: {retrieval_result.error}",
                     })
+                    await emit({"type": "done"})
+                    return
+
+                data_plan = retrieval_result.answer
+                await emit({"type": "data_plan", "content": data_plan})
+
+                # Emit retrieval steps
+                for step in retrieval_result.steps:
+                    if step.action == "tool_call":
+                        await emit({
+                            "type": "agent_step",
+                            "agent": "retrieval",
+                            "step_number": step.step_number,
+                            "tool_name": step.tool_name or "",
+                            "tool_args": step.tool_args or {},
+                        })
 
             # Phase 2: Reasoning
             def on_reasoning_step(step: AgentStep) -> None:

@@ -83,6 +83,8 @@ function mtoSearch() {
         chatInput: '',
         chatLoading: false,
         chatModel: '',
+        chatProviders: [],           // [{name, label, model}]
+        activeProvider: '',
         chatMode: 'simple',          // 'simple' or 'agent'
         agentChatAvailable: false,
         _chatAbort: null,    // AbortController for active stream
@@ -744,6 +746,8 @@ function mtoSearch() {
                     const data = await resp.json();
                     this.chatAvailable = data.available;
                     this.chatModel = data.model || '';
+                    this.chatProviders = data.providers || [];
+                    this.activeProvider = data.active || '';
                 }
             } catch (e) {
                 this.chatAvailable = false;
@@ -764,6 +768,25 @@ function mtoSearch() {
             if (this.chatMode === mode) return;
             this.chatMode = mode;
             this.clearChat();
+        },
+
+        async switchProvider(name) {
+            if (this.activeProvider === name) return;
+            try {
+                const resp = await fetch('/api/chat/provider', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+                    body: JSON.stringify({ provider: name }),
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    this.activeProvider = data.active;
+                    this.chatModel = data.model || '';
+                    this.clearChat();
+                }
+            } catch (e) {
+                console.error('Failed to switch provider:', e);
+            }
         },
 
         toggleChat() {

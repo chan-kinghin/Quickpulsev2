@@ -1,22 +1,26 @@
-"""Async DeepSeek client using the OpenAI-compatible SDK."""
+"""Async LLM client using the OpenAI-compatible SDK.
+
+Works with any OpenAI-compatible provider (DeepSeek, Qwen, etc.).
+"""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from typing import Union
 
 from openai import AsyncOpenAI, APIConnectionError, RateLimitError, APITimeoutError
 
-from src.config import DeepSeekConfig
+from src.config import DeepSeekConfig, QwenConfig
 from src.exceptions import ChatConnectionError, ChatRateLimitError
 
 logger = logging.getLogger(__name__)
 
 
-class DeepSeekClient:
-    """Async streaming client for the DeepSeek chat API."""
+class LLMClient:
+    """Async streaming client for any OpenAI-compatible chat API."""
 
-    def __init__(self, config: DeepSeekConfig) -> None:
+    def __init__(self, config: Union[DeepSeekConfig, QwenConfig]) -> None:
         self._client = AsyncOpenAI(
             api_key=config.api_key,
             base_url=config.base_url,
@@ -89,3 +93,7 @@ class DeepSeekClient:
     async def close(self) -> None:
         """Shutdown the underlying httpx client."""
         await self._client.close()
+
+
+# Backward-compatible alias
+DeepSeekClient = LLMClient

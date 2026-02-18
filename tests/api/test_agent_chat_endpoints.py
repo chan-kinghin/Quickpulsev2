@@ -145,11 +145,20 @@ class TestAgentChatStatus:
 
     @pytest.mark.asyncio
     async def test_status_available(self, app_with_agent_chat):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app_with_agent_chat),
-            base_url="http://test",
-        ) as client:
-            resp = await client.get("/api/agent-chat/status")
+        mock_agent_config = MagicMock()
+        mock_agent_config.is_available.return_value = True
+        mock_agent_config.resolve.return_value = DeepSeekConfig(
+            api_key="test-key", model="test-model"
+        )
+        with patch(
+            "src.config.AgentLLMConfig",
+            return_value=mock_agent_config,
+        ):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_with_agent_chat),
+                base_url="http://test",
+            ) as client:
+                resp = await client.get("/api/agent-chat/status")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -159,11 +168,17 @@ class TestAgentChatStatus:
 
     @pytest.mark.asyncio
     async def test_status_unavailable(self, app_without_deepseek):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app_without_deepseek),
-            base_url="http://test",
-        ) as client:
-            resp = await client.get("/api/agent-chat/status")
+        mock_agent_config = MagicMock()
+        mock_agent_config.is_available.return_value = False
+        with patch(
+            "src.config.AgentLLMConfig",
+            return_value=mock_agent_config,
+        ):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_without_deepseek),
+                base_url="http://test",
+            ) as client:
+                resp = await client.get("/api/agent-chat/status")
 
         assert resp.status_code == 200
         data = resp.json()

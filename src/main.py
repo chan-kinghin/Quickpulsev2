@@ -34,7 +34,7 @@ _STATUS_ERROR_CODES = {
     503: "service_unavailable",
 }
 from src.api.routers import agent_chat, auth, cache, chat, mto, sync
-from src.chat.client import DeepSeekClient
+from src.chat.client import LLMClient
 from src.config import Config
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
@@ -147,13 +147,20 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Startup cache warming failed: %s", exc)
 
-    # Initialize DeepSeek chat client (optional — graceful degradation)
-    chat_client = None
+    # Initialize LLM chat providers (optional — graceful degradation)
+    chat_providers = {}
     if config.deepseek.is_available():
-        chat_client = DeepSeekClient(config.deepseek)
+        chat_providers["deepseek"] = LLMClient(config.deepseek)
         logger.info("DeepSeek chat enabled (model=%s)", config.deepseek.model)
-    else:
-        logger.info("DeepSeek chat disabled (no API key)")
+    if config.qwen.is_available():
+        chat_providers["qwen"] = LLMClient(config.qwen)
+        logger.info("Qwen chat enabled (model=%s)", config.qwen.model)
+    if not chat_providers:
+        logger.info("No LLM chat providers configured")
+
+    # Set active provider: first available, or None
+    active_provider = next(iter(chat_providers), None)
+    chat_client = chat_providers.get(active_provider) if active_provider else None
 
     loop = asyncio.get_running_loop()
     scheduler = SyncScheduler(config.sync, sync_service, loop=loop)
@@ -167,13 +174,15 @@ async def lifespan(app: FastAPI):
     app.state.mto_handler = mto_handler
     app.state.scheduler = scheduler
     app.state.chat_client = chat_client
+    app.state.chat_providers = chat_providers
+    app.state.active_chat_provider = active_provider
     app.state.mto_config = mto_config
 
     yield
 
     scheduler.stop()
-    if chat_client:
-        await chat_client.close()
+    for client in chat_providers.values():
+        await client.close()
     await db.close()
 
 

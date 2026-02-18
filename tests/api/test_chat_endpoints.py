@@ -54,6 +54,8 @@ def app_with_chat(mock_chat_client, mock_db, mock_config):
     app = FastAPI()
     setup_rate_limiting(app)
     app.state.chat_client = mock_chat_client
+    app.state.chat_providers = {"deepseek": mock_chat_client}
+    app.state.active_chat_provider = "deepseek"
     app.state.db = mock_db
     app.state.config = mock_config
     app.include_router(auth_router)
@@ -66,6 +68,8 @@ def app_without_chat():
     app = FastAPI()
     setup_rate_limiting(app)
     app.state.chat_client = None
+    app.state.chat_providers = {}
+    app.state.active_chat_provider = None
     app.state.config = MagicMock()
     app.state.config.deepseek = DeepSeekConfig()
     app.include_router(auth_router)

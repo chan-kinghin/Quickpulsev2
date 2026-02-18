@@ -101,7 +101,7 @@ class AgentConfig:
     """
 
     max_steps: int = 5
-    max_tokens_budget: int = 32000
+    max_tokens_budget: int = 48000
     temperature: float = 0.1
     system_prompt: str = ""
 

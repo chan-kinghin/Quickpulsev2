@@ -1,4 +1,4 @@
-"""Chat endpoints — SSE streaming for DeepSeek LLM integration."""
+"""Chat endpoints — SSE streaming for multi-provider LLM integration."""
 
 import json
 import logging
@@ -33,6 +33,10 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     mto_context: Optional[dict] = None
+
+
+class ProviderSwitchRequest(BaseModel):
+    provider: str
 
 
 # ---------------------------------------------------------------------------
@@ -70,14 +74,59 @@ def _build_system_prompt(body: ChatRequest) -> str:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+_PROVIDER_CONFIGS = {"deepseek": "deepseek", "qwen": "qwen"}
+_PROVIDER_LABELS = {"deepseek": "DeepSeek", "qwen": "Qwen"}
+
+
 @router.get("/status")
 async def chat_status(request: Request):
-    """Check if the chat feature is available."""
-    client = request.app.state.chat_client
-    if client is None:
-        return {"available": False, "model": None}
-    config = request.app.state.config.deepseek
-    return {"available": True, "model": config.model}
+    """Check if the chat feature is available and list providers."""
+    providers = getattr(request.app.state, "chat_providers", {})
+    active = getattr(request.app.state, "active_chat_provider", None)
+    if not providers:
+        return {"available": False, "model": None, "providers": [], "active": None}
+
+    config = request.app.state.config
+    provider_list = []
+    for name in providers:
+        cfg = getattr(config, _PROVIDER_CONFIGS.get(name, name), None)
+        provider_list.append({
+            "name": name,
+            "label": _PROVIDER_LABELS.get(name, name),
+            "model": cfg.model if cfg else "",
+        })
+
+    active_cfg = getattr(config, _PROVIDER_CONFIGS.get(active, active), None)
+    return {
+        "available": True,
+        "model": active_cfg.model if active_cfg else "",
+        "providers": provider_list,
+        "active": active,
+    }
+
+
+@router.post("/provider")
+async def switch_provider(
+    request: Request,
+    body: ProviderSwitchRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """Switch the active LLM provider."""
+    providers = getattr(request.app.state, "chat_providers", {})
+    if body.provider not in providers:
+        available = list(providers.keys())
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider '{body.provider}'. Available: {available}",
+        )
+    request.app.state.active_chat_provider = body.provider
+    request.app.state.chat_client = providers[body.provider]
+    config = request.app.state.config
+    cfg = getattr(config, _PROVIDER_CONFIGS.get(body.provider, body.provider), None)
+    return {
+        "active": body.provider,
+        "model": cfg.model if cfg else "",
+    }
 
 
 @router.post("/stream")

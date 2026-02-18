@@ -183,13 +183,13 @@ class TestReasoningAgent:
         )
         assert agent.name == "reasoning_agent"
 
-    def test_default_max_steps_is_5(self):
+    def test_default_max_steps_is_8(self):
         agent = ReasoningAgent(
             sql_tool=_make_tool("sql_query"),
             mto_tool=_make_tool("mto_lookup"),
             llm_client=_make_mock_llm_client(),
         )
-        assert agent.config.max_steps == 5
+        assert agent.config.max_steps == 8
 
     @pytest.mark.asyncio
     async def test_run_produces_answer(self):

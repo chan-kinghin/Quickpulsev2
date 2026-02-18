@@ -65,10 +65,12 @@ def _build_mto_context_str(mto_context: Optional[dict]) -> Optional[str]:
 @router.get("/status")
 async def agent_chat_status(request: Request):
     """Check if the agent chat feature is available."""
-    config = request.app.state.config.deepseek
-    if not config.is_available():
+    from src.config import AgentLLMConfig
+    agent_config = AgentLLMConfig()
+    if not agent_config.is_available():
         return {"available": False, "model": None, "mode": "agent"}
-    return {"available": True, "model": config.model, "mode": "agent"}
+    resolved = agent_config.resolve()
+    return {"available": True, "model": resolved.model, "mode": "agent"}
 
 
 @router.post("/stream")
@@ -104,7 +106,6 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
     from src.agents.chat.orchestrator import AgentChatOrchestrator
 
     # Get dependencies from app state
-    config = request.app.state.config.deepseek
     db = request.app.state.db
     mto_handler = request.app.state.mto_handler
     mto_config = getattr(request.app.state, "mto_config", None)
@@ -114,8 +115,10 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
         yield _sse_event({"type": "done"})
         return
 
-    # Create LLM client and tools
-    llm_client = AgentLLMClient(config)
+    # Create LLM client — use AgentLLMConfig (AGENT_*) with fallback to DEEPSEEK_*
+    from src.config import AgentLLMConfig
+    agent_config = AgentLLMConfig().resolve()
+    llm_client = AgentLLMClient(agent_config)
     try:
         schema_tool = create_schema_lookup_tool(db)
         config_tool = create_config_lookup_tool(mto_config)

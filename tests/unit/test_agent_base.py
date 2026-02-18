@@ -125,7 +125,7 @@ class TestAgentConfig:
     def test_default_values(self):
         config = AgentConfig()
         assert config.max_steps == 5
-        assert config.max_tokens_budget == 32000
+        assert config.max_tokens_budget == 48000
         assert config.temperature == 0.1
         assert config.system_prompt == ""
 

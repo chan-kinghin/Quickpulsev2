@@ -34,7 +34,7 @@ class ReasoningAgent(AgentBase):
         sql_tool: ToolDefinition,
         mto_tool: ToolDefinition,
         llm_client: AgentLLMClient,
-        max_steps: int = 5,
+        max_steps: int = 8,
     ) -> None:
         config = AgentConfig(
             max_steps=max_steps,
