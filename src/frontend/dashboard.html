@@ -795,7 +795,7 @@
             <div class="chat-sidebar no-print"
                  role="complementary" aria-label="AI 助手"
                  :class="chatOpen ? 'chat-sidebar-open' : 'chat-sidebar-closed'"
-                 x-effect="if (chatOpen) { $nextTick(() => { const ta = $el.querySelector('textarea'); if (ta) ta.focus(); }) }"
+                 x-effect="if (chatOpen) { $nextTick(() => { const ta = $el.querySelector('textarea'); if (ta) ta.focus(); }) }">
                 <!-- Header -->
                 <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-900 flex-shrink-0">
                     <div class="flex items-center gap-2">
@@ -818,6 +818,16 @@
                                     智能
                                 </button>
                             </div>
+                        </template>
+                        <!-- Provider selector (only when multiple providers available) -->
+                        <template x-if="chatProviders.length > 1 && chatMode !== 'agent'">
+                            <select @change="switchProvider($event.target.value)"
+                                    class="text-xs bg-slate-700 text-slate-300 border border-slate-600 rounded px-1.5 py-0.5 ml-1 focus:outline-none focus:border-emerald-500"
+                                    :value="activeProvider">
+                                <template x-for="p in chatProviders" :key="p.name">
+                                    <option :value="p.name" x-text="p.label" :selected="p.name === activeProvider"></option>
+                                </template>
+                            </select>
                         </template>
                         <span class="text-xs text-slate-500" x-text="chatMode === 'agent' ? '多Agent协作分析' : (chatModel || '')"></span>
                     </div>

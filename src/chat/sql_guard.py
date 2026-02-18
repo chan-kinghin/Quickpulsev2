@@ -38,6 +38,8 @@ _FORBIDDEN_KEYWORDS = [
     "REVOKE",
     "VACUUM",
     "REINDEX",
+    "LOAD_EXTENSION",
+    "LOAD",
 ]
 
 _FORBIDDEN_PATTERN = re.compile(

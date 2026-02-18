@@ -132,7 +132,7 @@ class TestMtoLookupTool:
     @pytest.fixture
     def mock_handler(self):
         handler = MagicMock()
-        handler.query = AsyncMock()
+        handler.get_status = AsyncMock()
         return handler
 
     @pytest.fixture
@@ -153,10 +153,10 @@ class TestMtoLookupTool:
         mock_parent.qty = 100
 
         mock_result = MagicMock()
-        mock_result.parent_item = mock_parent
-        mock_result.child_items = []
+        mock_result.parent = mock_parent
+        mock_result.children = []
 
-        mock_handler.query.return_value = mock_result
+        mock_handler.get_status.return_value = mock_result
 
         result = await mto_tool.handler(mto_number="AK2510034")
         data = json.loads(result)
@@ -167,7 +167,7 @@ class TestMtoLookupTool:
 
     @pytest.mark.asyncio
     async def test_unknown_mto_returns_not_found(self, mto_tool, mock_handler):
-        mock_handler.query.return_value = None
+        mock_handler.get_status.return_value = None
 
         result = await mto_tool.handler(mto_number="UNKNOWN123")
 
@@ -176,7 +176,7 @@ class TestMtoLookupTool:
 
     @pytest.mark.asyncio
     async def test_query_exception_returns_error(self, mto_tool, mock_handler):
-        mock_handler.query.side_effect = Exception("DB connection lost")
+        mock_handler.get_status.side_effect = Exception("DB connection lost")
 
         result = await mto_tool.handler(mto_number="AK2510034")
 
@@ -200,10 +200,10 @@ class TestMtoLookupTool:
         mock_child.metrics = {"fulfillment_rate": mock_metric}
 
         mock_result = MagicMock()
-        mock_result.parent_item = mock_parent
-        mock_result.child_items = [mock_child]
+        mock_result.parent = mock_parent
+        mock_result.children = [mock_child]
 
-        mock_handler.query.return_value = mock_result
+        mock_handler.get_status.return_value = mock_result
 
         result = await mto_tool.handler(mto_number="AK2510034")
         data = json.loads(result)

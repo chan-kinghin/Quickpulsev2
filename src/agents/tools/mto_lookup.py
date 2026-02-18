@@ -35,7 +35,7 @@ def create_mto_lookup_tool(mto_handler) -> ToolDefinition:
             JSON summary of MTO status including parent item and children.
         """
         try:
-            result = await mto_handler.query(mto_number)
+            result = await mto_handler.get_status(mto_number)
         except Exception as exc:
             return f"MTO查询失败: {exc}"
 
@@ -50,8 +50,8 @@ def create_mto_lookup_tool(mto_handler) -> ToolDefinition:
             "children_summary": [],
         }
 
-        if result.parent_item:
-            pi = result.parent_item
+        if result.parent:
+            pi = result.parent
             summary["parent_item"] = {
                 "bill_no": pi.bill_no,
                 "material_code": pi.material_code,
@@ -59,10 +59,10 @@ def create_mto_lookup_tool(mto_handler) -> ToolDefinition:
                 "qty": float(pi.qty) if pi.qty else 0,
             }
 
-        if result.child_items:
-            summary["child_count"] = len(result.child_items)
+        if result.children:
+            summary["child_count"] = len(result.children)
             # Include first 20 children to stay within token budget
-            for child in result.child_items[:20]:
+            for child in result.children[:20]:
                 child_info = {
                     "material_code": child.material_code,
                     "material_name": child.material_name,
@@ -74,8 +74,8 @@ def create_mto_lookup_tool(mto_handler) -> ToolDefinition:
                     }
                 summary["children_summary"].append(child_info)
 
-            if len(result.child_items) > 20:
-                summary["note"] = f"仅显示前20项，共{len(result.child_items)}项子件"
+            if len(result.children) > 20:
+                summary["note"] = f"仅显示前20项，共{len(result.children)}项子件"
 
         return json.dumps(summary, ensure_ascii=False, indent=2)
 

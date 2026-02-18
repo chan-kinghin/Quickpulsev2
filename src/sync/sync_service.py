@@ -466,6 +466,13 @@ class SyncService:
     async def _clear_cache(self) -> None:
         await self.db.execute_write(f"DELETE FROM {TABLE_ORDERS}")
         await self.db.execute_write(f"DELETE FROM {TABLE_BOM}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_PURCHASE_ORDERS}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_SUBCONTRACTING_ORDERS}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_PRODUCTION_RECEIPTS}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_PURCHASE_RECEIPTS}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_MATERIAL_PICKING}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_SALES_DELIVERY}")
+        await self.db.execute_write(f"DELETE FROM {TABLE_SALES_ORDERS}")
 
     async def _upsert_production_orders(self, orders: Iterable) -> None:
         """Upsert production orders (uses no-commit for transaction support)."""
