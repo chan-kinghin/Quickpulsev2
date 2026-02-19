@@ -326,6 +326,8 @@ PURCHASE_ORDER_CONFIG = ReaderConfig(
         "stock_in_qty": FieldMapping("FStockInQty", _decimal),
         "remain_stock_in_qty": FieldMapping("FRemainStockInQty", _decimal),
     },
+    # Exclude draft orders (A), include approved/confirmed/re-audited (B, C, D)
+    extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
 PURCHASE_RECEIPT_CONFIG = ReaderConfig(
@@ -371,8 +373,8 @@ MATERIAL_PICKING_CONFIG = ReaderConfig(
         "ppbom_bill_no": FieldMapping("FPPBomBillNo"),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),  # 辅助属性ID，用于按颜色/尺寸汇总
     },
-    # Include approved/confirmed documents (B=审核, C=确认), exclude drafts (A)
-    extra_filter="FDocumentStatus IN ('B', 'C')",
+    # Include approved/confirmed/re-audited documents (B=审核, C=确认, D=重新审核), exclude drafts (A)
+    extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
 SALES_DELIVERY_CONFIG = ReaderConfig(

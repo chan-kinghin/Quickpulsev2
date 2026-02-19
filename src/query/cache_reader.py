@@ -6,6 +6,7 @@ expensive Kingdee API calls when cached data is fresh.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -381,7 +382,6 @@ class CacheReader:
         specification = ""
         if row[6]:
             try:
-                import json
                 raw_data = json.loads(row[6]) if isinstance(row[6], str) else row[6]
                 material_name = raw_data.get("material_name", "")
                 specification = raw_data.get("specification", "")

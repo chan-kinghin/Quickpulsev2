@@ -180,7 +180,7 @@ async def export_mto_excel(
     filename_encoded = quote(filename, safe='')
     return Response(
         content=output.getvalue().encode("utf-8-sig"),
-        media_type="text/csv; charset=utf-8",
+        media_type="text/csv",
         headers={
             "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{filename_encoded}"
         },

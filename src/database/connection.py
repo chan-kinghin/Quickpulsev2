@@ -13,18 +13,32 @@ _VALID_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 class Database:
-    """Async SQLite database wrapper."""
+    """Async SQLite database wrapper.
+
+    Uses separate connections for reads and writes to avoid
+    head-of-line blocking.  Both connections use WAL mode so
+    concurrent readers never block on a writer.
+    """
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._connection: aiosqlite.Connection | None = None
+        self._read_connection: aiosqlite.Connection | None = None
 
     async def connect(self) -> None:
+        # Open write connection first, enable WAL, and init schema
         self._connection = await aiosqlite.connect(self.db_path)
+        await self._connection.execute("PRAGMA journal_mode=WAL")
         await self._init_schema()
+        # Open read connection after schema is ready (WAL is database-level,
+        # so the read connection inherits it automatically)
+        self._read_connection = await aiosqlite.connect(self.db_path)
+        await self._read_connection.execute("PRAGMA journal_mode=WAL")
 
     async def _init_schema(self) -> None:
         schema_path = Path(__file__).parent / "schema.sql"
+        # Synchronous file read — acceptable here because it only runs once
+        # at startup and the schema file is small (< 10 KB).
         schema = schema_path.read_text(encoding="utf-8")
         await self._connection.executescript(schema)
         await self._apply_migrations()
@@ -107,13 +121,21 @@ class Database:
             return await cursor.fetchall()
 
     async def execute_read(self, query: str, params=None):
-        """Execute a read query and return all results."""
-        async with self._connection.execute(query, params or []) as cursor:
+        """Execute a read query and return all results.
+
+        Uses the dedicated read connection to avoid blocking on writes.
+        """
+        conn = self._read_connection or self._connection
+        async with conn.execute(query, params or []) as cursor:
             return await cursor.fetchall()
 
     async def execute_read_with_columns(self, query: str, params=None):
-        """Execute a read query and return (rows, column_names) tuple."""
-        async with self._connection.execute(query, params or []) as cursor:
+        """Execute a read query and return (rows, column_names) tuple.
+
+        Uses the dedicated read connection to avoid blocking on writes.
+        """
+        conn = self._read_connection or self._connection
+        async with conn.execute(query, params or []) as cursor:
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
             rows = await cursor.fetchall()
             return rows, columns
@@ -159,5 +181,9 @@ class Database:
         await self._connection.executemany(query, params)
 
     async def close(self) -> None:
+        if self._read_connection:
+            await self._read_connection.close()
+            self._read_connection = None
         if self._connection:
             await self._connection.close()
+            self._connection = None

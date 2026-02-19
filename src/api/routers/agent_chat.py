@@ -84,6 +84,9 @@ async def agent_chat_stream(
     current_user: str = Depends(get_current_user),
 ):
     """SSE streaming agent chat endpoint — dual-agent mode."""
+    if not body.messages:
+        raise HTTPException(status_code=422, detail="messages array must not be empty")
+
     from src.config import AgentLLMConfig
     agent_config = AgentLLMConfig()
     resolved = agent_config.resolve()
@@ -175,7 +178,7 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
                 await event_queue.put({"type": "done"})
             except Exception as exc:
                 logger.exception("Orchestrator failed: %s", exc)
-                await event_queue.put({"type": "error", "message": str(exc)})
+                await event_queue.put({"type": "error", "message": "智能分析出现异常，请稍后重试"})
                 await event_queue.put({"type": "done"})
 
         task = asyncio.create_task(run_orchestrator())
@@ -198,7 +201,7 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
 
     except Exception as exc:
         logger.exception("Agent stream error: %s", exc)
-        yield _sse_event({"type": "error", "message": str(exc)})
+        yield _sse_event({"type": "error", "message": "智能分析出现异常，请稍后重试"})
         yield _sse_event({"type": "done"})
     finally:
         await llm_client.close()

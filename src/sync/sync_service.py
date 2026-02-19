@@ -217,10 +217,17 @@ class SyncService:
         # Run with gather, collecting results
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Handle any errors
+        # Handle any errors — log and track partial failures
+        exceptions = [r for r in results if isinstance(r, Exception)]
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error("Chunk %d failed: %s", i + 1, result)
+
+        if exceptions:
+            logger.error(
+                "Sync had %d/%d failed chunks: %s",
+                len(exceptions), len(results), exceptions
+            )
 
         self.progress.update("finalize", "Finalizing sync", records_synced=records_synced)
         return records_synced
@@ -464,15 +471,15 @@ class SyncService:
         return None
 
     async def _clear_cache(self) -> None:
-        await self.db.execute_write(f"DELETE FROM {TABLE_ORDERS}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_BOM}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_PURCHASE_ORDERS}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_SUBCONTRACTING_ORDERS}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_PRODUCTION_RECEIPTS}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_PURCHASE_RECEIPTS}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_MATERIAL_PICKING}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_SALES_DELIVERY}")
-        await self.db.execute_write(f"DELETE FROM {TABLE_SALES_ORDERS}")
+        tables = [
+            TABLE_ORDERS, TABLE_BOM, TABLE_PURCHASE_ORDERS,
+            TABLE_SUBCONTRACTING_ORDERS, TABLE_PRODUCTION_RECEIPTS,
+            TABLE_PURCHASE_RECEIPTS, TABLE_MATERIAL_PICKING,
+            TABLE_SALES_DELIVERY, TABLE_SALES_ORDERS,
+        ]
+        async with self.db.transaction():
+            for table in tables:
+                await self.db.execute_write_no_commit(f"DELETE FROM {table}")
 
     async def _upsert_production_orders(self, orders: Iterable) -> None:
         """Upsert production orders (uses no-commit for transaction support)."""

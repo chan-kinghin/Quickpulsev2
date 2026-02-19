@@ -21,6 +21,10 @@ COPY sync_config.json ./
 
 RUN mkdir -p /app/data /app/reports
 
+RUN adduser --disabled-password --gecos '' --uid 1001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 

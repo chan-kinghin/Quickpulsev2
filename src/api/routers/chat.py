@@ -139,6 +139,9 @@ async def stream_chat(
     current_user: str = Depends(get_current_user),
 ):
     """SSE streaming chat endpoint — analytics mode (SQL generation + summarization)."""
+    if not body.messages:
+        raise HTTPException(status_code=422, detail="messages array must not be empty")
+
     client = request.app.state.chat_client
     if client is None:
         raise HTTPException(status_code=503, detail="Chat service not configured")
@@ -188,8 +191,8 @@ async def _analytics_stream(client, body: ChatRequest, request: Request):
     try:
         rows, column_names = await db.execute_read_with_columns(safe_sql)
     except Exception as exc:
-        logger.warning("SQL execution failed: %s", exc)
-        yield _sse_event({"type": "error", "message": f"SQL执行失败: {exc}"})
+        logger.warning("SQL execution failed: %s", exc, exc_info=True)
+        yield _sse_event({"type": "error", "message": "SQL执行失败，请检查查询条件后重试"})
         yield _sse_event({"type": "done"})
         return
 

@@ -180,6 +180,15 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Cancel any running sync task gracefully
+    sync_task = getattr(app.state, 'sync_task', None)
+    if sync_task and not sync_task.done():
+        sync_task.cancel()
+        try:
+            await sync_task
+        except asyncio.CancelledError:
+            pass
+
     scheduler.stop()
     for client in chat_providers.values():
         await client.close()
@@ -199,6 +208,16 @@ if cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
 
 
 @app.middleware("http")
@@ -274,4 +293,12 @@ async def sync_page():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy"}
+    try:
+        db = app.state.db
+        await db.execute_read("SELECT 1")
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "database": str(e)},
+        )

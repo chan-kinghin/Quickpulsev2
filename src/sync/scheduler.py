@@ -24,6 +24,7 @@ class SyncScheduler:
         self.loop = loop
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._schedule_lock = threading.Lock()
 
     def start(self) -> None:
         """Start auto sync scheduler."""
@@ -31,9 +32,10 @@ class SyncScheduler:
             logger.info("Auto-sync scheduler disabled in config")
             return
 
-        schedule.clear()
-        for time_str in self.config.auto_sync.schedule:
-            schedule.every().day.at(time_str).do(self._sync_job)
+        with self._schedule_lock:
+            schedule.clear()
+            for time_str in self.config.auto_sync.schedule:
+                schedule.every().day.at(time_str).do(self._sync_job)
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_scheduler, daemon=True)
@@ -49,7 +51,8 @@ class SyncScheduler:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=2)
-        schedule.clear()
+        with self._schedule_lock:
+            schedule.clear()
 
     def _sync_job(self) -> None:
         self.config.reload()
@@ -66,5 +69,6 @@ class SyncScheduler:
 
     def _run_scheduler(self) -> None:
         while not self._stop_event.is_set():
-            schedule.run_pending()
+            with self._schedule_lock:
+                schedule.run_pending()
             time.sleep(1)

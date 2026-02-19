@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import date
 from typing import Optional, TYPE_CHECKING
 
@@ -310,6 +311,8 @@ class KingdeeClient:
         mto_number: str,
     ) -> list[dict]:
         """Query by MTO number."""
+        if not re.match(r'^[A-Za-z0-9\-]+$', mto_number):
+            raise ValueError(f"Invalid MTO number: {mto_number}")
         filter_string = f"{mto_field}='{mto_number}'"
         return await self.query_all(
             form_id=form_id,
@@ -340,6 +343,11 @@ class KingdeeClient:
         """
         if not mto_numbers:
             return []
+
+        # Validate all MTO numbers before building query
+        for mto in mto_numbers:
+            if not re.match(r'^[A-Za-z0-9\-]+$', mto):
+                raise ValueError(f"Invalid MTO number: {mto}")
 
         # Escape single quotes and build IN clause
         escaped = [mto.replace("'", "''") for mto in mto_numbers]

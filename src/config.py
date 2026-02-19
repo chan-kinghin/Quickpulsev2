@@ -97,6 +97,8 @@ class KingdeeConfig(BaseSettings):
                 missing.append("KINGDEE_SERVER_URL")
             if not config.acct_id:
                 missing.append("KINGDEE_ACCT_ID")
+            if not config.user_name:
+                missing.append("KINGDEE_USER_NAME")
             if not config.app_id:
                 missing.append("KINGDEE_APP_ID")
             if not config.app_sec:
@@ -110,7 +112,7 @@ class KingdeeConfig(BaseSettings):
 
     def is_valid(self) -> bool:
         """Check if credentials are configured."""
-        return bool(self.server_url and self.acct_id and self.app_id and self.app_sec)
+        return bool(self.server_url and self.acct_id and self.user_name and self.app_id and self.app_sec)
 
 
 class DeepSeekConfig(BaseSettings):

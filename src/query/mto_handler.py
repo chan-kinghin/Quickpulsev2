@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import Counter, defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -127,8 +127,9 @@ class MTOQueryHandler:
         self._sqlite_hits = 0
         self._sqlite_misses = 0
 
-        # Query frequency tracking for smart cache warming
-        self._query_counter: Counter = Counter()
+        # Query frequency tracking for smart cache warming (bounded to 10k entries)
+        self._query_counter: OrderedDict = OrderedDict()
+        self._query_counter_max = 10000
 
     def _get_material_class(self, material_code: str) -> tuple[str | None, MaterialClassConfig | None]:
         """Get material class ID and config for a material code.
@@ -163,8 +164,11 @@ class MTOQueryHandler:
         2. L2 (SQLite): ~100ms - Persistent cache
         3. L3 (Kingdee): ~1-5s - Live API
         """
-        # Track query frequency for smart cache warming
-        self._query_counter[mto_number] += 1
+        # Track query frequency for smart cache warming (bounded)
+        self._query_counter[mto_number] = self._query_counter.get(mto_number, 0) + 1
+        self._query_counter.move_to_end(mto_number)
+        if len(self._query_counter) > self._query_counter_max:
+            self._query_counter.popitem(last=False)
 
         # L1: Check in-memory cache first (sub-10ms response)
         if use_cache and self._memory_cache is not None:
@@ -327,6 +331,21 @@ class MTOQueryHandler:
         if not has_data:
             return None
 
+        # Log warning when serving stale cached data
+        stale_sources = [
+            name for name, result in [
+                ("sales_orders", sales_orders_result),
+                ("prod_orders", prod_orders_result),
+                ("purchase_orders", purchase_orders_result),
+            ]
+            if result.data and not result.is_fresh
+        ]
+        if stale_sources:
+            logger.warning(
+                "MTO %s: serving stale cache data (sources: %s)",
+                mto_number, ", ".join(stale_sources),
+            )
+
         # Extract data from cache results
         sales_orders = sales_orders_result.data or []
         prod_orders = prod_orders_result.data or []
@@ -440,7 +459,7 @@ class MTOQueryHandler:
         for key, po_list in prd_mo_05_by_key.items():
             if key not in selfmade_receipt_by_key and key not in pickmtrl_05_by_key:
                 child = self._build_selfmade_child_from_prd_mo(
-                    po_list, prod_receipts, material_picks, aux_descriptions
+                    po_list, receipt_by_material, pick_actual, aux_descriptions
                 )
                 children.append(child)
 
@@ -559,25 +578,24 @@ class MTOQueryHandler:
             self._readers["production_bom"].fetch_by_mto(mto_number),  # 新增
         )
 
-        # Debug logging: show what records were returned from each source
+        # Aggregate stats at info level, per-record details at debug level
         logger.info(
             "MTO %s live query results: SAL_SaleOrder=%d, PRD_MO=%d, PUR=%d, PRD_INSTOCK=%d",
             mto_number, len(sales_orders), len(prod_orders), len(purchase_orders), len(prod_receipts)
         )
-        # Log each SAL_SaleOrder record to see exact data
+        # Per-record details only at debug level to avoid hot-path noise
         for so in sales_orders:
-            logger.info(
+            logger.debug(
                 "  SAL_SaleOrder: material=%s, aux_prop_id=%d, qty=%s, mto=%s",
                 so.material_code, getattr(so, 'aux_prop_id', 0), so.qty, so.mto_number
             )
-        # Log unique (material_code, aux_prop_id) keys for finished_goods classification
         finished_keys = set()
         for so in sales_orders:
             class_id, _ = self._get_material_class(so.material_code)
             if class_id == "finished_goods":
                 key = (so.material_code, getattr(so, 'aux_prop_id', 0) or 0)
                 finished_keys.add(key)
-        logger.info(
+        logger.debug(
             "MTO %s: %d unique 成品 (material_code, aux_prop_id) keys: %s",
             mto_number, len(finished_keys), list(finished_keys)
         )
@@ -686,7 +704,7 @@ class MTOQueryHandler:
         for key, po_list in prd_mo_05_by_key.items():
             if key not in selfmade_receipt_by_key and key not in pickmtrl_05_by_key:
                 child = self._build_selfmade_child_from_prd_mo(
-                    po_list, prod_receipts, material_picks, aux_descriptions
+                    po_list, receipt_by_material, pick_actual, aux_descriptions
                 )
                 children.append(child)
 
@@ -1008,8 +1026,8 @@ class MTOQueryHandler:
     def _build_selfmade_child_from_prd_mo(
         self,
         prod_orders: list,
-        prod_receipts: list,
-        material_picks: list,
+        receipt_by_material: dict[tuple[str, int], Decimal],
+        pick_actual: dict[tuple[str, int], Decimal],
         aux_descriptions: dict[int, str],
     ) -> ChildItem:
         """Build ChildItem for 05.xx.xxx (自制) from PRD_MO (生产订单).
@@ -1030,17 +1048,10 @@ class MTOQueryHandler:
         # PRD_MO.FQty as order/expected quantity
         order_qty = sum(getattr(po, "qty", ZERO) for po in prod_orders)
 
-        # Look up actual receipt qty from PRD_INSTOCK (usually 0 for unprocessed orders)
-        receipt_qty = sum(
-            r.real_qty for r in prod_receipts
-            if r.material_code == code and (getattr(r, "aux_prop_id", 0) or 0) == aux_prop_id
-        )
-
-        # Look up actual pick qty from PRD_PickMtrl (usually 0 for unprocessed orders)
-        pick_qty = sum(
-            p.actual_qty for p in material_picks
-            if p.material_code == code and (getattr(p, "aux_prop_id", 0) or 0) == aux_prop_id
-        )
+        # O(1) lookup from pre-computed dicts (usually 0 for unprocessed orders)
+        key = (code, aux_prop_id)
+        receipt_qty = receipt_by_material.get(key, ZERO)
+        pick_qty = pick_actual.get(key, ZERO)
 
         return ChildItem(
             material_code=code,
@@ -1138,11 +1149,12 @@ class MTOQueryHandler:
             return False
 
     def reset_stats(self) -> None:
-        """Reset cache statistics counters."""
+        """Reset cache statistics counters and query frequency tracker."""
         self._memory_hits = 0
         self._memory_misses = 0
         self._sqlite_hits = 0
         self._sqlite_misses = 0
+        self._query_counter.clear()
         logger.info("Reset cache statistics")
 
     async def warm_cache(self, mto_numbers: list[str]) -> dict:
@@ -1185,7 +1197,8 @@ class MTOQueryHandler:
         Returns:
             List of MTO numbers sorted by query frequency
         """
-        return [mto for mto, _ in self._query_counter.most_common(top_n)]
+        sorted_mtos = sorted(self._query_counter.items(), key=lambda x: x[1], reverse=True)
+        return [mto for mto, _ in sorted_mtos[:top_n]]
 
     def get_query_stats(self) -> dict:
         """Get query frequency statistics.
@@ -1193,10 +1206,11 @@ class MTOQueryHandler:
         Returns:
             dict with query pattern information
         """
+        sorted_mtos = sorted(self._query_counter.items(), key=lambda x: x[1], reverse=True)
         return {
             "total_unique_mtos": len(self._query_counter),
             "total_queries": sum(self._query_counter.values()),
-            "top_10_mtos": self._query_counter.most_common(10),
+            "top_10_mtos": sorted_mtos[:10],
         }
 
 

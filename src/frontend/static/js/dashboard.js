@@ -250,6 +250,9 @@ function mtoSearch() {
             });
         },
 
+        // Note: getSortedItems() is called on every render by Alpine.js.
+        // For current data sizes (~100 items) re-sorting is negligible.
+        // If datasets grow significantly, consider caching with a dirty flag.
         getSortedItems() {
             let items = [...this.getFilteredItems()];
 
