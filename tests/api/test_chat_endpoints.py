@@ -81,12 +81,12 @@ class TestChatStatus:
     """Tests for GET /api/chat/status."""
 
     @pytest.mark.asyncio
-    async def test_status_available(self, app_with_chat):
+    async def test_status_available(self, app_with_chat, auth_headers):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_chat),
             base_url="http://test",
         ) as client:
-            resp = await client.get("/api/chat/status")
+            resp = await client.get("/api/chat/status", headers=auth_headers)
 
         assert resp.status_code == 200
         data = resp.json()
@@ -94,12 +94,12 @@ class TestChatStatus:
         assert data["model"] == "test-model"
 
     @pytest.mark.asyncio
-    async def test_status_unavailable(self, app_without_chat):
+    async def test_status_unavailable(self, app_without_chat, auth_headers):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_without_chat),
             base_url="http://test",
         ) as client:
-            resp = await client.get("/api/chat/status")
+            resp = await client.get("/api/chat/status", headers=auth_headers)
 
         assert resp.status_code == 200
         data = resp.json()

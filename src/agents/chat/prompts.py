@@ -48,7 +48,7 @@ RETRIEVAL_AGENT_PROMPT = """\
 - cached_production_receipts: mto_number, material_code, real_qty, must_qty
 - cached_purchase_receipts: mto_number, material_code, real_qty, must_qty, bill_type_number
 - cached_purchase_orders: mto_number, material_code, order_qty, stock_in_qty
-- cached_picking_records: mto_number, material_code, actual_qty, app_qty
+- cached_material_picking: mto_number, material_code, actual_qty, app_qty
 
 ## 关联规则
 
@@ -114,11 +114,11 @@ real_qty REAL, must_qty REAL, bill_type_number TEXT
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
 order_qty REAL, stock_in_qty REAL, remain_stock_in_qty REAL
 
-### cached_picking_records（领料记录）
+### cached_material_picking（领料记录）
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
 actual_qty REAL, app_qty REAL
 
-### cached_delivery_records（销售出库）
+### cached_sales_delivery（销售出库）
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
 real_qty REAL, must_qty REAL
 

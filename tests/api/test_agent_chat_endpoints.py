@@ -144,7 +144,7 @@ class TestAgentChatStatus:
     """Tests for the status endpoint."""
 
     @pytest.mark.asyncio
-    async def test_status_available(self, app_with_agent_chat):
+    async def test_status_available(self, app_with_agent_chat, auth_headers):
         mock_agent_config = MagicMock()
         mock_agent_config.is_available.return_value = True
         mock_agent_config.resolve.return_value = DeepSeekConfig(
@@ -158,7 +158,7 @@ class TestAgentChatStatus:
                 transport=httpx.ASGITransport(app=app_with_agent_chat),
                 base_url="http://test",
             ) as client:
-                resp = await client.get("/api/agent-chat/status")
+                resp = await client.get("/api/agent-chat/status", headers=auth_headers)
 
         assert resp.status_code == 200
         data = resp.json()
@@ -167,7 +167,7 @@ class TestAgentChatStatus:
         assert data["mode"] == "agent"
 
     @pytest.mark.asyncio
-    async def test_status_unavailable(self, app_without_deepseek):
+    async def test_status_unavailable(self, app_without_deepseek, auth_headers):
         mock_agent_config = MagicMock()
         mock_agent_config.is_available.return_value = False
         with patch(
@@ -178,7 +178,7 @@ class TestAgentChatStatus:
                 transport=httpx.ASGITransport(app=app_without_deepseek),
                 base_url="http://test",
             ) as client:
-                resp = await client.get("/api/agent-chat/status")
+                resp = await client.get("/api/agent-chat/status", headers=auth_headers)
 
         assert resp.status_code == 200
         data = resp.json()
@@ -208,15 +208,18 @@ class TestAgentChatStream:
 
     @pytest.mark.asyncio
     async def test_503_when_not_configured(self, app_without_deepseek, auth_headers):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app_without_deepseek),
-            base_url="http://test",
-        ) as client:
-            resp = await client.post(
-                "/api/agent-chat/stream",
-                json={"messages": [{"role": "user", "content": "test"}]},
-                headers=auth_headers,
-            )
+        mock_agent_config = MagicMock()
+        mock_agent_config.resolve.return_value = DeepSeekConfig(api_key="", model="")
+        with patch("src.config.AgentLLMConfig", return_value=mock_agent_config):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_without_deepseek),
+                base_url="http://test",
+            ) as client:
+                resp = await client.post(
+                    "/api/agent-chat/stream",
+                    json={"messages": [{"role": "user", "content": "test"}]},
+                    headers=auth_headers,
+                )
         assert resp.status_code == 503
 
     @pytest.mark.asyncio

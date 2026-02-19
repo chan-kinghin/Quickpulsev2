@@ -88,6 +88,8 @@ function mtoSearch() {
         chatMode: 'simple',          // 'simple' or 'agent'
         agentChatAvailable: false,
         _chatAbort: null,    // AbortController for active stream
+        _errorTimer: null,
+        _successTimer: null,
 
         // === Preferences ===
         STORAGE_KEY: 'quickpulse_preferences',
@@ -210,6 +212,7 @@ function mtoSearch() {
                 if (!this.filters.materialTypes[item.material_type]) return false;
 
                 // Status filter — uses server-computed completion_status from semantic layer
+                if (this.filters.status !== 'all' && !item.metrics?.completion_status?.status) return false;
                 if (this.filters.status !== 'all' && item.metrics?.completion_status?.status) {
                     const itemStatus = item.metrics.completion_status.status;
                     if (this.filters.status === 'completed' && itemStatus !== 'completed') return false;
@@ -505,7 +508,9 @@ function mtoSearch() {
                 }
 
                 const newUrl = `${window.location.pathname}?mto=${encodeURIComponent(this.mtoNumber.trim())}`;
-                window.history.pushState({}, '', newUrl);
+                if (window.location.search !== '?mto=' + encodeURIComponent(this.mtoNumber.trim())) {
+                    window.history.pushState({}, '', newUrl);
+                }
 
                 this.fetchRelatedOrders();
             } catch (err) {
@@ -585,6 +590,9 @@ function mtoSearch() {
                 } else {
                     // Fallback to server-side CSV
                     const blob = await api.get(`/export/mto/${encodeURIComponent(this.mtoNumber.trim())}`);
+                    if (!(blob instanceof Blob)) {
+                        throw new Error(blob?.detail || 'Export failed');
+                    }
                     const url = window.URL.createObjectURL(blob);
                     const anchor = document.createElement('a');
                     anchor.href = url;
@@ -670,12 +678,13 @@ function mtoSearch() {
 
         formatNumber(value) {
             if (value === null || value === undefined || value === '') {
-                return '0';
+                return '-';
             }
+            if (value === 0) return '0';
 
             const num = parseFloat(value);
             if (isNaN(num)) {
-                return '0';
+                return '-';
             }
 
             return num % 1 === 0
@@ -706,7 +715,8 @@ function mtoSearch() {
         showError(message) {
             this.error = message;
             this.successMessage = '';
-            setTimeout(() => {
+            clearTimeout(this._errorTimer);
+            this._errorTimer = setTimeout(() => {
                 this.error = '';
             }, 5000);
         },
@@ -714,7 +724,8 @@ function mtoSearch() {
         showSuccess(message) {
             this.successMessage = message;
             this.error = '';
-            setTimeout(() => {
+            clearTimeout(this._successTimer);
+            this._successTimer = setTimeout(() => {
                 this.successMessage = '';
             }, 3000);
         },
@@ -740,8 +751,15 @@ function mtoSearch() {
 
         // === Chat Methods ===
         async initChat() {
+            // Delegated click listener for MTO links in chat messages
+            document.addEventListener('click', (e) => {
+                const el = e.target.closest('.chat-mto-link');
+                if (el) document.dispatchEvent(new CustomEvent('chat-mto-click', {detail: el.dataset.mto}));
+            });
             try {
-                const resp = await fetch('/api/chat/status');
+                const token = localStorage.getItem('token');
+                const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+                const resp = await fetch('/api/chat/status', { headers: authHeaders });
                 if (resp.ok) {
                     const data = await resp.json();
                     this.chatAvailable = data.available;
@@ -754,7 +772,7 @@ function mtoSearch() {
             }
             // Also check agent chat availability
             try {
-                const agentResp = await fetch('/api/agent-chat/status');
+                const agentResp = await fetch('/api/agent-chat/status', { headers: authHeaders });
                 if (agentResp.ok) {
                     const agentData = await agentResp.json();
                     this.agentChatAvailable = agentData.available;
@@ -775,7 +793,7 @@ function mtoSearch() {
             try {
                 const resp = await fetch('/api/chat/provider', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('token') },
                     body: JSON.stringify({ provider: name }),
                 });
                 if (resp.ok) {
@@ -864,8 +882,9 @@ function mtoSearch() {
                 const reader = resp.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let streamDone = false;
 
-                while (true) {
+                while (!streamDone) {
                     const { done, value } = await reader.read();
                     if (done) break;
 
@@ -895,6 +914,7 @@ function mtoSearch() {
                             } else if (evt.type === 'error') {
                                 this.chatMessages[assistantIdx].content += '\n\n⚠️ ' + evt.message;
                             } else if (evt.type === 'done') {
+                                streamDone = true;
                                 break;
                             }
                         } catch (parseErr) {
@@ -924,12 +944,11 @@ function mtoSearch() {
 
         renderChatContent(text) {
             if (!text) return '';
-            // Escape HTML
-            let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            // Convert MTO numbers to clickable links
-            html = html.replace(/\b(AK\d{7,})\b/g,
-                '<a class="mto-link" href="javascript:void(0)" onclick="document.dispatchEvent(new CustomEvent(\'chat-mto-click\', {detail: \'$1\'}))">' +
-                '$1</a>');
+            // Escape HTML (including quotes for attribute safety)
+            let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            // Convert MTO numbers to clickable links (delegated event, no inline handler)
+            html = html.replace(/\b([A-Z]{2}\d{5,}[A-Za-z]?)\b/g,
+                '<span class="chat-mto-link cursor-pointer text-emerald-400 hover:underline" data-mto="$1">$1</span>');
             // Basic markdown: **bold**, newlines
             html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
             html = html.replace(/\n/g, '<br>');

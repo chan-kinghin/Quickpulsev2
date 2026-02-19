@@ -63,7 +63,7 @@ def _build_mto_context_str(mto_context: Optional[dict]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 @router.get("/status")
-async def agent_chat_status(request: Request):
+async def agent_chat_status(request: Request, current_user: str = Depends(get_current_user)):
     """Check if the agent chat feature is available."""
     from src.config import AgentLLMConfig
     agent_config = AgentLLMConfig()
@@ -81,9 +81,11 @@ async def agent_chat_stream(
     current_user: str = Depends(get_current_user),
 ):
     """SSE streaming agent chat endpoint — dual-agent mode."""
-    config = request.app.state.config.deepseek
-    if not config.is_available():
-        raise HTTPException(status_code=503, detail="Agent chat service not configured")
+    from src.config import AgentLLMConfig
+    agent_config = AgentLLMConfig()
+    resolved = agent_config.resolve()
+    if not resolved or not resolved.api_key:
+        raise HTTPException(status_code=503, detail="Agent chat not available")
 
     return StreamingResponse(
         _agent_stream(request, body),
@@ -157,11 +159,17 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
         # Run orchestrator in background, yield events as they arrive
         async def run_orchestrator():
             try:
-                await orchestrator.run(
-                    question=user_question,
-                    mto_context=mto_context_str,
-                    on_event=on_event,
+                await asyncio.wait_for(
+                    orchestrator.run(
+                        question=user_question,
+                        mto_context=mto_context_str,
+                        on_event=on_event,
+                    ),
+                    timeout=300,  # 5 min max
                 )
+            except asyncio.TimeoutError:
+                await event_queue.put({"type": "error", "content": "Request timed out after 5 minutes"})
+                await event_queue.put({"type": "done"})
             except Exception as exc:
                 logger.exception("Orchestrator failed: %s", exc)
                 await event_queue.put({"type": "error", "message": str(exc)})

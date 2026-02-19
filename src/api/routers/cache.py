@@ -38,7 +38,7 @@ async def clear_memory_cache(
     Does not affect the SQLite cache.
     """
     mto_handler = request.app.state.mto_handler
-    cleared = mto_handler.clear_memory_cache()
+    cleared = await mto_handler.clear_memory_cache()
     return {"status": "cleared", "entries_cleared": cleared}
 
 
@@ -67,7 +67,7 @@ async def invalidate_mto(
     Use this when you know a specific MTO was updated in Kingdee.
     """
     mto_handler = api_request.app.state.mto_handler
-    removed = mto_handler.invalidate_mto(mto_number)
+    removed = await mto_handler.invalidate_mto(mto_number)
     return {"status": "invalidated" if removed else "not_found", "mto_number": mto_number}
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -276,11 +276,15 @@ class CacheReader:
     def _is_fresh(self, synced_at: Optional[datetime]) -> bool:
         """Check if cache is within TTL.
 
-        Note: SQLite CURRENT_TIMESTAMP uses UTC, so we compare with utcnow().
+        Note: SQLite CURRENT_TIMESTAMP uses UTC but returns naive datetimes,
+        so we compare using naive UTC to avoid aware/naive mismatch.
         """
         if not synced_at:
             return False
-        return datetime.utcnow() - synced_at < self.ttl
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        if synced_at.tzinfo is not None:
+            synced_at = synced_at.replace(tzinfo=None)
+        return now_utc - synced_at < self.ttl
 
     def _parse_timestamp(self, value) -> Optional[datetime]:
         """Parse SQLite timestamp string to datetime."""

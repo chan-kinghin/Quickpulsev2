@@ -1,11 +1,14 @@
 """Sync-related API endpoints."""
 
 import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
 from src.models.sync import SyncConfigResponse, SyncConfigUpdateRequest, SyncTriggerRequest
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -22,13 +25,20 @@ async def trigger_sync(
     if sync_service.is_running():
         raise HTTPException(status_code=409, detail="Sync task already running")
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         sync_service.run_sync(
             days_back=body.days_back,
             chunk_days=body.chunk_days,
             force_full=body.force_full,
         )
     )
+
+    def _on_sync_done(t):
+        if t.exception():
+            logger.error("Sync failed: %s", t.exception())
+
+    task.add_done_callback(_on_sync_done)
+    request.app.state.sync_task = task
     return {"status": "sync_started", "days_back": body.days_back}
 
 

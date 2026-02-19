@@ -205,6 +205,7 @@
                         <!-- Column Settings Dropdown -->
                         <div class="relative">
                             <button @click="showColumnSettings = !showColumnSettings"
+                                    aria-label="Column settings"
                                     class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 text-sm transition flex items-center gap-2">
                                 <i data-lucide="columns" class="w-4 h-4"></i>
                                 列设置
@@ -230,6 +231,7 @@
                         <!-- Export Dropdown -->
                         <div class="relative">
                             <button @click="showExportMenu = !showExportMenu"
+                                    aria-label="Export options"
                                     class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-slate-950 text-sm font-medium transition flex items-center gap-2">
                                 <i data-lucide="download" class="w-4 h-4"></i>
                                 导出
@@ -252,7 +254,8 @@
 
                         <button @click="toggleFullScreen()"
                                 class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 text-sm transition flex items-center gap-2">
-                            <i :data-lucide="isFullScreen ? 'minimize-2' : 'maximize-2'" class="w-4 h-4"></i>
+                            <i data-lucide="maximize-2" class="w-4 h-4" x-show="!isFullScreen"></i>
+                            <i data-lucide="minimize-2" class="w-4 h-4" x-show="isFullScreen"></i>
                             <span x-text="isFullScreen ? '退出全屏' : '全屏'"></span>
                         </button>
                     </div>
@@ -339,8 +342,9 @@
                                     :style="getColumnStyle('material_code')">
                                     <div class="flex items-center gap-1">
                                         <span>物料编码</span>
-                                        <i :data-lucide="getSortIcon('material_code')" class="w-3 h-3"
-                                           :class="sort.column === 'material_code' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_code'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_code' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_code' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_code')"></div>
                                 </th>
@@ -352,8 +356,9 @@
                                     :style="getColumnStyle('material_name')">
                                     <div class="flex items-center gap-1">
                                         <span>物料名称</span>
-                                        <i :data-lucide="getSortIcon('material_name')" class="w-3 h-3"
-                                           :class="sort.column === 'material_name' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_name'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_name' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_name' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_name')"></div>
                                 </th>
@@ -365,8 +370,9 @@
                                     :style="getColumnStyle('specification')">
                                     <div class="flex items-center gap-1">
                                         <span>规格型号</span>
-                                        <i :data-lucide="getSortIcon('specification')" class="w-3 h-3"
-                                           :class="sort.column === 'specification' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'specification'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'specification' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'specification' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'specification')"></div>
                                 </th>
@@ -378,8 +384,9 @@
                                     :style="getColumnStyle('bom_short_name')">
                                     <div class="flex items-center gap-1">
                                         <span>BOM简称</span>
-                                        <i :data-lucide="getSortIcon('bom_short_name')" class="w-3 h-3"
-                                           :class="sort.column === 'bom_short_name' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'bom_short_name'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'bom_short_name' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'bom_short_name' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'bom_short_name')"></div>
                                 </th>
@@ -398,8 +405,9 @@
                                     :style="getColumnStyle('material_type')">
                                     <div class="flex items-center gap-1">
                                         <span>物料类型</span>
-                                        <i :data-lucide="getSortIcon('material_type')" class="w-3 h-3"
-                                           :class="sort.column === 'material_type' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_type'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_type' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_type' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_type')"></div>
                                 </th>
@@ -411,8 +419,9 @@
                                     :style="getColumnStyle('sales_order_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>销售订单.数量</span>
-                                        <i :data-lucide="getSortIcon('sales_order_qty')" class="w-3 h-3"
-                                           :class="sort.column === 'sales_order_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'sales_order_qty'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'sales_order_qty' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'sales_order_qty' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'sales_order_qty')"></div>
                                 </th>
@@ -423,8 +432,9 @@
                                     :style="getColumnStyle('prod_instock_must_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>生产入库单.应收数量</span>
-                                        <i :data-lucide="getSortIcon('prod_instock_must_qty')" class="w-3 h-3"
-                                           :class="sort.column === 'prod_instock_must_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'prod_instock_must_qty'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_must_qty' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_must_qty' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_must_qty')"></div>
                                 </th>
@@ -435,8 +445,9 @@
                                     :style="getColumnStyle('purchase_order_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>采购订单.数量</span>
-                                        <i :data-lucide="getSortIcon('purchase_order_qty')" class="w-3 h-3"
-                                           :class="sort.column === 'purchase_order_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'purchase_order_qty'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_order_qty' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_order_qty' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_order_qty')"></div>
                                 </th>
@@ -448,8 +459,9 @@
                                     :style="getColumnStyle('pick_actual_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>生产领料单.实发数量</span>
-                                        <i :data-lucide="getSortIcon('pick_actual_qty')" class="w-3 h-3"
-                                           :class="sort.column === 'pick_actual_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'pick_actual_qty'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'pick_actual_qty' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'pick_actual_qty' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'pick_actual_qty')"></div>
                                 </th>
@@ -460,8 +472,9 @@
                                     :style="getColumnStyle('prod_instock_real_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>生产入库单.实收数量</span>
-                                        <i :data-lucide="getSortIcon('prod_instock_real_qty')" class="w-3 h-3"
-                                           :class="sort.column === 'prod_instock_real_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'prod_instock_real_qty'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_real_qty' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_real_qty' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_real_qty')"></div>
                                 </th>
@@ -472,8 +485,9 @@
                                     :style="getColumnStyle('purchase_stock_in_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>采购订单.累计入库数量</span>
-                                        <i :data-lucide="getSortIcon('purchase_stock_in_qty')" class="w-3 h-3"
-                                           :class="sort.column === 'purchase_stock_in_qty' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'purchase_stock_in_qty'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_stock_in_qty' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_stock_in_qty' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_stock_in_qty')"></div>
                                 </th>
@@ -485,8 +499,9 @@
                                     :style="getColumnStyle('fulfillment_rate')">
                                     <div class="flex items-center justify-center gap-1">
                                         <span>完成率</span>
-                                        <i :data-lucide="getSortIcon('fulfillment_rate')" class="w-3 h-3"
-                                           :class="sort.column === 'fulfillment_rate' ? 'text-emerald-400' : 'text-slate-600'"></i>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'fulfillment_rate'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'fulfillment_rate' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'fulfillment_rate' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'fulfillment_rate')"></div>
                                 </th>
@@ -535,7 +550,7 @@
                                 </tr>
                             </template>
                         </tbody>
-                        <tfoot class="sticky bottom-0 z-10" x-data="{ totals: calculateTotals() }" x-effect="totals = calculateTotals()">
+                        <tfoot class="sticky bottom-0 z-10" x-data="{ get totals() { return calculateTotals() } }">
                             <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
                                 <td x-show="colVisible('index')" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
                                 <td x-show="colVisible('material_code')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
@@ -565,7 +580,7 @@
                     </table>
                 </div>
 
-                <div class="bom-cards md:hidden">
+                <div class="bom-cards">
                     <template x-for="(item, index) in getSortedItems()" :key="`card-${item.material_code}-${index}`">
                         <div class="bom-card">
                             <div class="bom-card-header">
@@ -655,7 +670,8 @@
                     </h2>
                     <div class="flex items-center gap-2 text-sm text-slate-400">
                         <span x-text="relatedOrdersExpanded ? '收起' : '展开'"></span>
-                        <i :data-lucide="relatedOrdersExpanded ? 'chevron-up' : 'chevron-down'" class="w-4 h-4"></i>
+                        <i data-lucide="chevron-up" class="w-4 h-4" x-show="relatedOrdersExpanded"></i>
+                        <i data-lucide="chevron-down" class="w-4 h-4" x-show="!relatedOrdersExpanded"></i>
                     </div>
                 </div>
 
@@ -832,12 +848,12 @@
                         <span class="text-xs text-slate-500" x-text="chatMode === 'agent' ? '多Agent协作分析' : (chatModel || '')"></span>
                     </div>
                     <div class="flex items-center gap-1">
-                        <button @click="clearChat()" class="p-1.5 text-slate-400 hover:text-slate-200 rounded transition" title="清空对话">
+                        <button @click="clearChat()" aria-label="Clear chat" class="p-1.5 text-slate-400 hover:text-slate-200 rounded transition" title="清空对话">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                             </svg>
                         </button>
-                        <button @click="toggleChat()" class="p-1.5 text-slate-400 hover:text-slate-200 rounded transition" title="关闭">
+                        <button @click="toggleChat()" aria-label="Close chat" class="p-1.5 text-slate-400 hover:text-slate-200 rounded transition" title="关闭">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                             </svg>
@@ -939,6 +955,7 @@
                         </textarea>
                         <button @click="sendChat()"
                                 :disabled="chatLoading || !chatInput.trim()"
+                                aria-label="Send message"
                                 class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg transition flex-shrink-0">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>

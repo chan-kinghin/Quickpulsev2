@@ -6,10 +6,9 @@ import asyncio
 import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import IntEnum
-from threading import Lock
 from typing import Optional, TYPE_CHECKING
 
 from cachetools import TTLCache
@@ -117,7 +116,7 @@ class MTOQueryHandler:
             self._memory_cache: TTLCache = TTLCache(
                 maxsize=memory_cache_size, ttl=memory_cache_ttl
             )
-            self._cache_lock = Lock()
+            self._cache_lock = asyncio.Lock()
         else:
             self._memory_cache = None
             self._cache_lock = None
@@ -169,7 +168,7 @@ class MTOQueryHandler:
 
         # L1: Check in-memory cache first (sub-10ms response)
         if use_cache and self._memory_cache is not None:
-            with self._cache_lock:
+            async with self._cache_lock:
                 if mto_number in self._memory_cache:
                     self._memory_hits += 1
                     logger.debug("L1 memory cache hit for MTO %s", mto_number)
@@ -199,7 +198,7 @@ class MTOQueryHandler:
 
         # Populate L1 cache with result
         if use_cache and self._memory_cache is not None and result:
-            with self._cache_lock:
+            async with self._cache_lock:
                 self._memory_cache[mto_number] = result
 
         return result
@@ -510,7 +509,9 @@ class MTOQueryHandler:
         cache_age = None
         for result in [sales_orders_result, prod_orders_result, purchase_orders_result]:
             if result.synced_at:
-                cache_age = int((datetime.utcnow() - result.synced_at).total_seconds())
+                now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                synced = result.synced_at if result.synced_at.tzinfo is None else result.synced_at.replace(tzinfo=None)
+                cache_age = int((now_utc - synced).total_seconds())
                 break
 
         result = MTOStatusResponse(
@@ -768,54 +769,6 @@ class MTOQueryHandler:
 
         return result
 
-    # NOTE: _build_sales_child and _build_production_child were removed as dead code.
-    # These single-record build methods would cause double-counting bugs if activated.
-    # All builds now go through the aggregated methods (_build_aggregated_*).
-
-    def _build_purchase_child(
-        self,
-        purchase_order,
-        pick_request: dict[str, Decimal],
-        pick_actual: dict[str, Decimal],
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 03.xx.xxx (外购) from PUR_PurchaseOrder.
-
-        Column mappings (from config):
-        - 需求量 (required_qty): PUR_PurchaseOrder.order_qty (采购数量)
-        - 已领量 (picked_qty): PRD_PickMtrl.actual_qty
-        - 未领量 (unpicked_qty): 需求量 - 已领量
-        - 订单数量 (order_qty): = 需求量
-        - 入库量 (receipt_qty): PUR_PurchaseOrder.stock_in_qty (累计入库数量)
-        - 未入库量 (unreceived_qty): PUR_PurchaseOrder.remain_stock_in_qty (剩余入库数量)
-        """
-        code = purchase_order.material_code
-        aux_prop_id = getattr(purchase_order, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(purchase_order, "aux_attributes", "")
-
-        required_qty = purchase_order.order_qty
-        picked_qty = pick_actual.get(code, ZERO)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(purchase_order, "material_name", ""),
-            specification=getattr(purchase_order, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.PURCHASED,
-            material_type_name="包材",
-            required_qty=required_qty,
-            picked_qty=picked_qty,
-            unpicked_qty=required_qty - picked_qty,  # 允许负值以检测超领
-            order_qty=required_qty,
-            receipt_qty=purchase_order.stock_in_qty,
-            unreceived_qty=purchase_order.remain_stock_in_qty,
-            pick_request_qty=pick_request.get(code, ZERO),
-            pick_actual_qty=picked_qty,
-            delivered_qty=ZERO,
-            inventory_qty=ZERO,
-            receipt_source="PUR_PurchaseOrder",
-        )
-
     def _build_aggregated_sales_child(
         self,
         sales_orders: list,
@@ -855,46 +808,6 @@ class MTOQueryHandler:
             material_type_name="成品",
             # 金蝶原始字段
             sales_order_qty=sales_order_qty,
-            prod_instock_real_qty=prod_instock_real_qty,
-        )
-
-    def _build_aggregated_production_child(
-        self,
-        prod_orders: list,
-        prod_receipts: list,
-        material_picks: list,
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build aggregated ChildItem for 05.xx.xxx (自制) from multiple PRD_MO records.
-
-        注意: 此方法目前未被使用，保留以备将来需要。
-        实际使用的是 _build_aggregated_selfmade_child (基于 PRD_INSTOCK)。
-        """
-        first = prod_orders[0]
-        code = first.material_code
-        aux_attrs = getattr(first, "aux_attributes", "")
-
-        # 生产入库单.实收数量
-        prod_instock_real_qty = sum(
-            r.real_qty for r in prod_receipts
-            if r.material_code == code
-        )
-
-        # 生产领料单.实发数量
-        pick_actual_qty = sum(
-            p.actual_qty for p in material_picks
-            if p.material_code == code
-        )
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.SELF_MADE,
-            material_type_name="自制",
-            # 金蝶原始字段
-            pick_actual_qty=pick_actual_qty,
             prod_instock_real_qty=prod_instock_real_qty,
         )
 
@@ -1188,7 +1101,7 @@ class MTOQueryHandler:
         }
         return stats
 
-    def clear_memory_cache(self) -> int:
+    async def clear_memory_cache(self) -> int:
         """Clear the in-memory cache.
 
         Call this after sync completes to ensure fresh data.
@@ -1199,13 +1112,13 @@ class MTOQueryHandler:
         if self._memory_cache is None:
             return 0
 
-        with self._cache_lock:
+        async with self._cache_lock:
             count = len(self._memory_cache)
             self._memory_cache.clear()
             logger.info("Cleared %d entries from memory cache", count)
             return count
 
-    def invalidate_mto(self, mto_number: str) -> bool:
+    async def invalidate_mto(self, mto_number: str) -> bool:
         """Invalidate a specific MTO from memory cache.
 
         Args:
@@ -1217,7 +1130,7 @@ class MTOQueryHandler:
         if self._memory_cache is None:
             return False
 
-        with self._cache_lock:
+        async with self._cache_lock:
             if mto_number in self._memory_cache:
                 del self._memory_cache[mto_number]
                 logger.debug("Invalidated MTO %s from memory cache", mto_number)

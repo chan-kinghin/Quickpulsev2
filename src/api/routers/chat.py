@@ -60,6 +60,8 @@ def _build_system_prompt(body: ChatRequest) -> str:
     if body.mto_context:
         parent = body.mto_context.get("parent_item") or {}
         mto_number = parent.get("mto_number")
+        if mto_number and not re.match(r'^[A-Za-z0-9\-]+$', mto_number):
+            mto_number = ''  # sanitize invalid input
         if mto_number:
             prompt += (
                 f"\n\n## 当前上下文\n"
@@ -79,7 +81,7 @@ _PROVIDER_LABELS = {"deepseek": "DeepSeek", "qwen": "Qwen"}
 
 
 @router.get("/status")
-async def chat_status(request: Request):
+async def chat_status(request: Request, current_user: str = Depends(get_current_user)):
     """Check if the chat feature is available and list providers."""
     providers = getattr(request.app.state, "chat_providers", {})
     active = getattr(request.app.state, "active_chat_provider", None)

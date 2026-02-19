@@ -131,6 +131,12 @@ async def export_mto_excel(
         status = await handler.get_status(mto_number, use_cache=use_cache)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KingdeeConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except QuickPulseError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(exc)}") from exc
 
     output = StringIO()
     writer = csv.writer(output)

@@ -104,7 +104,13 @@ def validate_sql(query: str) -> str:
         raise ChatSQLError(f"禁止使用 {match.group(1).upper()} 操作")
 
     # Extract CTE alias names so they don't trigger the table whitelist
-    cte_names = {n.lower() for n in _CTE_NAME_PATTERN.findall(cleaned)}
+    cte_names = set()
+    sql_upper = cleaned.upper()
+    first_cte = re.search(r"\bWITH\s+(\w+)\s+AS\b", sql_upper)
+    if first_cte:
+        cte_names.add(first_cte.group(1).lower())
+        for match in re.finditer(r",\s*(\w+)\s+AS\b", sql_upper[first_cte.end():]):
+            cte_names.add(match.group(1).lower())
     allowed = ALLOWED_TABLES | cte_names
 
     # Check table whitelist

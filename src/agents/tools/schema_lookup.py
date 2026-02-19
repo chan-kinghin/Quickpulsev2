@@ -7,6 +7,7 @@ giving the agent awareness of available tables and columns.
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 
 from src.agents.base import ToolDefinition
@@ -34,6 +35,8 @@ def create_schema_lookup_tool(db: Database) -> ToolDefinition:
                         If omitted, return list of all allowed tables.
         """
         if table_name:
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+                return f"Invalid table name: {table_name}"
             if table_name.lower() not in ALLOWED_TABLES:
                 return f"表 '{table_name}' 不在允许列表中。允许的表: {', '.join(sorted(ALLOWED_TABLES))}"
 
