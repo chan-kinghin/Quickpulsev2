@@ -107,12 +107,24 @@ function mtoSearch() {
                 this.search();
             }
 
+            this._abortController = new AbortController();
             this.setupKeyboardListeners();
             this.setupResizeListeners();
             this.initChat();
+
+            // Register Alpine cleanup
+            this.$cleanup = () => this.destroy();
+        },
+
+        destroy() {
+            if (this._abortController) {
+                this._abortController.abort();
+                this._abortController = null;
+            }
         },
 
         setupKeyboardListeners() {
+            const signal = this._abortController.signal;
             document.addEventListener('keydown', (event) => {
                 if (event.key === 'F11' && this.childItems.length > 0) {
                     event.preventDefault();
@@ -122,7 +134,7 @@ function mtoSearch() {
                     event.preventDefault();
                     document.getElementById('mto-search')?.focus();
                 }
-            });
+            }, { signal });
             // Listen for MTO link clicks from chat messages
             document.addEventListener('chat-mto-click', (event) => {
                 const mtoNum = event.detail;
@@ -130,12 +142,13 @@ function mtoSearch() {
                     this.mtoNumber = mtoNum;
                     this.search();
                 }
-            });
+            }, { signal });
         },
 
         setupResizeListeners() {
-            document.addEventListener('mousemove', (e) => this.doResize(e));
-            document.addEventListener('mouseup', () => this.stopResize());
+            const signal = this._abortController.signal;
+            document.addEventListener('mousemove', (e) => this.doResize(e), { signal, passive: true });
+            document.addEventListener('mouseup', () => this.stopResize(), { signal });
         },
 
         // === Preferences Persistence ===
@@ -809,6 +822,31 @@ function mtoSearch() {
 
         toggleChat() {
             this.chatOpen = !this.chatOpen;
+            if (this.chatOpen) {
+                this.showExportMenu = false;
+                this.showColumnSettings = false;
+                this._previousFocus = document.activeElement;
+            } else if (this._previousFocus) {
+                this._previousFocus.focus();
+                this._previousFocus = null;
+            }
+        },
+
+        trapFocusInChat(e) {
+            if (e.key !== 'Tab') return;
+            const sidebar = e.currentTarget;
+            if (!sidebar) return;
+            const focusable = sidebar.querySelectorAll('button, input, textarea, select, [tabindex]:not([tabindex="-1"])');
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
         },
 
         clearChat() {

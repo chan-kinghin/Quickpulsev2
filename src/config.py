@@ -19,6 +19,7 @@ Environment Variables (preferred):
 import configparser
 import json
 import os
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -278,6 +279,9 @@ class MemoryCacheConfig(BaseSettings):
     warm_count: int = Field(100, ge=0, le=500, description="Number of MTOs to warm on startup")
 
 
+_sync_config_lock = threading.Lock()
+
+
 class SyncConfig(BaseSettings):
     """Complete Sync Configuration"""
 
@@ -303,9 +307,10 @@ class SyncConfig(BaseSettings):
         return instance
 
     def save(self) -> None:
-        """Save config to JSON file."""
-        with open(self._config_path, "w", encoding="utf-8") as handle:
-            json.dump(self.model_dump(), handle, indent=2, ensure_ascii=False)
+        """Save config to JSON file (thread-safe)."""
+        with _sync_config_lock:
+            with open(self._config_path, "w", encoding="utf-8") as handle:
+                json.dump(self.model_dump(), handle, indent=2, ensure_ascii=False)
 
     def reload(self) -> None:
         """Reload config (for detecting runtime changes)."""

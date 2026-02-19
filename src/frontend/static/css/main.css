@@ -23,6 +23,9 @@
     --amber-500: #f59e0b;
     --rose-500: #f43f5e;
     --rose-400: #fb7185;
+    --emerald-950: #064e3b;
+    --slate-700-tw: #334155;
+    --slate-500-tw: #64748b;
     --font-sans: 'Geist', 'Noto Sans SC', system-ui, sans-serif;
     --font-mono: 'Geist Mono', 'SFMono-Regular', Consolas, monospace;
     --radius-sm: 2px;
@@ -68,6 +71,13 @@ body {
     box-shadow: 0 0 0 2px var(--slate-950), 0 0 0 4px var(--emerald-500);
 }
 
+/* === Lucide Icon Sizing === */
+/* Ensure Lucide SVG replacements inherit sizing from Tailwind classes */
+.lucide {
+    width: 1em;
+    height: 1em;
+}
+
 /* === Column Resize Handles === */
 .resize-handle {
     position: absolute;
@@ -107,6 +117,12 @@ body {
 
 th.resizable {
     position: relative;
+}
+
+/* Safari-safe column hiding (x-show display:none breaks td in Safari) */
+th.col-hidden,
+td.col-hidden {
+    display: none;
 }
 
 /* === Filter Chips === */
@@ -620,11 +636,11 @@ th.resizable {
     right: 0;
     height: 100vh;
     width: 384px;
-    background: #0f172a; /* slate-900 */
-    border-left: 1px solid #1e293b; /* slate-800 */
+    background: var(--slate-900);
+    border-left: 1px solid var(--slate-800);
     display: flex;
     flex-direction: column;
-    z-index: 45;
+    z-index: 55;
     transition: transform 0.3s ease;
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
 }
@@ -640,14 +656,14 @@ th.resizable {
 /* Message bubbles */
 .chat-msg-user {
     margin-left: 2rem;
-    background: #064e3b; /* emerald-950 */
+    background: var(--emerald-950);
     border-radius: 0.75rem 0.75rem 0.25rem 0.75rem;
     padding: 0.5rem 0.75rem;
 }
 
 .chat-msg-assistant {
     margin-right: 2rem;
-    background: #1e293b;
+    background: var(--slate-800);
     border-radius: 0.75rem 0.75rem 0.75rem 0.25rem;
     padding: 0.5rem 0.75rem;
 }
@@ -659,7 +675,7 @@ th.resizable {
 
 /* MTO clickable links in chat */
 .mto-link {
-    color: #34d399; /* emerald-400 */
+    color: var(--emerald-400);
     text-decoration: underline;
     text-underline-offset: 2px;
     cursor: pointer;
@@ -667,7 +683,8 @@ th.resizable {
 }
 
 .mto-link:hover {
-    color: #6ee7b7; /* emerald-300 */
+    color: var(--emerald-400);
+    opacity: 0.8;
 }
 
 /* Typing indicator dots */
@@ -676,7 +693,7 @@ th.resizable {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #64748b;
+    background: var(--slate-500-tw);
     animation: chat-typing 1.2s infinite;
 }
 
@@ -695,7 +712,7 @@ th.resizable {
 }
 
 .chat-messages::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: var(--slate-700-tw);
     border-radius: 2px;
 }
 

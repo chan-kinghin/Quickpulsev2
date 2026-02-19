@@ -7,6 +7,7 @@ Includes a fast-path detector that skips the RetrievalAgent when the
 question is simple enough (MTO lookup, basic SQL).
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -165,10 +166,12 @@ class AgentChatOrchestrator:
                             "tool_args": step.tool_args or {},
                         })
 
-            # Phase 2: Reasoning
+            # Phase 2: Reasoning — emit steps in real-time via queue
+            step_queue: asyncio.Queue[Optional[AgentStep]] = asyncio.Queue()
+
             def on_reasoning_step(step: AgentStep) -> None:
-                """Synchronous callback — we'll emit events inline instead."""
-                pass
+                """Sync callback from runner — enqueue for async emission."""
+                step_queue.put_nowait(step)
 
             reasoning = ReasoningAgent(
                 sql_tool=self._sql_tool,
@@ -176,15 +179,23 @@ class AgentChatOrchestrator:
                 llm_client=self._llm_client,
             )
 
-            # Collect steps for post-hoc emission since runner callback is sync
-            reasoning_result = await reasoning.run(
-                question=question,
-                data_plan=data_plan,
-                mto_context=mto_context,
+            # Run reasoning in a concurrent task so we can drain the
+            # step queue while it executes.
+            reasoning_task = asyncio.create_task(
+                reasoning.run(
+                    question=question,
+                    data_plan=data_plan,
+                    mto_context=mto_context,
+                    on_step=on_reasoning_step,
+                )
             )
 
-            # Emit reasoning steps
-            for step in reasoning_result.steps:
+            # Drain steps as they arrive, emitting SSE events in real-time
+            while not reasoning_task.done():
+                try:
+                    step = await asyncio.wait_for(step_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
                 if step.action == "tool_call":
                     await emit({
                         "type": "agent_step",
@@ -193,12 +204,31 @@ class AgentChatOrchestrator:
                         "tool_name": step.tool_name or "",
                         "tool_args": step.tool_args or {},
                     })
-                    # If the tool was sql_query, emit the SQL event
                     if step.tool_name == "sql_query" and step.tool_args:
                         await emit({
                             "type": "sql",
                             "query": step.tool_args.get("query", ""),
                         })
+
+            # Drain any remaining steps queued after the task completed
+            while not step_queue.empty():
+                step = step_queue.get_nowait()
+                if step.action == "tool_call":
+                    await emit({
+                        "type": "agent_step",
+                        "agent": "reasoning",
+                        "step_number": step.step_number,
+                        "tool_name": step.tool_name or "",
+                        "tool_args": step.tool_args or {},
+                    })
+                    if step.tool_name == "sql_query" and step.tool_args:
+                        await emit({
+                            "type": "sql",
+                            "query": step.tool_args.get("query", ""),
+                        })
+
+            # Get the result (re-raises any exception from the task)
+            reasoning_result = await reasoning_task
 
             if reasoning_result.error:
                 await emit({

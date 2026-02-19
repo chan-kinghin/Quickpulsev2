@@ -325,17 +325,17 @@
                 </div>
 
                 <div class="overflow-x-auto overflow-y-auto bom-table" :class="isFullScreen ? 'max-h-[calc(100vh-180px)]' : 'max-h-[600px]'">
-                    <table role="table" class="w-full text-sm" style="table-layout: fixed;">
+                    <table role="table" class="w-full text-sm">
                         <thead class="sticky top-0 z-10">
                             <tr role="row" class="border-b border-slate-700">
                                 <!-- 序号 - not sortable, not resizable -->
-                                <th scope="col" x-show="colVisible('index')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('index') }"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sticky left-0 z-20"
                                     :style="getColumnStyle('index')">
                                     序号
                                 </th>
                                 <!-- 物料编码 - sortable -->
-                                <th scope="col" x-show="colVisible('material_code')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_code') }"
                                     @click="toggleSort('material_code')"
                                     :aria-sort="sort.column === 'material_code' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -349,7 +349,7 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_code')"></div>
                                 </th>
                                 <!-- 物料名称 - sortable -->
-                                <th scope="col" x-show="colVisible('material_name')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_name') }"
                                     @click="toggleSort('material_name')"
                                     :aria-sort="sort.column === 'material_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -363,7 +363,7 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_name')"></div>
                                 </th>
                                 <!-- 规格型号 - sortable -->
-                                <th scope="col" x-show="colVisible('specification')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('specification') }"
                                     @click="toggleSort('specification')"
                                     :aria-sort="sort.column === 'specification' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -377,7 +377,7 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'specification')"></div>
                                 </th>
                                 <!-- BOM简称 - sortable, only for 07.xx.xxx (成品) -->
-                                <th scope="col" x-show="colVisible('bom_short_name')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('bom_short_name') }"
                                     @click="toggleSort('bom_short_name')"
                                     :aria-sort="sort.column === 'bom_short_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -391,14 +391,14 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'bom_short_name')"></div>
                                 </th>
                                 <!-- 辅助属性 - not sortable -->
-                                <th scope="col" x-show="colVisible('aux_attributes')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('aux_attributes') }"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap relative resizable"
                                     :style="getColumnStyle('aux_attributes')">
                                     辅助属性
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'aux_attributes')"></div>
                                 </th>
                                 <!-- 物料类型 - sortable -->
-                                <th scope="col" x-show="colVisible('material_type')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_type') }"
                                     @click="toggleSort('material_type')"
                                     :aria-sort="sort.column === 'material_type' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -412,7 +412,7 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_type')"></div>
                                 </th>
                                 <!-- 绿色组: 数量 (根据物料类型来源不同) -->
-                                <th scope="col" x-show="colVisible('sales_order_qty')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('sales_order_qty') }"
                                     @click="toggleSort('sales_order_qty')"
                                     :aria-sort="sort.column === 'sales_order_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900 sortable-header relative resizable"
@@ -425,7 +425,7 @@
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'sales_order_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="colVisible('prod_instock_must_qty')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }"
                                     @click="toggleSort('prod_instock_must_qty')"
                                     :aria-sort="sort.column === 'prod_instock_must_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -438,7 +438,7 @@
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_must_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="colVisible('purchase_order_qty')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('purchase_order_qty') }"
                                     @click="toggleSort('purchase_order_qty')"
                                     :aria-sort="sort.column === 'purchase_order_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900 sortable-header relative resizable"
@@ -452,7 +452,7 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_order_qty')"></div>
                                 </th>
                                 <!-- 领料/入库列 -->
-                                <th scope="col" x-show="colVisible('pick_actual_qty')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('pick_actual_qty') }"
                                     @click="toggleSort('pick_actual_qty')"
                                     :aria-sort="sort.column === 'pick_actual_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-l border-sky-900 sortable-header relative resizable"
@@ -465,7 +465,7 @@
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'pick_actual_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="colVisible('prod_instock_real_qty')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }"
                                     @click="toggleSort('prod_instock_real_qty')"
                                     :aria-sort="sort.column === 'prod_instock_real_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
@@ -478,7 +478,7 @@
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_real_qty')"></div>
                                 </th>
-                                <th scope="col" x-show="colVisible('purchase_stock_in_qty')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }"
                                     @click="toggleSort('purchase_stock_in_qty')"
                                     :aria-sort="sort.column === 'purchase_stock_in_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-r border-sky-900 sortable-header relative resizable"
@@ -492,7 +492,7 @@
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_stock_in_qty')"></div>
                                 </th>
                                 <!-- 完成率（语义层） -->
-                                <th scope="col" x-show="colVisible('fulfillment_rate')"
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('fulfillment_rate') }"
                                     @click="toggleSort('fulfillment_rate')"
                                     :aria-sort="sort.column === 'fulfillment_rate' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     class="px-4 py-3 text-center font-medium text-amber-400 bg-slate-900 whitespace-nowrap border-l border-amber-900/50 sortable-header relative resizable"
@@ -510,40 +510,40 @@
                         <tbody role="rowgroup">
                             <template x-for="(item, index) in getSortedItems()" :key="item.material_code + '-' + index">
                                 <tr role="row" class="border-b border-slate-800 hover:bg-slate-800/50 transition">
-                                    <td x-show="colVisible('index')" role="cell" class="px-4 py-3 text-slate-500 bg-slate-900 sticky left-0 z-[5]" x-text="index + 1"></td>
-                                    <td x-show="colVisible('material_code')" role="cell" class="px-4 py-3 font-mono text-sm text-slate-300" x-text="item.material_code"></td>
-                                    <td x-show="colVisible('material_name')" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
-                                    <td x-show="colVisible('specification')" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
+                                    <td :class="{ 'col-hidden': !colVisible('index') }" role="cell" class="px-4 py-3 text-slate-500 bg-slate-900 sticky left-0 z-[5]" x-text="index + 1"></td>
+                                    <td :class="{ 'col-hidden': !colVisible('material_code') }" role="cell" class="px-4 py-3 font-mono text-sm text-slate-300" x-text="item.material_code"></td>
+                                    <td :class="{ 'col-hidden': !colVisible('material_name') }" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
+                                    <td :class="{ 'col-hidden': !colVisible('specification') }" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
                                     <!-- BOM简称 - only for 07.xx.xxx (成品) -->
-                                    <td x-show="colVisible('bom_short_name')" role="cell" class="px-4 py-3 text-slate-400"
+                                    <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" role="cell" class="px-4 py-3 text-slate-400"
                                         x-text="item.material_code?.startsWith('07') ? (item.bom_short_name || '-') : '-'"></td>
-                                    <td x-show="colVisible('aux_attributes')" role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
+                                    <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
                                         :title="item.aux_attributes || ''"
                                         x-text="item.aux_attributes || '-'"></td>
-                                    <td x-show="colVisible('material_type')" role="cell" class="px-4 py-3">
+                                    <td :class="{ 'col-hidden': !colVisible('material_type') }" role="cell" class="px-4 py-3">
                                         <span class="px-2 py-1 rounded text-xs font-medium"
                                               :class="getMaterialTypeBadge(item.material_type)"
                                               x-text="item.material_type"></span>
                                     </td>
                                     <!-- 绿色组: 数量列 (根据物料类型显示) -->
-                                    <td x-show="colVisible('sales_order_qty')" role="cell"
+                                    <td :class="{ 'col-hidden': !colVisible('sales_order_qty') }" role="cell"
                                         class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('07') ? formatNumber(item.sales_order_qty) : '-'"></td>
-                                    <td x-show="colVisible('prod_instock_must_qty')" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
+                                    <td :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('05') ? formatNumber(item.prod_instock_must_qty) : '-'"></td>
-                                    <td x-show="colVisible('purchase_order_qty')" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
+                                    <td :class="{ 'col-hidden': !colVisible('purchase_order_qty') }" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
                                         x-text="item.material_code?.startsWith('03') ? formatNumber(item.purchase_order_qty) : '-'"></td>
                                     <!-- 领料/入库列 -->
-                                    <td x-show="colVisible('pick_actual_qty')" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td :class="{ 'col-hidden': !colVisible('pick_actual_qty') }" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="['03', '05'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.pick_actual_qty) : '-'"></td>
-                                    <td x-show="colVisible('prod_instock_real_qty')" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="['05', '07'].some(p => item.material_code?.startsWith(p)) ? formatNumber(item.prod_instock_real_qty) : '-'"></td>
-                                    <td x-show="colVisible('purchase_stock_in_qty')" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
+                                    <td :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
                                         x-text="item.material_code?.startsWith('03') ? formatNumber(item.purchase_stock_in_qty) : '-'"></td>
                                     <!-- 完成率 -->
-                                    <td x-show="colVisible('fulfillment_rate')" role="cell"
+                                    <td role="cell"
                                         class="px-4 py-3 text-center font-medium"
-                                        :class="getFulfillmentRate(item) !== null ? getStatusColor(getCompletionStatus(item)) + ' ' + getStatusBgColor(getCompletionStatus(item)) : ''">
+                                        :class="(!colVisible('fulfillment_rate') ? 'col-hidden' : '') + ' ' + (getFulfillmentRate(item) !== null ? getStatusColor(getCompletionStatus(item)) + ' ' + getStatusBgColor(getCompletionStatus(item)) : '')">
                                         <span x-show="getFulfillmentRate(item) !== null" x-text="formatPercent(getFulfillmentRate(item))"></span>
                                         <span x-show="getFulfillmentRate(item) === null" class="text-slate-600 cursor-help" title="语义层数据不可用">-</span>
                                     </td>
@@ -552,29 +552,29 @@
                         </tbody>
                         <tfoot class="sticky bottom-0 z-10" x-data="{ get totals() { return calculateTotals() } }">
                             <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
-                                <td x-show="colVisible('index')" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
-                                <td x-show="colVisible('material_code')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="colVisible('material_name')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="colVisible('specification')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="colVisible('bom_short_name')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="colVisible('aux_attributes')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td x-show="colVisible('material_type')" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('index') }" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
+                                <td :class="{ 'col-hidden': !colVisible('material_code') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('material_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('specification') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('material_type') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <!-- 绿色组合计 -->
-                                <td x-show="colVisible('sales_order_qty')" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('sales_order_qty') }" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
                                     x-text="formatNumber(totals.sales_order_qty)"></td>
-                                <td x-show="colVisible('prod_instock_must_qty')" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
                                     x-text="formatNumber(totals.prod_instock_must_qty)"></td>
-                                <td x-show="colVisible('purchase_order_qty')" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('purchase_order_qty') }" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
                                     x-text="formatNumber(totals.purchase_order_qty)"></td>
                                 <!-- 领料/入库合计 -->
-                                <td x-show="colVisible('pick_actual_qty')" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('pick_actual_qty') }" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(totals.pick_actual_qty)"></td>
-                                <td x-show="colVisible('prod_instock_real_qty')" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(totals.prod_instock_real_qty)"></td>
-                                <td x-show="colVisible('purchase_stock_in_qty')" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
                                     x-text="formatNumber(totals.purchase_stock_in_qty)"></td>
                                 <!-- 完成率合计 - 留空 (百分比合计无意义) -->
-                                <td x-show="colVisible('fulfillment_rate')" class="px-4 py-3 text-center text-slate-500 bg-slate-800">-</td>
+                                <td :class="{ 'col-hidden': !colVisible('fulfillment_rate') }" class="px-4 py-3 text-center text-slate-500 bg-slate-800">-</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -811,6 +811,7 @@
             <div class="chat-sidebar no-print"
                  role="complementary" aria-label="AI 助手"
                  :class="chatOpen ? 'chat-sidebar-open' : 'chat-sidebar-closed'"
+                 @keydown="trapFocusInChat($event)"
                  x-effect="if (chatOpen) { $nextTick(() => { const ta = $el.querySelector('textarea'); if (ta) ta.focus(); }) }">
                 <!-- Header -->
                 <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-900 flex-shrink-0">

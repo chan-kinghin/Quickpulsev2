@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
+
+_VALID_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 class Database:
@@ -93,6 +96,8 @@ class Database:
 
     async def _column_exists(self, table: str, column: str) -> bool:
         """Check if a column exists in a table."""
+        if not _VALID_IDENTIFIER.match(table):
+            raise ValueError(f"Invalid table name: {table}")
         async with self._connection.execute(f"PRAGMA table_info({table})") as cursor:
             columns = {row[1] for row in await cursor.fetchall()}
             return column in columns

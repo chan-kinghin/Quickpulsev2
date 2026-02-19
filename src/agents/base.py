@@ -194,12 +194,27 @@ class AgentLLMClient:
 # Tool-call parsing fallback (for models that embed JSON in content)
 # ---------------------------------------------------------------------------
 
-# Regex to extract tool calls from content when the model doesn't use
-# native function-calling format (common with some DeepSeek versions).
-_TOOL_CALL_PATTERN = re.compile(
-    r'\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{[^}]*\})\s*\}',
-    re.DOTALL,
-)
+# Regex to locate the start of tool-call JSON objects in content.
+# We only use this to find candidates; actual extraction uses balanced-brace
+# parsing to handle nested JSON (e.g., arguments containing dicts).
+_TOOL_CALL_START = re.compile(r'\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*\{')
+
+
+def _extract_json_object(text: str, start: int) -> Optional[str]:
+    """Extract a JSON object with balanced braces starting at *start*.
+
+    Returns the substring ``text[start:end]`` (inclusive of the outer
+    braces) or ``None`` if braces are unbalanced.
+    """
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
 
 
 def extract_tool_calls_from_content(content: str) -> List[Dict[str, Any]]:
@@ -207,23 +222,28 @@ def extract_tool_calls_from_content(content: str) -> List[Dict[str, Any]]:
 
     This is a fallback for LLMs that embed function calls in their
     text response instead of using the structured tool_calls field.
+    Uses balanced-brace matching so nested JSON arguments are handled.
 
     Returns:
         List of dicts with ``name`` and ``arguments`` keys.
     """
-    results = []
-    for match in _TOOL_CALL_PATTERN.finditer(content):
-        name = match.group(1)
-        args_str = match.group(2)
+    results: List[Dict[str, Any]] = []
+    for match in _TOOL_CALL_START.finditer(content):
+        obj_str = _extract_json_object(content, match.start())
+        if obj_str is None:
+            continue
         try:
-            args = json.loads(args_str)
-            results.append({
-                "id": f"fallback_{name}_{len(results)}",
-                "name": name,
-                "arguments": json.dumps(args),
-            })
+            obj = json.loads(obj_str)
+            name = obj.get("name")
+            arguments = obj.get("arguments")
+            if name and isinstance(arguments, dict):
+                results.append({
+                    "id": f"fallback_{name}_{len(results)}",
+                    "name": name,
+                    "arguments": json.dumps(arguments),
+                })
         except json.JSONDecodeError:
-            logger.debug("Failed to parse fallback tool call args: %s", args_str)
+            logger.debug("Failed to parse fallback tool call: %s", obj_str[:200])
     return results
 
 
