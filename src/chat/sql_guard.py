@@ -54,7 +54,7 @@ _TABLE_PATTERN = re.compile(
 
 # Match CTE names: WITH name AS (...)
 _CTE_NAME_PATTERN = re.compile(
-    r"\bWITH\s+(\w+)\s+AS\b", re.IGNORECASE
+    r"\bWITH\s+(?:RECURSIVE\s+)?(\w+)\s+AS\b", re.IGNORECASE
 )
 
 MAX_QUERY_LENGTH = 2000
@@ -106,17 +106,28 @@ def validate_sql(query: str) -> str:
     # Extract CTE alias names so they don't trigger the table whitelist
     cte_names = set()
     sql_upper = cleaned.upper()
-    first_cte = re.search(r"\bWITH\s+(\w+)\s+AS\b", sql_upper)
+    first_cte = re.search(r"\bWITH\s+(?:RECURSIVE\s+)?(\w+)\s+AS\b", sql_upper)
     if first_cte:
         cte_names.add(first_cte.group(1).lower())
         for match in re.finditer(r",\s*(\w+)\s+AS\b", sql_upper[first_cte.end():]):
             cte_names.add(match.group(1).lower())
     allowed = ALLOWED_TABLES | cte_names
 
+    # Find additional comma-separated tables in FROM clauses
+    tables = set(t.lower() for t in _TABLE_PATTERN.findall(cleaned))
+    from_clauses = re.finditer(
+        r'\bFROM\s+([\w\s,]+?)(?:\s+WHERE|\s+JOIN|\s+ORDER|\s+GROUP|\s+LIMIT|\s+HAVING|\s*$|\s*\))',
+        sql_upper,
+    )
+    for m in from_clauses:
+        for table in m.group(1).split(','):
+            table = table.strip().split()[0]  # Get just the table name (not alias)
+            if table and table not in cte_names:
+                tables.add(table.lower())
+
     # Check table whitelist
-    tables_found = _TABLE_PATTERN.findall(cleaned)
-    for table in tables_found:
-        if table.lower() not in allowed:
+    for table in tables:
+        if table not in allowed:
             raise ChatSQLError(f"不允许访问表: {table}")
 
     # Auto-append LIMIT if missing

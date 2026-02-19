@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
@@ -58,8 +58,8 @@ async def reset_cache_stats(
 
 @router.delete("/{mto_number}")
 async def invalidate_mto(
-    mto_number: str,
-    api_request: Request,
+    mto_number: str = Path(..., min_length=2, max_length=50, pattern=r"^[A-Za-z0-9\-]+$"),
+    api_request: Request = None,
     current_user: str = Depends(get_current_user),
 ):
     """Invalidate a specific MTO from memory cache.

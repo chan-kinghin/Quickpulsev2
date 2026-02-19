@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +33,7 @@ class SyncProgress:
             status="running",
             phase="init",
             message="Starting sync...",
-            started_at=datetime.now(),
+            started_at=datetime.now(timezone.utc),
             days_back=days_back,
         )
         self._save()
@@ -46,13 +46,13 @@ class SyncProgress:
 
     def finish_success(self) -> None:
         self._data.status = "success"
-        self._data.finished_at = datetime.now()
+        self._data.finished_at = datetime.now(timezone.utc)
         self._data.message = "Sync completed successfully"
         self._save()
 
     def finish_error(self, error: str) -> None:
         self._data.status = "error"
-        self._data.finished_at = datetime.now()
+        self._data.finished_at = datetime.now(timezone.utc)
         self._data.error = error
         self._save()
 

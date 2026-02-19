@@ -287,7 +287,7 @@ class MTOQueryHandler:
             mto_number=mto_number,
             orders=orders,
             documents=documents,
-            query_time=datetime.now(),
+            query_time=datetime.now(timezone.utc),
             data_source="live",
         )
 
@@ -518,7 +518,7 @@ class MTOQueryHandler:
             mto_number=mto_number,
             parent=parent,
             children=children,
-            query_time=datetime.now(),
+            query_time=datetime.now(timezone.utc),
             data_source="cache",
             cache_age_seconds=cache_age,
         )
@@ -760,7 +760,7 @@ class MTOQueryHandler:
             mto_number=mto_number,
             parent=parent,
             children=children,
-            query_time=datetime.now(),
+            query_time=datetime.now(timezone.utc),
             data_source="live",
         )
 

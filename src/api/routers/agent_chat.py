@@ -10,6 +10,7 @@ Pydantic model resolution with FastAPI's dependency injection.
 import asyncio
 import json
 import logging
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -53,6 +54,8 @@ def _build_mto_context_str(mto_context: Optional[dict]) -> Optional[str]:
         return None
     parent = mto_context.get("parent_item") or {}
     mto_number = parent.get("mto_number")
+    if mto_number and not re.match(r'^[A-Za-z0-9\-]+$', mto_number):
+        mto_number = ''
     if mto_number:
         return f"用户正在查看 MTO: {mto_number}"
     return None
@@ -168,7 +171,7 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
                     timeout=300,  # 5 min max
                 )
             except asyncio.TimeoutError:
-                await event_queue.put({"type": "error", "content": "Request timed out after 5 minutes"})
+                await event_queue.put({"type": "error", "message": "Request timed out after 5 minutes"})
                 await event_queue.put({"type": "done"})
             except Exception as exc:
                 logger.exception("Orchestrator failed: %s", exc)
@@ -177,15 +180,21 @@ async def _agent_stream(request: Request, body: AgentChatRequest):
 
         task = asyncio.create_task(run_orchestrator())
 
-        # Yield events from the queue until we see "done"
-        while True:
-            event = await event_queue.get()
-            yield _sse_event(event)
-            if event.get("type") == "done":
-                break
-
-        # Ensure the task is complete
-        await task
+        try:
+            # Yield events from the queue until we see "done"
+            while True:
+                event = await event_queue.get()
+                yield _sse_event(event)
+                if event.get("type") == "done":
+                    break
+        finally:
+            # Cancel the orchestrator task if the client disconnects
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     except Exception as exc:
         logger.exception("Agent stream error: %s", exc)

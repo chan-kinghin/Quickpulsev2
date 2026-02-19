@@ -508,10 +508,11 @@ function mtoSearch() {
                 this.parentItem = data.parent_item || null;
                 this.childItems = data.child_items || [];
                 this.dataSource = data.data_source || 'live';
-                this.cacheAgeSeconds = data.cache_age_seconds || null;
+                this.cacheAgeSeconds = data.cache_age_seconds ?? null;
 
                 this.successMessage = `成功查询到 ${this.childItems.length} 条BOM组件记录`;
-                setTimeout(() => {
+                clearTimeout(this._successTimer);
+                this._successTimer = setTimeout(() => {
                     this.successMessage = '';
                 }, 3000);
 
@@ -765,13 +766,14 @@ function mtoSearch() {
         // === Chat Methods ===
         async initChat() {
             // Delegated click listener for MTO links in chat messages
+            const signal = this._abortController?.signal;
             document.addEventListener('click', (e) => {
                 const el = e.target.closest('.chat-mto-link');
                 if (el) document.dispatchEvent(new CustomEvent('chat-mto-click', {detail: el.dataset.mto}));
-            });
+            }, signal ? { signal } : undefined);
+            const token = localStorage.getItem('token');
+            const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
             try {
-                const token = localStorage.getItem('token');
-                const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
                 const resp = await fetch('/api/chat/status', { headers: authHeaders });
                 if (resp.ok) {
                     const data = await resp.json();
