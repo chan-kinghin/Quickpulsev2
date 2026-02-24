@@ -5,24 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuickPulse V2 - 同步管理</title>
 
-    <!-- Use system fonts for reliability in China (no Google Fonts dependency) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: { slate: { 950: '#0a0a0b' } },
-                    fontFamily: { sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'sans-serif'] }
-                }
-            }
-        };
-    </script>
+    <!-- Pre-built Tailwind CSS (no CDN dependency — reliable in China) -->
+    <link rel="stylesheet" href="/static/css/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/main.css">
 
-    <!-- Serve Alpine.js locally for reliability in China -->
+    <!-- Serve Alpine.js and Lucide locally for reliability in China -->
     <script defer src="/static/js/alpine.min.js"></script>
     <script src="/static/js/lucide.min.js"></script>
-    <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body class="bg-slate-950 min-h-screen" x-data="authGuard()">
     <div x-data="syncPanel()" x-init="init()">
@@ -199,9 +188,9 @@
                                     <td class="py-2.5 pr-4">
                                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
                                               :class="statusBadgeClass(item.status)">
-                                            <i :data-lucide="item.status === 'completed' ? 'check' : item.status === 'failed' ? 'x' : 'loader'"
+                                            <i :data-lucide="(item.status === 'completed' || item.status === 'success') ? 'check' : item.status === 'failed' ? 'x' : 'loader'"
                                                class="w-3 h-3"></i>
-                                            <span x-text="item.status === 'completed' ? '完成' : item.status === 'failed' ? '失败' : item.status === 'running' ? '运行中' : item.status"></span>
+                                            <span x-text="(item.status === 'completed' || item.status === 'success') ? '完成' : item.status === 'failed' ? '失败' : item.status === 'running' ? '运行中' : item.status"></span>
                                         </span>
                                     </td>
                                     <td class="py-2.5 pr-4 text-slate-300 text-right" x-text="item.days_back || '-'"></td>
@@ -322,9 +311,9 @@
         </main>
     </div>
 
-    <script src="/static/js/api.js?v=20260202"></script>
-    <script src="/static/js/auth.js?v=20260202"></script>
-    <script src="/static/js/sync.js?v=20260218b"></script>
+    <script src="/static/js/api.js?v=20260224"></script>
+    <script src="/static/js/auth.js?v=20260224"></script>
+    <script src="/static/js/sync.js?v=20260224"></script>
     <script>
         lucide.createIcons();
         document.addEventListener('alpine:initialized', () => {

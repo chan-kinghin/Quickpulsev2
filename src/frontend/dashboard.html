@@ -5,22 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuickPulse V2 - 产品状态明细表</title>
 
-    <!-- Use system fonts for reliability in China (no Google Fonts dependency) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: { slate: { 950: '#0a0a0b' } },
-                    fontFamily: {
-                        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'sans-serif'],
-                        mono: ['SFMono-Regular', 'Consolas', 'Liberation Mono', 'monospace']
-                    }
-                }
-            }
-        };
-    </script>
+    <!-- Pre-built Tailwind CSS (no CDN dependency — reliable in China) -->
+    <link rel="stylesheet" href="/static/css/tailwind.min.css">
 
     <!-- Serve Alpine.js locally for reliability in China -->
     <script defer src="/static/js/alpine.min.js"></script>

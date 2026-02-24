@@ -169,6 +169,7 @@ function syncPanel() {
 
         statusBadgeClass(status) {
             switch (status) {
+                case 'success':
                 case 'completed': return 'bg-emerald-500/20 text-emerald-400';
                 case 'failed': return 'bg-rose-500/20 text-rose-400';
                 case 'running': return 'bg-amber-500/20 text-amber-400';
