@@ -311,14 +311,18 @@
         </main>
     </div>
 
-    <script src="/static/js/api.js?v=20260224"></script>
-    <script src="/static/js/auth.js?v=20260224"></script>
-    <script src="/static/js/sync.js?v=20260224"></script>
+    <script src="/static/js/api.js?v=20260224b"></script>
+    <script src="/static/js/auth.js?v=20260224b"></script>
+    <script src="/static/js/sync.js?v=20260224b"></script>
     <script>
         lucide.createIcons();
+        let iconRefreshTimeout = null;
+        function refreshIcons() {
+            if (iconRefreshTimeout) clearTimeout(iconRefreshTimeout);
+            iconRefreshTimeout = setTimeout(() => lucide.createIcons(), 100);
+        }
         document.addEventListener('alpine:initialized', () => {
-            const observer = new MutationObserver(() => lucide.createIcons());
-            observer.observe(document.body, { childList: true, subtree: true });
+            refreshIcons();
         });
     </script>
 </body>
