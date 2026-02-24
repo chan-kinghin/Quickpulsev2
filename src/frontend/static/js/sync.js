@@ -44,6 +44,14 @@ function syncPanel() {
         _originalConfig: null,
 
         async init() {
+            // Wait for authGuard to verify token before making API calls
+            if (!api.isAuthenticated()) return;
+            try {
+                await api.get('/auth/verify');
+            } catch {
+                return; // Token invalid — authGuard will redirect
+            }
+
             await Promise.all([
                 this.fetchConfig(),
                 this.fetchStatus(),

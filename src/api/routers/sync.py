@@ -110,7 +110,7 @@ async def get_sync_history(
     current_user: str = Depends(get_current_user),
 ):
     db = api_request.app.state.db
-    rows = await db.execute(
+    rows = await db.execute_read(
         """
         SELECT started_at, finished_at, status, days_back, records_synced, error_message
         FROM sync_history

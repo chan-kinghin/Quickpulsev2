@@ -25,10 +25,25 @@ const api = {
             ...options.headers
         };
 
-        const response = await fetch(`${this.baseUrl}${endpoint}`, {
-            ...options,
-            headers
-        });
+        const controller = new AbortController();
+        const timeoutMs = options.timeout || 30000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        let response;
+        try {
+            response = await fetch(`${this.baseUrl}${endpoint}`, {
+                ...options,
+                headers,
+                signal: controller.signal
+            });
+        } catch (err) {
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+                throw new Error('请求超时，请稍后重试');
+            }
+            throw err;
+        }
+        clearTimeout(timeoutId);
 
         if (response.status === 401) {
             this.clearToken();

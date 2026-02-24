@@ -59,6 +59,7 @@ def mock_db():
     """Create mock database."""
     db = MagicMock()
     db.execute = AsyncMock(return_value=[])
+    db.execute_read = AsyncMock(return_value=[])
     return db
 
 
@@ -394,7 +395,7 @@ class TestGetSyncHistory:
     @pytest.mark.asyncio
     async def test_get_history_success(self, app_with_sync, auth_headers, mock_db):
         """Test get sync history success."""
-        mock_db.execute.return_value = [
+        mock_db.execute_read.return_value = [
             ("2025-01-15T10:00:00", "2025-01-15T10:30:00", "success", 90, 1500, None),
             ("2025-01-14T10:00:00", "2025-01-14T10:25:00", "success", 90, 1400, None),
         ]
@@ -414,7 +415,7 @@ class TestGetSyncHistory:
     @pytest.mark.asyncio
     async def test_get_history_empty(self, app_with_sync, auth_headers, mock_db):
         """Test empty sync history."""
-        mock_db.execute.return_value = []
+        mock_db.execute_read.return_value = []
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_with_sync),
@@ -428,7 +429,7 @@ class TestGetSyncHistory:
     @pytest.mark.asyncio
     async def test_get_history_with_error(self, app_with_sync, auth_headers, mock_db):
         """Test sync history with error entry."""
-        mock_db.execute.return_value = [
+        mock_db.execute_read.return_value = [
             (
                 "2025-01-15T10:00:00",
                 "2025-01-15T10:05:00",
@@ -467,8 +468,8 @@ class TestGetSyncHistory:
 
         assert response.status_code == 200
         # Verify the query used the limit
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args[0]
+        mock_db.execute_read.assert_called_once()
+        call_args = mock_db.execute_read.call_args[0]
         assert 5 in call_args[1]  # Limit parameter
 
     @pytest.mark.asyncio

@@ -25,6 +25,8 @@ function loginForm() {
 
 function authGuard() {
     return {
+        authenticated: false,
+
         async init() {
             // First check if token exists locally
             if (!api.isAuthenticated()) {
@@ -35,6 +37,7 @@ function authGuard() {
             // Then verify token is still valid with server
             try {
                 await api.get('/auth/verify');
+                this.authenticated = true;
             } catch (error) {
                 // Token invalid/expired - redirect handled by api.request() on 401
                 console.log('Token verification failed, redirecting to login');
