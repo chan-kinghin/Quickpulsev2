@@ -291,6 +291,8 @@ class TestCacheReaderRowConversion:
             100,  # qty
             "Approved",  # status
             "2025-01-15",  # create_date
+            12345,  # aux_prop_id
+            "2025-01-15 12:00:00",  # synced_at
         )
 
         model = reader._row_to_order(row)
@@ -300,6 +302,7 @@ class TestCacheReaderRowConversion:
         assert model.qty == Decimal("100")
         assert model.status == "Approved"
         assert model.create_date == "2025-01-15"
+        assert model.aux_prop_id == 12345
 
     def test_row_to_order_null_values(self):
         """Test _row_to_order with null values."""
@@ -317,6 +320,8 @@ class TestCacheReaderRowConversion:
             None,  # qty
             None,  # status
             None,  # create_date
+            None,  # aux_prop_id
+            None,  # synced_at
         )
 
         model = reader._row_to_order(row)
@@ -324,6 +329,7 @@ class TestCacheReaderRowConversion:
         assert model.workshop == ""
         assert model.material_name == ""
         assert model.qty == Decimal("0")
+        assert model.aux_prop_id == 0
 
     def test_row_to_bom_basic(self):
         """Test _row_to_bom with basic data."""
