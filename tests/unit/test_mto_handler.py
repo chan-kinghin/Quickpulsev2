@@ -385,6 +385,42 @@ class TestMTOQueryHandler:
         assert result.data_source == "live"
         mock_cache.get_sales_orders.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_selfmade_uses_prd_mo_qty_not_receipt_sum(
+        self, mock_readers, sample_selfmade_receipts_overlapping, sample_production_order_for_receipts
+    ):
+        """Test that self-made 应收数量 uses PRD_MO.FQty, not sum of receipt FMustQty.
+
+        Regression test: summing FMustQty across partial receipts gives inflated values
+        (e.g., 2219 instead of 1008) because each receipt carries full/remaining expected qty.
+        """
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[sample_production_order_for_receipts]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=sample_selfmade_receipts_overlapping
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={2001: "镜圈镜带实色红潘通230C"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2511034", use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "05.01.001"
+        assert child.material_type_name == "自制"
+        # KEY ASSERTION: must use PRD_MO.FQty (1008), NOT receipt sum (1211 + 1008 = 2219)
+        assert child.prod_instock_must_qty == Decimal("1008")
+        # Real qty should be correct sum (additive)
+        assert child.prod_instock_real_qty == Decimal("1008")
+
 
 # Test fixtures
 @pytest.fixture
@@ -511,4 +547,50 @@ def sample_production_order_05():
         qty=Decimal("50"),
         status="审核",
         create_date="2025-01-15",
+    )
+
+
+@pytest.fixture
+def sample_selfmade_receipts_overlapping():
+    """Receipts with overlapping FMustQty — each batch carries full/remaining expected qty."""
+    return [
+        ProductionReceiptModel(
+            bill_no="RK001",
+            mto_number="AS2511034",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            real_qty=Decimal("500"),
+            must_qty=Decimal("1211"),
+            aux_prop_id=2001,
+            mo_bill_no="MO100",
+        ),
+        ProductionReceiptModel(
+            bill_no="RK002",
+            mto_number="AS2511034",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            real_qty=Decimal("508"),
+            must_qty=Decimal("1008"),
+            aux_prop_id=2001,
+            mo_bill_no="MO100",
+        ),
+    ]
+
+
+@pytest.fixture
+def sample_production_order_for_receipts():
+    """PRD_MO record with the correct order quantity."""
+    return ProductionOrderModel(
+        bill_no="MO100",
+        mto_number="AS2511034",
+        workshop="成型工段",
+        material_code="05.01.001",
+        material_name="硅胶镜圈",
+        specification="GST-GS53",
+        aux_prop_id=2001,
+        qty=Decimal("1008"),
+        status="已审核",
+        create_date="2025-11-27",
     )

@@ -111,7 +111,7 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "title": "自制件 (物料编码05.xx.xxx)",
         "content": "自制件在工厂内部生产，物料编码以05开头，FMaterialType=1。"
         "需求来自生产订单，入库来自生产入库单，领料来自生产领料单。"
-        "语义字段：demand_field=prod_instock_must_qty, fulfilled_field=prod_instock_real_qty。",
+        "语义字段：demand_field=prod_instock_must_qty（来源于PRD_MO.FQty生产订单数量，非入库单FMustQty之和）, fulfilled_field=prod_instock_real_qty。",
         "tags": "自制件,05,self_made,内部生产,半成品",
     },
     {
@@ -422,7 +422,7 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "title": "入库完成率计算规则",
         "content": "不同物料类型的入库完成率计算方式不同："
         "成品 = prod_instock_real_qty / sales_order_qty；"
-        "自制件 = prod_instock_real_qty / prod_instock_must_qty；"
+        "自制件 = prod_instock_real_qty / prod_instock_must_qty（prod_instock_must_qty来源于PRD_MO.FQty生产订单数量）；"
         "外购件 = purchase_stock_in_qty / purchase_order_qty。",
         "tags": "入库完成率,计算,成品,自制,外购,公式",
     },
@@ -522,10 +522,11 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "category": "query_pattern",
         "title": "查询某MTO的入库汇总",
         "content": "汇总某MTO的生产入库数据："
-        "SELECT material_code, SUM(real_qty) AS total_real, SUM(must_qty) AS total_must "
+        "SELECT material_code, SUM(real_qty) AS total_real "
         "FROM cached_production_receipts "
         "WHERE mto_number = 'AK2510034' "
-        "GROUP BY material_code LIMIT 100;",
+        "GROUP BY material_code LIMIT 100; "
+        "注意：不要对must_qty求和，入库单的must_qty是每批次的应收量（会重叠），应收总量应查PRD_MO的qty字段。",
         "tags": "入库汇总,SUM,分组,生产入库,材料,查询",
     },
     {
@@ -639,11 +640,11 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "category": "query_pattern",
         "title": "查询销售出库汇总",
         "content": "汇总某MTO的成品出库情况："
-        "SELECT material_code, SUM(real_qty) AS total_delivered, "
-        "SUM(must_qty) AS total_planned "
+        "SELECT material_code, SUM(real_qty) AS total_delivered "
         "FROM cached_sales_delivery "
         "WHERE mto_number = 'AK2510034' "
-        "GROUP BY material_code LIMIT 100;",
+        "GROUP BY material_code LIMIT 100; "
+        "注意：不要对must_qty求和，出库单的must_qty是每批次的应发量（会重叠）。",
         "tags": "销售出库,汇总,成品,发货,查询",
     },
 

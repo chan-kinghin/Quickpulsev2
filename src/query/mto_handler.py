@@ -361,6 +361,7 @@ class MTOQueryHandler:
         pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
+        prd_mo_qty_by_key = _sum_by_material_and_aux(prod_orders, "qty")
 
         # Collect aux_prop_ids from cached data for lookup
         aux_prop_ids = set()
@@ -426,7 +427,7 @@ class MTOQueryHandler:
         # Create one ChildItem per unique (material_code, aux_prop_id) for self_made
         for key, receipt_list in selfmade_receipt_by_key.items():
             child = self._build_aggregated_selfmade_child(
-                receipt_list, material_picks, aux_descriptions
+                receipt_list, material_picks, aux_descriptions, prd_mo_qty_by_key
             )
             children.append(child)
 
@@ -606,6 +607,7 @@ class MTOQueryHandler:
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         pick_request = _sum_by_material(material_picks, "app_qty")
         pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
+        prd_mo_qty_by_key = _sum_by_material_and_aux(prod_orders, "qty")
 
         # Collect aux_prop_ids for lookup
         aux_prop_ids = set()
@@ -671,7 +673,7 @@ class MTOQueryHandler:
         # Create one ChildItem per unique (material_code, aux_prop_id) for self_made
         for key, receipt_list in selfmade_receipt_by_key.items():
             child = self._build_aggregated_selfmade_child(
-                receipt_list, material_picks, aux_descriptions
+                receipt_list, material_picks, aux_descriptions, prd_mo_qty_by_key
             )
             children.append(child)
 
@@ -834,6 +836,7 @@ class MTOQueryHandler:
         prod_receipts: list,
         material_picks: list,
         aux_descriptions: dict[int, str],
+        prd_mo_qty_by_key: dict[tuple[str, int], Decimal],
     ) -> ChildItem:
         """Build ChildItem for 05.xx.xxx (自制) based on PRD_INSTOCK records.
 
@@ -847,8 +850,10 @@ class MTOQueryHandler:
         aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
         aux_attrs = aux_descriptions.get(aux_prop_id, "")
 
-        # 生产入库单.应收数量
-        prod_instock_must_qty = sum(r.must_qty for r in prod_receipts)
+        # 生产入库单.应收数量 — use PRD_MO.FQty (production order qty) as source of truth;
+        # fall back to receipt FMustQty sum only when no matching production order exists
+        key = (code, aux_prop_id)
+        prod_instock_must_qty = prd_mo_qty_by_key.get(key) or sum(r.must_qty for r in prod_receipts)
 
         # 生产入库单.实收数量
         prod_instock_real_qty = sum(r.real_qty for r in prod_receipts)
