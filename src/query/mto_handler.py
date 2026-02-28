@@ -363,6 +363,13 @@ class MTOQueryHandler:
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         prd_mo_qty_by_key = _sum_by_material_and_aux(prod_orders, "qty")
 
+        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
+        prd_mo_03_keys: set = set()
+        for po in prod_orders:
+            if po.material_code.startswith("03."):
+                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
+                prd_mo_03_keys.add((po.material_code, aux_prop_id))
+
         # Collect aux_prop_ids from cached data for lookup
         aux_prop_ids = set()
         for so in sales_orders:
@@ -421,6 +428,12 @@ class MTOQueryHandler:
                 aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
                 key = (pr.material_code, aux_prop_id)
                 selfmade_receipt_by_key[key].append(pr)
+            elif class_id == "purchased":
+                # 03.xx 有工段（有 PRD_MO）→ 按自制处理
+                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
+                key = (pr.material_code, aux_prop_id)
+                if key in prd_mo_03_keys:
+                    selfmade_receipt_by_key[key].append(pr)
             elif class_id is None:
                 unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
 
@@ -433,11 +446,12 @@ class MTOQueryHandler:
 
         # 自制 (05.xx) from PRD_PickMtrl - 从库存领料的物料
         # 这些物料可能不在 PRD_INSTOCK 中，但有实际领料记录
+        # 也包含有工段的 03.xx 物料
         pickmtrl_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for pick in material_picks:
-            if pick.material_code.startswith("05."):
-                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
-                key = (pick.material_code, aux_prop_id)
+            aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
+            key = (pick.material_code, aux_prop_id)
+            if pick.material_code.startswith("05.") or key in prd_mo_03_keys:
                 pickmtrl_05_by_key[key].append(pick)
 
         # 只添加不在 selfmade_receipt_by_key 中的物料
@@ -448,10 +462,11 @@ class MTOQueryHandler:
 
         # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
         # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
+        # 也包含有工段的 03.xx 物料
         prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
             class_id, _ = self._get_material_class(po.material_code)
-            if class_id == "self_made":
+            if class_id == "self_made" or (po.material_code, getattr(po, "aux_prop_id", 0) or 0) in prd_mo_03_keys:
                 aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
                 key = (po.material_code, aux_prop_id)
                 prd_mo_05_by_key[key].append(po)
@@ -491,6 +506,8 @@ class MTOQueryHandler:
             if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
                 aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
                 key = (bom.material_code, aux_prop_id)
+                if key in prd_mo_03_keys:  # 有工段的走自制路径，不放入 PPBOM
+                    continue
                 ppbom_by_key[key].append(bom)
 
         # 创建 PPBOM 包材行（与 PUR 行分开显示）
@@ -505,6 +522,8 @@ class MTOQueryHandler:
             if pick.material_code.startswith("03."):
                 aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
                 key = (pick.material_code, aux_prop_id)
+                if key in prd_mo_03_keys:  # 有工段的走自制路径
+                    continue
                 pickmtrl_03_by_key[key].append(pick)
 
         # 只添加不在 purchase_by_key 和 ppbom_by_key 中的物料
@@ -609,6 +628,13 @@ class MTOQueryHandler:
         pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
         prd_mo_qty_by_key = _sum_by_material_and_aux(prod_orders, "qty")
 
+        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
+        prd_mo_03_keys: set = set()
+        for po in prod_orders:
+            if po.material_code.startswith("03."):
+                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
+                prd_mo_03_keys.add((po.material_code, aux_prop_id))
+
         # Collect aux_prop_ids for lookup
         aux_prop_ids = set()
         for so in sales_orders:
@@ -667,6 +693,12 @@ class MTOQueryHandler:
                 aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
                 key = (pr.material_code, aux_prop_id)
                 selfmade_receipt_by_key[key].append(pr)
+            elif class_id == "purchased":
+                # 03.xx 有工段（有 PRD_MO）→ 按自制处理
+                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
+                key = (pr.material_code, aux_prop_id)
+                if key in prd_mo_03_keys:
+                    selfmade_receipt_by_key[key].append(pr)
             elif class_id is None:
                 unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
 
@@ -679,11 +711,12 @@ class MTOQueryHandler:
 
         # 自制 (05.xx) from PRD_PickMtrl - 从库存领料的物料
         # 这些物料可能不在 PRD_INSTOCK 中，但有实际领料记录
+        # 也包含有工段的 03.xx 物料
         pickmtrl_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for pick in material_picks:
-            if pick.material_code.startswith("05."):
-                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
-                key = (pick.material_code, aux_prop_id)
+            aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
+            key = (pick.material_code, aux_prop_id)
+            if pick.material_code.startswith("05.") or key in prd_mo_03_keys:
                 pickmtrl_05_by_key[key].append(pick)
 
         # 只添加不在 selfmade_receipt_by_key 中的物料
@@ -694,10 +727,11 @@ class MTOQueryHandler:
 
         # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
         # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
+        # 也包含有工段的 03.xx 物料
         prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
             class_id, _ = self._get_material_class(po.material_code)
-            if class_id == "self_made":
+            if class_id == "self_made" or (po.material_code, getattr(po, "aux_prop_id", 0) or 0) in prd_mo_03_keys:
                 aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
                 key = (po.material_code, aux_prop_id)
                 prd_mo_05_by_key[key].append(po)
@@ -738,6 +772,8 @@ class MTOQueryHandler:
             if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
                 aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
                 key = (bom.material_code, aux_prop_id)
+                if key in prd_mo_03_keys:  # 有工段的走自制路径，不放入 PPBOM
+                    continue
                 ppbom_by_key[key].append(bom)
 
         # 所有 PPBOM 03 级物料都添加为独立行
@@ -752,6 +788,8 @@ class MTOQueryHandler:
             if pick.material_code.startswith("03."):
                 aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
                 key = (pick.material_code, aux_prop_id)
+                if key in prd_mo_03_keys:  # 有工段的走自制路径
+                    continue
                 pickmtrl_03_by_key[key].append(pick)
 
         # 只添加不在 purchase_by_key 和 ppbom_by_key 中的物料

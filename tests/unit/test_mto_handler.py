@@ -12,6 +12,7 @@ from src.query.mto_handler import (
     _sum_by_material_and_aux,
 )
 from src.readers.models import (
+    MaterialPickingModel,
     ProductionOrderModel,
     PurchaseOrderModel,
     SalesOrderModel,
@@ -420,6 +421,306 @@ class TestMTOQueryHandler:
         assert child.prod_instock_must_qty == Decimal("1008")
         # Real qty should be correct sum (additive)
         assert child.prod_instock_real_qty == Decimal("1008")
+
+    @pytest.mark.asyncio
+    async def test_03_with_prd_mo_routes_as_selfmade(self, mock_readers):
+        """03.xx material with PRD_MO (工段) routes through self-made path.
+
+        纸箱工段等 03.xx 包材如果有生产订单, 应按自制处理:
+        - prod_instock_real_qty 来自 PRD_INSTOCK.FRealQty
+        - prod_instock_must_qty 来自 PRD_MO.FQty
+        - material_type_name 显示 "自制"
+        """
+        prod_order_03 = ProductionOrderModel(
+            bill_no="MO200",
+            mto_number="AS2512032",
+            workshop="纸箱工段",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("500"),
+            status="已审核",
+            create_date="2025-12-01",
+        )
+        receipt_03 = ProductionReceiptModel(
+            bill_no="RK200",
+            mto_number="AS2512032",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            real_qty=Decimal("300"),
+            must_qty=Decimal("500"),
+            aux_prop_id=0,
+            mo_bill_no="MO200",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order_03]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt_03]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512032", use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "03.05.001"
+        assert child.material_type_name == "自制"
+        assert child.prod_instock_must_qty == Decimal("500")
+        assert child.prod_instock_real_qty == Decimal("300")
+
+    @pytest.mark.asyncio
+    async def test_03_without_prd_mo_stays_purchased(self, mock_readers):
+        """03.xx material without PRD_MO stays on purchased path.
+
+        无工段的 03.xx 物料保持外购路径, purchase_order_qty 正常显示。
+        """
+        purchase_03 = PurchaseOrderModel(
+            bill_no="PO200",
+            mto_number="AS2512032",
+            material_code="03.01.010",
+            material_name="外购包材B",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            order_qty=Decimal("200"),
+            stock_in_qty=Decimal("150"),
+            remain_stock_in_qty=Decimal("50"),
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
+            return_value=[purchase_03]
+        )
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512032", use_cache=False)
+
+        assert len(result.children) >= 1
+        child = result.children[0]
+        assert child.material_code == "03.01.010"
+        assert child.material_type_name == "包材"
+        assert child.purchase_order_qty == Decimal("200")
+        assert child.purchase_stock_in_qty == Decimal("150")
+
+    @pytest.mark.asyncio
+    async def test_03_with_prd_mo_no_receipt_shows_planned(self, mock_readers):
+        """03.xx with PRD_MO but no PRD_INSTOCK shows as self-made with zero receipt.
+
+        有工段但还没入库的 03.xx 物料, 应收数量 = PRD_MO.FQty, 实收数量 = 0。
+        """
+        prod_order_03 = ProductionOrderModel(
+            bill_no="MO300",
+            mto_number="AS2512032",
+            workshop="吸塑工段",
+            material_code="03.06.002",
+            material_name="吸塑托盘",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("1000"),
+            status="计划确认",
+            create_date="2025-12-05",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order_03]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512032", use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "03.06.002"
+        assert child.material_type_name == "自制"
+        assert child.prod_instock_must_qty == Decimal("1000")
+        assert child.prod_instock_real_qty == Decimal("0")
+
+    @pytest.mark.asyncio
+    async def test_mixed_03_with_and_without_prd_mo(self, mock_readers):
+        """Same MTO with 03.xx materials: one with 工段 (self-made), one without (purchased).
+
+        同一 MTO 中混合: 有工段的 03.xx → 自制, 无工段的 03.xx → 外购。
+        """
+        # 03.05.001 has PRD_MO → self-made
+        prod_order_03 = ProductionOrderModel(
+            bill_no="MO400",
+            mto_number="AS2512032",
+            workshop="纸箱工段",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("500"),
+            status="已审核",
+            create_date="2025-12-01",
+        )
+        receipt_03 = ProductionReceiptModel(
+            bill_no="RK400",
+            mto_number="AS2512032",
+            material_code="03.05.001",
+            real_qty=Decimal("300"),
+            must_qty=Decimal("500"),
+            aux_prop_id=0,
+            mo_bill_no="MO400",
+        )
+        # 03.01.010 has PUR only → purchased
+        purchase_03 = PurchaseOrderModel(
+            bill_no="PO400",
+            mto_number="AS2512032",
+            material_code="03.01.010",
+            material_name="外购包材B",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            order_qty=Decimal("200"),
+            stock_in_qty=Decimal("150"),
+            remain_stock_in_qty=Decimal("50"),
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order_03]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
+            return_value=[purchase_03]
+        )
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt_03]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512032", use_cache=False)
+
+        selfmade = [c for c in result.children if c.material_type_name == "自制"]
+        purchased = [c for c in result.children if c.material_type_name == "包材"]
+
+        assert len(selfmade) == 1
+        assert selfmade[0].material_code == "03.05.001"
+        assert selfmade[0].prod_instock_real_qty == Decimal("300")
+
+        assert len(purchased) >= 1
+        pur_child = [c for c in purchased if c.material_code == "03.01.010"]
+        assert len(pur_child) == 1
+        assert pur_child[0].purchase_order_qty == Decimal("200")
+
+    @pytest.mark.asyncio
+    async def test_03_with_prd_mo_not_duplicated_in_purchased(self, mock_readers):
+        """03.xx with 工段 must NOT appear in both self-made and purchased paths.
+
+        有工段的 03.xx 不应同时出现在自制和外购中, 避免重复计数。
+        PPBOM 和 PickMtrl 外购分桶应排除有工段的物料。
+        """
+        from src.readers.models import ProductionBOMModel
+
+        prod_order_03 = ProductionOrderModel(
+            bill_no="MO500",
+            mto_number="AS2512032",
+            workshop="纸箱工段",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("500"),
+            status="已审核",
+            create_date="2025-12-01",
+        )
+        receipt_03 = ProductionReceiptModel(
+            bill_no="RK500",
+            mto_number="AS2512032",
+            material_code="03.05.001",
+            real_qty=Decimal("300"),
+            must_qty=Decimal("500"),
+            aux_prop_id=0,
+            mo_bill_no="MO500",
+        )
+        # Same material also appears in PPBOM and PickMtrl — should be excluded from purchased
+        bom_03 = ProductionBOMModel(
+            mo_bill_no="MO500",
+            mto_number="AS2512032",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            aux_prop_id=0,
+            material_type=2,
+            need_qty=Decimal("500"),
+            picked_qty=Decimal("300"),
+            no_picked_qty=Decimal("200"),
+        )
+        pick_03 = MaterialPickingModel(
+            bill_no="PM500",
+            mto_number="AS2512032",
+            material_code="03.05.001",
+            app_qty=Decimal("500"),
+            actual_qty=Decimal("300"),
+            ppbom_bill_no="MO500",
+            aux_prop_id=0,
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order_03]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt_03]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(
+            return_value=[pick_03]
+        )
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+        # Also mock production_bom reader (used in live path)
+        mock_readers["production_bom"].fetch_by_mto = AsyncMock(
+            return_value=[bom_03]
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512032", use_cache=False)
+
+        # Should only appear once as self-made, NOT duplicated in purchased
+        selfmade = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "自制"]
+        purchased = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "包材"]
+
+        assert len(selfmade) == 1
+        assert len(purchased) == 0
 
 
 # Test fixtures
