@@ -824,7 +824,7 @@ class SyncService:
             (
                 r.bill_no, r.mto_number, r.material_code,
                 float(r.order_qty), float(r.stock_in_qty), float(r.no_stock_in_qty),
-                model_to_json(r),
+                getattr(r, "aux_prop_id", 0) or 0, model_to_json(r),
             )
             for r in records
         ]
@@ -833,9 +833,9 @@ class SyncService:
             f"""
             INSERT INTO {TABLE_SUBCONTRACTING_ORDERS} (
                 bill_no, mto_number, material_code, order_qty, stock_in_qty,
-                no_stock_in_qty, raw_data, synced_at
+                no_stock_in_qty, aux_prop_id, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             rows,
         )
@@ -888,7 +888,9 @@ class SyncService:
         rows = [
             (
                 r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
-                r.bill_type_number, model_to_json(r),
+                r.bill_type_number,
+                getattr(r, 'aux_prop_id', 0) or 0,
+                model_to_json(r),
             )
             for r in records
         ]
@@ -897,9 +899,9 @@ class SyncService:
             f"""
             INSERT INTO {TABLE_PURCHASE_RECEIPTS} (
                 mto_number, material_code, real_qty, must_qty, bill_type_number,
-                raw_data, synced_at
+                aux_prop_id, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             rows,
         )
@@ -1075,17 +1077,19 @@ class SyncService:
         rows = [
             (r.bill_no, r.mto_number, r.material_code,
              float(r.order_qty), float(r.stock_in_qty), float(r.no_stock_in_qty),
+             getattr(r, 'aux_prop_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_SUBCONTRACTING_ORDERS} (
                 bill_no, mto_number, material_code, order_qty, stock_in_qty,
-                no_stock_in_qty, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                no_stock_in_qty, aux_prop_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(bill_no, material_code) DO UPDATE SET
                 mto_number=excluded.mto_number, order_qty=excluded.order_qty,
                 stock_in_qty=excluded.stock_in_qty, no_stock_in_qty=excluded.no_stock_in_qty,
+                aux_prop_id=excluded.aux_prop_id,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
         )
@@ -1135,16 +1139,19 @@ class SyncService:
         rows = [
             (getattr(r, 'bill_no', '') or '',
              r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
-             r.bill_type_number, model_to_json(r))
+             r.bill_type_number,
+             getattr(r, 'aux_prop_id', 0) or 0,
+             model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_PURCHASE_RECEIPTS} (
                 bill_no, mto_number, material_code, real_qty, must_qty, bill_type_number,
-                raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                aux_prop_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(bill_no, mto_number, material_code, bill_type_number) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
+                aux_prop_id=excluded.aux_prop_id,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
         )

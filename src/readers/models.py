@@ -76,6 +76,7 @@ class PurchaseReceiptModel(BaseModel):
     real_qty: Decimal
     must_qty: Decimal
     bill_type_number: str
+    aux_prop_id: int = 0  # FAuxPropId - for variant-aware matching
 
 
 class SubcontractingOrderModel(BaseModel):
@@ -87,6 +88,7 @@ class SubcontractingOrderModel(BaseModel):
     order_qty: Decimal
     stock_in_qty: Decimal
     no_stock_in_qty: Decimal
+    aux_prop_id: int = 0  # FAuxPropId - for variant-aware matching
 
 
 class MaterialPickingModel(BaseModel):

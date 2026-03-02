@@ -341,6 +341,7 @@ PURCHASE_RECEIPT_CONFIG = ReaderConfig(
         "real_qty": FieldMapping("FRealQty", _decimal),
         "must_qty": FieldMapping("FMustQty", _decimal),
         "bill_type_number": FieldMapping("FBillTypeID.FNumber"),
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),
     },
     # Include approved/confirmed docs, exclude drafts (A)
     extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
@@ -357,6 +358,7 @@ SUBCONTRACTING_ORDER_CONFIG = ReaderConfig(
         "order_qty": FieldMapping("FQty", _decimal),
         "stock_in_qty": FieldMapping("FStockInQty", _decimal),
         "no_stock_in_qty": FieldMapping("FNoStockInQty", _decimal),
+        "aux_prop_id": FieldMapping("FAuxPropId", _int),
     },
 )
 

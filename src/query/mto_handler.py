@@ -369,6 +369,8 @@ class MTOQueryHandler:
             if po.material_code.startswith("03."):
                 aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
                 prd_mo_03_keys.add((po.material_code, aux_prop_id))
+        # Code-only set for routing checks (aux_prop_id mismatch between PRD_MO and PRD_INSTOCK)
+        prd_mo_03_codes: set = {code for code, _ in prd_mo_03_keys}
 
         # Collect aux_prop_ids from cached data for lookup
         aux_prop_ids = set()
@@ -429,10 +431,10 @@ class MTOQueryHandler:
                 key = (pr.material_code, aux_prop_id)
                 selfmade_receipt_by_key[key].append(pr)
             elif class_id == "purchased":
-                # 03.xx 有工段（有 PRD_MO）→ 按自制处理
+                # 03.xx 有工段（有 PRD_MO）→ 按自制处理 (match by code only — aux may differ)
                 aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
                 key = (pr.material_code, aux_prop_id)
-                if key in prd_mo_03_keys:
+                if pr.material_code in prd_mo_03_codes:
                     selfmade_receipt_by_key[key].append(pr)
             elif class_id is None:
                 unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
@@ -451,14 +453,18 @@ class MTOQueryHandler:
         for pick in material_picks:
             aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
             key = (pick.material_code, aux_prop_id)
-            if pick.material_code.startswith("05.") or key in prd_mo_03_keys:
+            if pick.material_code.startswith("05.") or pick.material_code in prd_mo_03_codes:
                 pickmtrl_05_by_key[key].append(pick)
 
         # 只添加不在 selfmade_receipt_by_key 中的物料
+        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
+        selfmade_receipt_codes: set = {code for code, _ in selfmade_receipt_by_key}
         for key, pick_list in pickmtrl_05_by_key.items():
-            if key not in selfmade_receipt_by_key:
-                child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
-                children.append(child)
+            code, _ = key
+            if key in selfmade_receipt_by_key or code in selfmade_receipt_codes:
+                continue
+            child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
+            children.append(child)
 
         # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
         # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
@@ -466,18 +472,26 @@ class MTOQueryHandler:
         prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
             class_id, _ = self._get_material_class(po.material_code)
-            if class_id == "self_made" or (po.material_code, getattr(po, "aux_prop_id", 0) or 0) in prd_mo_03_keys:
+            if class_id == "self_made" or po.material_code in prd_mo_03_codes:
                 aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
                 key = (po.material_code, aux_prop_id)
                 prd_mo_05_by_key[key].append(po)
 
-        # Only add items NOT already in selfmade_receipt_by_key or pickmtrl_05_by_key
+        # Code-only sets for dedup — aux_prop_id may differ between PRD_MO and PRD_INSTOCK/PickMtrl
+        pickmtrl_05_codes: set = {code for code, _ in pickmtrl_05_by_key}
+
+        # Only add items NOT already covered by receipts or picks
+        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
         for key, po_list in prd_mo_05_by_key.items():
-            if key not in selfmade_receipt_by_key and key not in pickmtrl_05_by_key:
-                child = self._build_selfmade_child_from_prd_mo(
-                    po_list, receipt_by_material, pick_actual, aux_descriptions
-                )
-                children.append(child)
+            code, _ = key
+            if key in selfmade_receipt_by_key or key in pickmtrl_05_by_key:
+                continue
+            if code in selfmade_receipt_codes or code in pickmtrl_05_codes:
+                continue
+            child = self._build_selfmade_child_from_prd_mo(
+                po_list, receipt_by_material, pick_actual, aux_descriptions
+            )
+            children.append(child)
 
         # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
         # Each aux variant is displayed as a separate row
@@ -486,6 +500,8 @@ class MTOQueryHandler:
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
+                if pur.material_code in prd_mo_03_codes:
+                    continue
                 aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
                 key = (pur.material_code, aux_prop_id)
                 purchase_by_key[key].append(pur)
@@ -506,7 +522,7 @@ class MTOQueryHandler:
             if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
                 aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
                 key = (bom.material_code, aux_prop_id)
-                if key in prd_mo_03_keys:  # 有工段的走自制路径，不放入 PPBOM
+                if bom.material_code in prd_mo_03_codes:  # 有工段的走自制路径，不放入 PPBOM
                     continue
                 ppbom_by_key[key].append(bom)
 
@@ -522,7 +538,7 @@ class MTOQueryHandler:
             if pick.material_code.startswith("03."):
                 aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
                 key = (pick.material_code, aux_prop_id)
-                if key in prd_mo_03_keys:  # 有工段的走自制路径
+                if pick.material_code in prd_mo_03_codes:  # 有工段的走自制路径
                     continue
                 pickmtrl_03_by_key[key].append(pick)
 
@@ -634,6 +650,8 @@ class MTOQueryHandler:
             if po.material_code.startswith("03."):
                 aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
                 prd_mo_03_keys.add((po.material_code, aux_prop_id))
+        # Code-only set for routing checks (aux_prop_id mismatch between PRD_MO and PRD_INSTOCK)
+        prd_mo_03_codes: set = {code for code, _ in prd_mo_03_keys}
 
         # Collect aux_prop_ids for lookup
         aux_prop_ids = set()
@@ -694,10 +712,10 @@ class MTOQueryHandler:
                 key = (pr.material_code, aux_prop_id)
                 selfmade_receipt_by_key[key].append(pr)
             elif class_id == "purchased":
-                # 03.xx 有工段（有 PRD_MO）→ 按自制处理
+                # 03.xx 有工段（有 PRD_MO）→ 按自制处理 (match by code only — aux may differ)
                 aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
                 key = (pr.material_code, aux_prop_id)
-                if key in prd_mo_03_keys:
+                if pr.material_code in prd_mo_03_codes:
                     selfmade_receipt_by_key[key].append(pr)
             elif class_id is None:
                 unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
@@ -716,14 +734,18 @@ class MTOQueryHandler:
         for pick in material_picks:
             aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
             key = (pick.material_code, aux_prop_id)
-            if pick.material_code.startswith("05.") or key in prd_mo_03_keys:
+            if pick.material_code.startswith("05.") or pick.material_code in prd_mo_03_codes:
                 pickmtrl_05_by_key[key].append(pick)
 
         # 只添加不在 selfmade_receipt_by_key 中的物料
+        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
+        selfmade_receipt_codes: set = {code for code, _ in selfmade_receipt_by_key}
         for key, pick_list in pickmtrl_05_by_key.items():
-            if key not in selfmade_receipt_by_key:
-                child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
-                children.append(child)
+            code, _ = key
+            if key in selfmade_receipt_by_key or code in selfmade_receipt_codes:
+                continue
+            child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
+            children.append(child)
 
         # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
         # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
@@ -731,18 +753,26 @@ class MTOQueryHandler:
         prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
             class_id, _ = self._get_material_class(po.material_code)
-            if class_id == "self_made" or (po.material_code, getattr(po, "aux_prop_id", 0) or 0) in prd_mo_03_keys:
+            if class_id == "self_made" or po.material_code in prd_mo_03_codes:
                 aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
                 key = (po.material_code, aux_prop_id)
                 prd_mo_05_by_key[key].append(po)
 
-        # Only add items NOT already in selfmade_receipt_by_key or pickmtrl_05_by_key
+        # Code-only sets for dedup — aux_prop_id may differ between PRD_MO and PRD_INSTOCK/PickMtrl
+        pickmtrl_05_codes: set = {code for code, _ in pickmtrl_05_by_key}
+
+        # Only add items NOT already covered by receipts or picks
+        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
         for key, po_list in prd_mo_05_by_key.items():
-            if key not in selfmade_receipt_by_key and key not in pickmtrl_05_by_key:
-                child = self._build_selfmade_child_from_prd_mo(
-                    po_list, receipt_by_material, pick_actual, aux_descriptions
-                )
-                children.append(child)
+            code, _ = key
+            if key in selfmade_receipt_by_key or key in pickmtrl_05_by_key:
+                continue
+            if code in selfmade_receipt_codes or code in pickmtrl_05_codes:
+                continue
+            child = self._build_selfmade_child_from_prd_mo(
+                po_list, receipt_by_material, pick_actual, aux_descriptions
+            )
+            children.append(child)
 
         # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
         # Each aux variant is displayed as a separate row
@@ -751,6 +781,8 @@ class MTOQueryHandler:
         for pur in purchase_orders:
             class_id, _ = self._get_material_class(pur.material_code)
             if class_id == "purchased":
+                if pur.material_code in prd_mo_03_codes:
+                    continue
                 aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
                 key = (pur.material_code, aux_prop_id)
                 purchase_by_key[key].append(pur)
@@ -772,7 +804,7 @@ class MTOQueryHandler:
             if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
                 aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
                 key = (bom.material_code, aux_prop_id)
-                if key in prd_mo_03_keys:  # 有工段的走自制路径，不放入 PPBOM
+                if bom.material_code in prd_mo_03_codes:  # 有工段的走自制路径，不放入 PPBOM
                     continue
                 ppbom_by_key[key].append(bom)
 
@@ -788,7 +820,7 @@ class MTOQueryHandler:
             if pick.material_code.startswith("03."):
                 aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
                 key = (pick.material_code, aux_prop_id)
-                if key in prd_mo_03_keys:  # 有工段的走自制路径
+                if pick.material_code in prd_mo_03_codes:  # 有工段的走自制路径
                     continue
                 pickmtrl_03_by_key[key].append(pick)
 
@@ -832,8 +864,8 @@ class MTOQueryHandler:
         sales_orders: list,
         receipt_by_material: dict[tuple[str, int], Decimal],
         delivered_by_material: dict[tuple[str, int], Decimal],
-        pick_request: dict[str, Decimal],
-        pick_actual: dict[str, Decimal],
+        pick_request: dict[tuple[str, int], Decimal],
+        pick_actual: dict[tuple[str, int], Decimal],
         aux_descriptions: dict[int, str],
     ) -> ChildItem:
         """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
@@ -852,9 +884,14 @@ class MTOQueryHandler:
         # 销售订单.数量
         sales_order_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
 
-        # 生产入库单.实收数量
+        # 生产入库单.实收数量 — try exact (code, aux) first, then (code, 0) fallback
+        # in case SAL_SaleOrder and PRD_INSTOCK have different aux_prop_id values
         key = (code, aux_prop_id)
-        prod_instock_real_qty = receipt_by_material.get(key, ZERO)
+        prod_instock_real_qty = (
+            receipt_by_material.get(key)
+            or receipt_by_material.get((code, 0))
+            or ZERO
+        )
 
         return ChildItem(
             material_code=code,
@@ -889,9 +926,14 @@ class MTOQueryHandler:
         aux_attrs = aux_descriptions.get(aux_prop_id, "")
 
         # 生产入库单.应收数量 — use PRD_MO.FQty (production order qty) as source of truth;
-        # fall back to receipt FMustQty sum only when no matching production order exists
+        # Try exact (code, aux_prop_id) first, then (code, 0) fallback for 03.xx materials
+        # where PRD_MO has aux_prop_id=0 but PRD_INSTOCK has a specific variant
         key = (code, aux_prop_id)
-        prod_instock_must_qty = prd_mo_qty_by_key.get(key) or sum(r.must_qty for r in prod_receipts)
+        prod_instock_must_qty = (
+            prd_mo_qty_by_key.get(key)
+            or prd_mo_qty_by_key.get((code, 0))
+            or sum(r.must_qty for r in prod_receipts)
+        )
 
         # 生产入库单.实收数量
         prod_instock_real_qty = sum(r.real_qty for r in prod_receipts)
@@ -918,8 +960,8 @@ class MTOQueryHandler:
     def _build_aggregated_purchase_child(
         self,
         purchase_orders: list,
-        pick_request: dict[str, Decimal],
-        pick_actual: dict[str, Decimal],
+        pick_request: dict[tuple[str, int], Decimal],
+        pick_actual: dict[tuple[str, int], Decimal],
         aux_descriptions: dict[int, str],
     ) -> ChildItem:
         """Build ChildItem for 03.xx.xxx (外购) from PUR_PurchaseOrder records.

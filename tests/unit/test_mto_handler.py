@@ -13,6 +13,7 @@ from src.query.mto_handler import (
 )
 from src.readers.models import (
     MaterialPickingModel,
+    ProductionBOMModel,
     ProductionOrderModel,
     PurchaseOrderModel,
     SalesOrderModel,
@@ -645,8 +646,6 @@ class TestMTOQueryHandler:
         有工段的 03.xx 不应同时出现在自制和外购中, 避免重复计数。
         PPBOM 和 PickMtrl 外购分桶应排除有工段的物料。
         """
-        from src.readers.models import ProductionBOMModel
-
         prod_order_03 = ProductionOrderModel(
             bill_no="MO500",
             mto_number="AS2512032",
@@ -895,3 +894,410 @@ def sample_production_order_for_receipts():
         status="已审核",
         create_date="2025-11-27",
     )
+
+
+class TestAuxPropIdMismatchRouting(TestMTOQueryHandler):
+    """Tests for 03.xx routing when PRD_MO and PRD_INSTOCK have different aux_prop_id values.
+
+    Bug: PRD_MO has aux_prop_id=0, PRD_INSTOCK has aux_prop_id=12345.
+    The old code used (material_code, aux_prop_id) tuple matching, which silently failed.
+    Fix: Use material_code-only matching for routing decisions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_03_aux_mismatch_routes_receipt_as_selfmade(self, mock_readers):
+        """03.xx receipt with different aux_prop_id from PRD_MO still routes as self-made.
+
+        PRD_MO has aux_prop_id=0, PRD_INSTOCK has aux_prop_id=5001 (box dimension).
+        Receipt should still be routed to self-made path based on material_code alone.
+        """
+        prod_order = ProductionOrderModel(
+            bill_no="MO600",
+            mto_number="AS2512042-2",
+            workshop="外箱工段",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            aux_prop_id=0,  # PRD_MO has no aux variant
+            qty=Decimal("800"),
+            status="已审核",
+            create_date="2025-12-10",
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK600",
+            mto_number="AS2512042-2",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            real_qty=Decimal("600"),
+            must_qty=Decimal("800"),
+            aux_prop_id=5001,  # Different aux_prop_id from PRD_MO!
+            mo_bill_no="MO600",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={5001: "500x400x300mm"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512042-2", use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "03.05.010"
+        assert child.material_type_name == "自制"
+        assert child.prod_instock_real_qty == Decimal("600")
+        # PRD_MO qty found via (code, 0) fallback
+        assert child.prod_instock_must_qty == Decimal("800")
+
+    @pytest.mark.asyncio
+    async def test_03_aux_mismatch_excludes_from_purchase(self, mock_readers):
+        """03.xx with PRD_MO must not appear in purchased path even when PUR order exists.
+
+        Same material has both PRD_MO (self-made routing) and PUR order.
+        The PUR order row should be excluded since the material is routed to self-made.
+        """
+        prod_order = ProductionOrderModel(
+            bill_no="MO700",
+            mto_number="AS2512042-2",
+            workshop="外箱工段",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            aux_prop_id=0,
+            qty=Decimal("800"),
+            status="已审核",
+            create_date="2025-12-10",
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK700",
+            mto_number="AS2512042-2",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            real_qty=Decimal("600"),
+            must_qty=Decimal("800"),
+            aux_prop_id=5001,
+            mo_bill_no="MO700",
+        )
+        # Same material also has a purchase order — should be excluded
+        purchase = PurchaseOrderModel(
+            bill_no="PO700",
+            mto_number="AS2512042-2",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            aux_attributes="500x400x300mm",
+            aux_prop_id=5001,
+            order_qty=Decimal("800"),
+            stock_in_qty=Decimal("0"),
+            remain_stock_in_qty=Decimal("800"),
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
+            return_value=[purchase]
+        )
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={5001: "500x400x300mm"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512042-2", use_cache=False)
+
+        selfmade = [c for c in result.children if c.material_type_name == "自制"]
+        purchased = [c for c in result.children if c.material_code == "03.05.010" and c.material_type_name == "包材"]
+
+        assert len(selfmade) == 1
+        assert selfmade[0].material_code == "03.05.010"
+        assert selfmade[0].prod_instock_real_qty == Decimal("600")
+        # No duplicate in purchased path
+        assert len(purchased) == 0
+
+    @pytest.mark.asyncio
+    async def test_03_aux_mismatch_mixed_with_normal_purchase(self, mock_readers):
+        """MTO with both routed 03.xx (aux mismatch) and normal 03.xx purchased.
+
+        03.05.010 has PRD_MO → self-made (despite aux mismatch).
+        03.01.020 has PUR only → normal purchased.
+        Both should appear correctly without interference.
+        """
+        prod_order = ProductionOrderModel(
+            bill_no="MO800",
+            mto_number="AS2512042-2",
+            workshop="外箱工段",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            aux_prop_id=0,
+            qty=Decimal("800"),
+            status="已审核",
+            create_date="2025-12-10",
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK800",
+            mto_number="AS2512042-2",
+            material_code="03.05.010",
+            material_name="外箱",
+            specification="500x400x300",
+            real_qty=Decimal("600"),
+            must_qty=Decimal("800"),
+            aux_prop_id=5001,
+            mo_bill_no="MO800",
+        )
+        # Different 03.xx material with only PUR → should stay purchased
+        normal_purchase = PurchaseOrderModel(
+            bill_no="PO800",
+            mto_number="AS2512042-2",
+            material_code="03.01.020",
+            material_name="标签",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            order_qty=Decimal("1000"),
+            stock_in_qty=Decimal("1000"),
+            remain_stock_in_qty=Decimal("0"),
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
+            return_value=[normal_purchase]
+        )
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={5001: "500x400x300mm"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512042-2", use_cache=False)
+
+        selfmade = [c for c in result.children if c.material_type_name == "自制"]
+        purchased = [c for c in result.children if c.material_type_name == "包材"]
+
+        # 03.05.010 → self-made (routed via PRD_MO)
+        assert len(selfmade) == 1
+        assert selfmade[0].material_code == "03.05.010"
+        assert selfmade[0].prod_instock_real_qty == Decimal("600")
+
+        # 03.01.020 → normal purchased
+        pur_children = [c for c in purchased if c.material_code == "03.01.020"]
+        assert len(pur_children) == 1
+        assert pur_children[0].purchase_order_qty == Decimal("1000")
+        assert pur_children[0].purchase_stock_in_qty == Decimal("1000")
+
+
+class TestAuxMismatch05xx(TestMTOQueryHandler):
+    """Tests for 05.xx aux_prop_id mismatch between PRD_MO and PRD_INSTOCK.
+
+    Bug #1/#2: PRD_MO has aux_prop_id=0, PRD_INSTOCK has aux_prop_id=N.
+    Dedup checks used exact tuple keys, creating duplicate self-made rows.
+    Fix: Code-only dedup for all self-made materials, not just 03.xx.
+    """
+
+    @pytest.mark.asyncio
+    async def test_05_aux_mismatch_no_duplicate_prd_mo_row(self, mock_readers):
+        """05.xx with PRD_MO aux=0 and receipt aux=2001 must NOT create duplicate row.
+
+        PRD_MO has aux_prop_id=0, PRD_INSTOCK has aux_prop_id=2001.
+        Only one self-made row should appear (from the receipt), not two.
+        """
+        prod_order = ProductionOrderModel(
+            bill_no="MO900",
+            mto_number="AS2512050",
+            workshop="成型工段",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            aux_prop_id=0,  # PRD_MO has no aux variant
+            qty=Decimal("1000"),
+            status="已审核",
+            create_date="2025-12-15",
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK900",
+            mto_number="AS2512050",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            real_qty=Decimal("800"),
+            must_qty=Decimal("1000"),
+            aux_prop_id=2001,  # Different from PRD_MO!
+            mo_bill_no="MO900",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={2001: "GST-GS53"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512050", use_cache=False)
+
+        selfmade = [c for c in result.children if c.material_code == "05.01.001"]
+        assert len(selfmade) == 1, f"Expected 1 row, got {len(selfmade)}: {selfmade}"
+        assert selfmade[0].material_type_name == "自制"
+        assert selfmade[0].prod_instock_real_qty == Decimal("800")
+        assert selfmade[0].prod_instock_must_qty == Decimal("1000")
+
+    @pytest.mark.asyncio
+    async def test_05_aux_mismatch_pickmtrl_no_duplicate(self, mock_readers):
+        """05.xx with pick aux=0 and receipt aux=2001 must NOT create duplicate row.
+
+        PRD_PickMtrl has aux_prop_id=0, PRD_INSTOCK has aux_prop_id=2001.
+        Only the receipt-based row should appear, not an extra pickmtrl row.
+        """
+        prod_order = ProductionOrderModel(
+            bill_no="MO950",
+            mto_number="AS2512050",
+            workshop="成型工段",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            aux_prop_id=0,
+            qty=Decimal("1000"),
+            status="已审核",
+            create_date="2025-12-15",
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK950",
+            mto_number="AS2512050",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            real_qty=Decimal("800"),
+            must_qty=Decimal("1000"),
+            aux_prop_id=2001,
+            mo_bill_no="MO950",
+        )
+        pick = MaterialPickingModel(
+            bill_no="PM950",
+            mto_number="AS2512050",
+            material_code="05.01.001",
+            app_qty=Decimal("1000"),
+            actual_qty=Decimal("900"),
+            ppbom_bill_no="MO950",
+            aux_prop_id=0,  # Different from receipt!
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(
+            return_value=[pick]
+        )
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={2001: "GST-GS53"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512050", use_cache=False)
+
+        selfmade = [c for c in result.children if c.material_code == "05.01.001"]
+        assert len(selfmade) == 1, f"Expected 1 row, got {len(selfmade)}: {selfmade}"
+        assert selfmade[0].prod_instock_real_qty == Decimal("800")
+
+
+class TestSalesReceiptFallback(TestMTOQueryHandler):
+    """Tests for Bug #3: sales child receipt lookup fallback.
+
+    When SAL_SaleOrder has aux_prop_id=N but PRD_INSTOCK has aux_prop_id=0,
+    the receipt lookup should fall back to (code, 0) instead of returning 0.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sales_receipt_aux_mismatch_uses_fallback(self, mock_readers):
+        """07.xx finished goods: receipt lookup falls back when aux differs."""
+        sales_order = SalesOrderModel(
+            bill_no="SO900",
+            mto_number="AS2512060",
+            material_code="07.02.037",
+            material_name="成品A",
+            specification="规格1",
+            aux_attributes="蓝色",
+            aux_prop_id=3001,
+            customer_name="客户A",
+            delivery_date="2025-12-20",
+            qty=Decimal("500"),
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK960",
+            mto_number="AS2512060",
+            material_code="07.02.037",
+            material_name="成品A",
+            specification="规格1",
+            real_qty=Decimal("500"),
+            must_qty=Decimal("500"),
+            aux_prop_id=0,  # Different from sales order!
+            mo_bill_no="MO960",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
+            return_value=[sales_order]
+        )
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[receipt]
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={3001: "蓝色"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2512060", use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "07.02.037"
+        assert child.material_type_name == "成品"
+        assert child.sales_order_qty == Decimal("500")
+        # Should find receipt via (code, 0) fallback, NOT show 0
+        assert child.prod_instock_real_qty == Decimal("500")

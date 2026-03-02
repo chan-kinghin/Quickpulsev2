@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS cached_subcontracting_orders (
     order_qty REAL,
     stock_in_qty REAL,
     no_stock_in_qty REAL,
+    aux_prop_id INTEGER DEFAULT 0,
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS cached_purchase_receipts (
     real_qty REAL,
     must_qty REAL,
     bill_type_number TEXT,  -- RKD01_SYS=外购, RKD02_SYS=委外
+    aux_prop_id INTEGER DEFAULT 0,
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

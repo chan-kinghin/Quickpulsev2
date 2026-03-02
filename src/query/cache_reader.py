@@ -153,14 +153,14 @@ class CacheReader:
         rows = await self.db.execute_read(
             """
             SELECT bill_no, mto_number, material_code, order_qty, stock_in_qty,
-                   no_stock_in_qty, raw_data, synced_at
+                   no_stock_in_qty, aux_prop_id, raw_data, synced_at
             FROM cached_subcontracting_orders
             WHERE mto_number LIKE ?
             """,
             [f"{mto_number}%"],
         )
         return self._build_cache_result(
-            rows, self._row_to_subcontracting_order, synced_at_index=7
+            rows, self._row_to_subcontracting_order, synced_at_index=8
         )
 
     async def get_production_receipts(self, mto_number: str) -> CacheResult:
@@ -183,14 +183,14 @@ class CacheReader:
         rows = await self.db.execute_read(
             """
             SELECT bill_no, mto_number, material_code, real_qty, must_qty,
-                   bill_type_number, raw_data, synced_at
+                   bill_type_number, aux_prop_id, raw_data, synced_at
             FROM cached_purchase_receipts
             WHERE mto_number LIKE ?
             """,
             [f"{mto_number}%"],
         )
         return self._build_cache_result(
-            rows, self._row_to_purchase_receipt, synced_at_index=7
+            rows, self._row_to_purchase_receipt, synced_at_index=8
         )
 
     async def get_material_picking(self, mto_number: str) -> CacheResult:
@@ -358,7 +358,13 @@ class CacheReader:
         )
 
     def _row_to_subcontracting_order(self, row: tuple) -> SubcontractingOrderModel:
-        """Convert database row to SubcontractingOrderModel."""
+        """Convert database row to SubcontractingOrderModel.
+
+        Row columns:
+        0: bill_no, 1: mto_number, 2: material_code, 3: order_qty,
+        4: stock_in_qty, 5: no_stock_in_qty, 6: aux_prop_id, 7: raw_data,
+        8: synced_at
+        """
         return SubcontractingOrderModel(
             bill_no=row[0] or "",
             mto_number=row[1] or "",
@@ -366,6 +372,7 @@ class CacheReader:
             order_qty=Decimal(str(row[3] or 0)),
             stock_in_qty=Decimal(str(row[4] or 0)),
             no_stock_in_qty=Decimal(str(row[5] or 0)),
+            aux_prop_id=row[6] or 0,
         )
 
     def _row_to_production_receipt(self, row: tuple) -> ProductionReceiptModel:
@@ -405,7 +412,7 @@ class CacheReader:
 
         Row columns:
         0: bill_no, 1: mto_number, 2: material_code, 3: real_qty, 4: must_qty,
-        5: bill_type_number, 6: raw_data, 7: synced_at
+        5: bill_type_number, 6: aux_prop_id, 7: raw_data, 8: synced_at
         """
         return PurchaseReceiptModel(
             bill_no=row[0] or "",
@@ -414,6 +421,7 @@ class CacheReader:
             real_qty=Decimal(str(row[3] or 0)),
             must_qty=Decimal(str(row[4] or 0)),
             bill_type_number=row[5] or "",
+            aux_prop_id=row[6] or 0,
         )
 
     def _row_to_material_picking(self, row: tuple) -> MaterialPickingModel:
