@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPulse - Usage Analytics</title>
+    <link href="/static/css/tailwind.min.css" rel="stylesheet">
+    <link href="/static/css/main.css" rel="stylesheet">
+</head>
+<body class="bg-slate-950 text-slate-300 min-h-screen">
+
+    <div x-data="authGuard()" x-init="init()" x-cloak>
+        <template x-if="authenticated">
+            <div x-data="adminPanel()" x-init="init()" @destroy.window="destroy()">
+
+                <!-- Header -->
+                <header class="bg-slate-900 border-b border-slate-800 px-6 py-4">
+                    <div class="flex items-center justify-between max-w-7xl mx-auto">
+                        <div class="flex items-center gap-4">
+                            <h1 class="text-xl font-semibold text-slate-50">Usage Analytics</h1>
+                        </div>
+                        <div class="flex items-center gap-6">
+                            <a href="/dashboard.html" class="text-slate-400 hover:text-slate-50 text-sm transition">Dashboard</a>
+                            <a href="/sync.html" class="text-slate-400 hover:text-slate-50 text-sm transition">Sync</a>
+                            <button @click="api.logout()" class="text-slate-400 hover:text-slate-50 text-sm transition">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Loading Spinner -->
+                <div x-show="loading" class="flex items-center justify-center py-32">
+                    <svg class="animate-spin h-8 w-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                </div>
+
+                <!-- Main Content -->
+                <main x-show="!loading" class="max-w-7xl mx-auto px-6 py-8">
+
+                    <!-- Error Banner -->
+                    <div x-show="error" x-transition
+                         class="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 mb-6 text-sm">
+                        <span x-text="error"></span>
+                    </div>
+
+                    <!-- Time Period Selector -->
+                    <div class="flex items-center gap-2 mb-6">
+                        <template x-for="opt in [{label:'1h',val:1},{label:'6h',val:6},{label:'24h',val:24},{label:'7d',val:168}]" :key="opt.val">
+                            <button @click="changeHours(opt.val)"
+                                    class="px-4 py-2 rounded-lg text-sm font-medium transition"
+                                    :class="hours === opt.val
+                                        ? 'bg-emerald-500 text-white'
+                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+                                    x-text="opt.label">
+                            </button>
+                        </template>
+                    </div>
+
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <p class="text-sm text-slate-500 uppercase tracking-wide">Total Requests</p>
+                            <p class="text-3xl font-bold text-emerald-400 mt-2" x-text="summary.total_requests"></p>
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <p class="text-sm text-slate-500 uppercase tracking-wide">Unique IPs</p>
+                            <p class="text-3xl font-bold text-emerald-400 mt-2" x-text="summary.unique_ips"></p>
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <p class="text-sm text-slate-500 uppercase tracking-wide">Avg Response Time</p>
+                            <p class="text-3xl font-bold text-emerald-400 mt-2"
+                               x-text="(summary.avg_response_time_ms != null ? summary.avg_response_time_ms.toFixed(1) + ' ms' : '-- ms')"></p>
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <p class="text-sm text-slate-500 uppercase tracking-wide">Top Endpoint</p>
+                            <p class="text-lg font-bold text-emerald-400 mt-2 truncate"
+                               x-text="summary.top_endpoint || '--'"></p>
+                        </div>
+                    </div>
+
+                    <!-- Two-Column: IP Table + Timeline -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+                        <!-- IP Usage Table -->
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 overflow-hidden">
+                            <h2 class="text-lg font-semibold text-slate-50 mb-4">Requests by IP</h2>
+                            <div x-show="byIp.length === 0" class="text-center py-8">
+                                <p class="text-sm text-slate-500">No data for this period</p>
+                            </div>
+                            <div x-show="byIp.length > 0" class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead>
+                                        <tr class="text-left text-slate-500 uppercase text-xs border-b border-slate-800">
+                                            <th class="pb-3 pr-4 font-medium">IP Address</th>
+                                            <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('request_count')">
+                                                Requests
+                                                <span x-show="sortField === 'request_count'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
+                                            </th>
+                                            <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('last_seen')">
+                                                Last Seen
+                                                <span x-show="sortField === 'last_seen'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
+                                            </th>
+                                            <th class="pb-3 font-medium">Top Endpoint</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="row in byIp" :key="row.ip_address">
+                                            <tr class="border-t border-slate-800 hover:bg-slate-800/50">
+                                                <td class="py-2.5 pr-4 font-mono text-slate-300" x-text="row.ip_address"></td>
+                                                <td class="py-2.5 pr-4 text-slate-200" x-text="row.request_count"></td>
+                                                <td class="py-2.5 pr-4 text-slate-400" x-text="formatTime(row.last_seen)"></td>
+                                                <td class="py-2.5 text-slate-400 truncate max-w-[160px]" x-text="row.top_endpoint || '--'"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Timeline Bar Chart -->
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <h2 class="text-lg font-semibold text-slate-50 mb-4">Request Timeline</h2>
+                            <div x-show="timeline.length === 0" class="text-center py-8">
+                                <p class="text-sm text-slate-500">No data for this period</p>
+                            </div>
+                            <div x-show="timeline.length > 0" class="space-y-1.5">
+                                <template x-for="t in timeline.slice(-24)" :key="t.bucket_start">
+                                    <div class="flex items-center gap-3 text-xs">
+                                        <span class="w-20 text-slate-500 text-right shrink-0 font-mono" x-text="formatBucket(t.bucket_start)"></span>
+                                        <div class="flex-1 bg-slate-800 rounded-r h-6 overflow-hidden">
+                                            <div class="bg-emerald-500 rounded-r h-6 transition-all duration-300"
+                                                 :style="'width:' + (t.request_count / maxTimelineCount * 100) + '%'">
+                                            </div>
+                                        </div>
+                                        <span class="w-10 text-slate-400 text-right shrink-0" x-text="t.request_count"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Logs Table -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold text-slate-50">Recent Requests</h2>
+                            <p class="text-sm text-slate-500"
+                               x-text="recent.total > 0 ? ('Showing ' + (recentPage * pageSize + 1) + '-' + Math.min((recentPage + 1) * pageSize, recent.total) + ' of ' + recent.total) : ''">
+                            </p>
+                        </div>
+
+                        <div x-show="recent.items.length === 0" class="text-center py-8">
+                            <p class="text-sm text-slate-500">No recent requests</p>
+                        </div>
+
+                        <div x-show="recent.items.length > 0" class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-slate-500 uppercase text-xs border-b border-slate-800">
+                                        <th class="pb-3 pr-4 font-medium">Timestamp</th>
+                                        <th class="pb-3 pr-4 font-medium">IP Address</th>
+                                        <th class="pb-3 pr-4 font-medium">Method</th>
+                                        <th class="pb-3 pr-4 font-medium">Path</th>
+                                        <th class="pb-3 pr-4 font-medium">Status</th>
+                                        <th class="pb-3 font-medium">Response Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="req in recent.items" :key="req.timestamp + req.path">
+                                        <tr class="border-t border-slate-800 hover:bg-slate-800/50">
+                                            <td class="py-2.5 pr-4 text-slate-400 font-mono text-xs" x-text="formatTime(req.timestamp)"></td>
+                                            <td class="py-2.5 pr-4 text-slate-300 font-mono" x-text="req.ip_address"></td>
+                                            <td class="py-2.5 pr-4">
+                                                <span class="bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded text-xs font-mono" x-text="req.method"></span>
+                                            </td>
+                                            <td class="py-2.5 pr-4 text-slate-300 truncate max-w-[240px]" x-text="req.path"></td>
+                                            <td class="py-2.5 pr-4">
+                                                <span :class="statusColor(req.status_code)" x-text="req.status_code"></span>
+                                            </td>
+                                            <td class="py-2.5 text-slate-400" x-text="req.response_time_ms != null ? req.response_time_ms.toFixed(1) + ' ms' : '--'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div x-show="recent.total > pageSize" class="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
+                            <button @click="prevPage()" :disabled="recentPage === 0"
+                                    class="px-4 py-2 bg-slate-800 text-slate-400 rounded text-sm font-medium transition hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                Prev
+                            </button>
+                            <span class="text-sm text-slate-500"
+                                  x-text="'Page ' + (recentPage + 1) + ' of ' + Math.ceil(recent.total / pageSize)"></span>
+                            <button @click="nextPage()" :disabled="(recentPage + 1) * pageSize >= recent.total"
+                                    class="px-4 py-2 bg-slate-800 text-slate-400 rounded text-sm font-medium transition hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+
+                </main>
+            </div>
+        </template>
+    </div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script defer src="/static/js/alpine.min.js"></script>
+    <script>
+    function adminPanel() {
+        return {
+            hours: 24,
+            loading: true,
+            error: null,
+            summary: { total_requests: 0, unique_ips: 0, avg_response_time_ms: 0, top_endpoint: null },
+            byIp: [],
+            timeline: [],
+            recent: { items: [], total: 0 },
+            recentPage: 0,
+            pageSize: 50,
+            refreshInterval: null,
+            sortField: 'request_count',
+            sortDir: 'desc',
+
+            get maxTimelineCount() {
+                if (!this.timeline || this.timeline.length === 0) return 1;
+                return Math.max(...this.timeline.map(t => t.request_count), 1);
+            },
+
+            async init() {
+                await this.fetchAll();
+                this.refreshInterval = setInterval(() => this.fetchAll(), 30000);
+            },
+
+            async fetchAll() {
+                this.loading = true;
+                this.error = null;
+                try {
+                    await Promise.all([
+                        this.fetchSummary(),
+                        this.fetchByIp(),
+                        this.fetchTimeline(),
+                        this.fetchRecent()
+                    ]);
+                } catch (err) {
+                    this.error = err.message || 'Failed to load usage data';
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            async fetchSummary() {
+                try {
+                    const data = await api.get('/admin/usage/summary?hours=' + this.hours);
+                    this.summary = data;
+                } catch (err) {
+                    console.error('Failed to fetch summary:', err);
+                    throw err;
+                }
+            },
+
+            async fetchByIp() {
+                try {
+                    const data = await api.get('/admin/usage/by-ip?hours=' + this.hours + '&limit=50');
+                    this.byIp = data || [];
+                    this.applySorting();
+                } catch (err) {
+                    console.error('Failed to fetch by-ip:', err);
+                    throw err;
+                }
+            },
+
+            async fetchTimeline() {
+                try {
+                    const data = await api.get('/admin/usage/timeline?hours=' + this.hours);
+                    this.timeline = data || [];
+                } catch (err) {
+                    console.error('Failed to fetch timeline:', err);
+                    throw err;
+                }
+            },
+
+            async fetchRecent() {
+                try {
+                    const offset = this.recentPage * this.pageSize;
+                    const data = await api.get('/admin/usage/recent?limit=' + this.pageSize + '&offset=' + offset);
+                    this.recent = {
+                        items: data.items || data || [],
+                        total: data.total || (data.items ? data.items.length : 0)
+                    };
+                } catch (err) {
+                    console.error('Failed to fetch recent:', err);
+                    throw err;
+                }
+            },
+
+            changeHours(h) {
+                this.hours = h;
+                this.recentPage = 0;
+                this.fetchAll();
+            },
+
+            nextPage() {
+                if ((this.recentPage + 1) * this.pageSize < this.recent.total) {
+                    this.recentPage++;
+                    this.fetchRecent();
+                }
+            },
+
+            prevPage() {
+                if (this.recentPage > 0) {
+                    this.recentPage--;
+                    this.fetchRecent();
+                }
+            },
+
+            sortBy(field) {
+                if (this.sortField === field) {
+                    this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+                } else {
+                    this.sortField = field;
+                    this.sortDir = 'desc';
+                }
+                this.applySorting();
+            },
+
+            applySorting() {
+                const dir = this.sortDir === 'desc' ? -1 : 1;
+                const field = this.sortField;
+                this.byIp.sort((a, b) => {
+                    const va = a[field];
+                    const vb = b[field];
+                    if (typeof va === 'number' && typeof vb === 'number') {
+                        return (va - vb) * dir;
+                    }
+                    return String(va || '').localeCompare(String(vb || '')) * dir;
+                });
+            },
+
+            statusColor(code) {
+                if (code >= 200 && code < 300) return 'text-emerald-400';
+                if (code >= 300 && code < 400) return 'text-sky-400';
+                if (code >= 400 && code < 500) return 'text-amber-400';
+                if (code >= 500) return 'text-rose-400';
+                return 'text-slate-400';
+            },
+
+            formatTime(ts) {
+                if (!ts) return '--';
+                try {
+                    const d = new Date(ts);
+                    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                } catch {
+                    return ts;
+                }
+            },
+
+            formatBucket(bucket) {
+                if (!bucket) return '--';
+                try {
+                    const d = new Date(bucket);
+                    if (this.hours <= 24) {
+                        return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                    }
+                    return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit' });
+                } catch {
+                    return bucket;
+                }
+            },
+
+            destroy() {
+                if (this.refreshInterval) {
+                    clearInterval(this.refreshInterval);
+                    this.refreshInterval = null;
+                }
+            }
+        };
+    }
+    </script>
+</body>
+</html>

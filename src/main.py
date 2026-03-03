@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from src.api.middleware.access_log import setup_access_logging
 from src.api.middleware.rate_limit import setup_rate_limiting
 from src.exceptions import KingdeeConnectionError, QuickPulseError
 
@@ -33,7 +34,7 @@ _STATUS_ERROR_CODES = {
     502: "erp_unavailable",
     503: "service_unavailable",
 }
-from src.api.routers import agent_chat, auth, cache, chat, mto, sync
+from src.api.routers import admin, agent_chat, auth, cache, chat, mto, sync
 from src.chat.client import LLMClient
 from src.config import Config
 from src.database.connection import Database
@@ -227,6 +228,8 @@ async def add_api_version_header(request: Request, call_next):
         response.headers["X-API-Version"] = "1"
     return response
 
+setup_access_logging(app)
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -274,6 +277,7 @@ app.include_router(mto.router)
 app.include_router(cache.router)
 app.include_router(chat.router)
 app.include_router(agent_chat.router)
+app.include_router(admin.router)
 
 
 @app.get("/")
@@ -289,6 +293,11 @@ async def dashboard():
 @app.get("/sync.html")
 async def sync_page():
     return FileResponse("src/frontend/sync.html")
+
+
+@app.get("/admin.html")
+async def admin_page():
+    return FileResponse("src/frontend/admin.html")
 
 
 @app.get("/health")
