@@ -76,7 +76,7 @@
                     </div>
 
                     <!-- Summary Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
                         <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
                             <p class="text-sm text-slate-500 tracking-wide">总请求数</p>
                             <p class="text-3xl font-bold text-emerald-400 mt-2" x-text="summary.total_requests"></p>
@@ -95,6 +95,14 @@
                             <p class="text-lg font-bold text-emerald-400 mt-2 truncate"
                                x-text="summary.top_endpoint || '--'"></p>
                         </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <p class="text-sm text-slate-500 tracking-wide">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 inline-block mr-1 -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                                最多访问地区
+                            </p>
+                            <p class="text-lg font-bold text-emerald-400 mt-2 truncate"
+                               x-text="summary.top_location || '--'"></p>
+                        </div>
                     </div>
 
                     <!-- Two-Column: IP Table + Timeline -->
@@ -111,6 +119,10 @@
                                     <thead>
                                         <tr class="text-left text-slate-500 text-xs border-b border-slate-800">
                                             <th class="pb-3 pr-4 font-medium">IP 地址</th>
+                                            <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('location')">
+                                                地理位置
+                                                <span x-show="sortField === 'location'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
+                                            </th>
                                             <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('request_count')">
                                                 请求次数
                                                 <span x-show="sortField === 'request_count'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
@@ -126,6 +138,7 @@
                                         <template x-for="row in byIp" :key="row.ip_address">
                                             <tr class="border-t border-slate-800 hover:bg-slate-800/50">
                                                 <td class="py-2.5 pr-4 font-mono text-slate-300" x-text="row.ip_address"></td>
+                                                <td class="py-2.5 pr-4 text-sm text-slate-400" x-text="row.location || '--'"></td>
                                                 <td class="py-2.5 pr-4 text-slate-200" x-text="row.request_count"></td>
                                                 <td class="py-2.5 pr-4 text-slate-400" x-text="formatTime(row.last_seen)"></td>
                                                 <td class="py-2.5 text-slate-400 truncate max-w-[160px]" x-text="row.top_endpoint || '--'"></td>
@@ -177,6 +190,7 @@
                                     <tr class="text-left text-slate-500 text-xs border-b border-slate-800">
                                         <th class="pb-3 pr-4 font-medium">时间</th>
                                         <th class="pb-3 pr-4 font-medium">IP 地址</th>
+                                        <th class="pb-3 pr-4 font-medium">位置</th>
                                         <th class="pb-3 pr-4 font-medium">方法</th>
                                         <th class="pb-3 pr-4 font-medium">路径</th>
                                         <th class="pb-3 pr-4 font-medium">状态码</th>
@@ -188,6 +202,7 @@
                                         <tr class="border-t border-slate-800 hover:bg-slate-800/50">
                                             <td class="py-2.5 pr-4 text-slate-400 font-mono text-xs" x-text="formatTime(req.timestamp)"></td>
                                             <td class="py-2.5 pr-4 text-slate-300 font-mono" x-text="req.ip_address"></td>
+                                            <td class="py-2.5 pr-4 text-xs text-slate-400" :title="req.location || ''" x-text="req.location || '--'"></td>
                                             <td class="py-2.5 pr-4">
                                                 <span class="bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded text-xs font-mono" x-text="req.method"></span>
                                             </td>
@@ -231,7 +246,7 @@
             hours: 24,
             loading: true,
             error: null,
-            summary: { total_requests: 0, unique_ips: 0, avg_response_time_ms: 0, top_endpoint: null },
+            summary: { total_requests: 0, unique_ips: 0, avg_response_time_ms: 0, top_endpoint: null, top_location: null },
             byIp: [],
             timeline: [],
             recent: { items: [], total: 0 },

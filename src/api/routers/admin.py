@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
+from src.utils.geoip import lookup_ip_display
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,28 @@ async def usage_summary(
     )
     top_endpoint = top_rows[0][0] if top_rows else None
 
+    # Find top IP to derive top location
+    top_ip_rows = await db.execute_read(
+        """
+        SELECT ip_address, COUNT(*) AS cnt
+        FROM access_logs
+        WHERE timestamp >= datetime('now', ?, 'localtime')
+        GROUP BY ip_address
+        ORDER BY cnt DESC
+        LIMIT 1
+        """,
+        [time_param],
+    )
+    top_location = (
+        lookup_ip_display(top_ip_rows[0][0]) if top_ip_rows else "未知"
+    )
+
     return {
         "total_requests": total_requests,
         "unique_ips": unique_ips,
         "avg_response_time_ms": avg_response_time_ms,
         "top_endpoint": top_endpoint,
+        "top_location": top_location,
         "period_hours": hours,
     }
 
@@ -103,6 +121,7 @@ async def usage_by_ip(
             "request_count": row[1],
             "last_seen": row[2],
             "top_endpoint": row[3],
+            "location": lookup_ip_display(row[0]),
         }
         for row in rows
     ]
@@ -178,6 +197,7 @@ async def usage_recent(
             "path": row[3],
             "status_code": row[4],
             "response_time_ms": row[5],
+            "location": lookup_ip_display(row[1]),
         }
         for row in rows
     ]
