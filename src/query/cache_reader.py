@@ -30,6 +30,40 @@ from src.readers.models import (
 
 
 @dataclass
+class BOMJoinedRow:
+    """Pre-joined BOM row with aggregated data from all source tables."""
+
+    # BOM fields
+    mo_bill_no: str
+    mto_number: str
+    material_code: str
+    material_name: str
+    specification: str
+    aux_attributes: str
+    aux_prop_id: int
+    material_type: int  # 1=自制, 2=外购, 3=委外
+    need_qty: Decimal
+    picked_qty: Decimal
+    no_picked_qty: Decimal
+    # Aggregated from production receipts (PRD_INSTOCK)
+    prod_receipt_real_qty: Decimal
+    prod_receipt_must_qty: Decimal
+    # Aggregated from material picking (PRD_PickMtrl)
+    pick_actual_qty: Decimal
+    pick_app_qty: Decimal
+    # Aggregated from purchase orders (PUR_PurchaseOrder)
+    purchase_order_qty: Decimal
+    purchase_stock_in_qty: Decimal
+    # Aggregated from purchase receipts (STK_InStock)
+    purchase_receipt_real_qty: Decimal
+    # Aggregated from subcontracting orders (SUB_POORDER)
+    subcontract_order_qty: Decimal
+    subcontract_stock_in_qty: Decimal
+    # Aggregated from sales delivery (SAL_OUTSTOCK)
+    delivery_real_qty: Decimal
+
+
+@dataclass
 class CacheResult:
     """Result from cache query with freshness metadata."""
 
@@ -237,6 +271,138 @@ class CacheReader:
         )
         return self._build_cache_result(
             rows, self._row_to_sales_order, synced_at_index=12
+        )
+
+    async def get_mto_bom_joined(self, mto_number: str) -> CacheResult:
+        """Get BOM items with all receipt/pick/order data pre-joined via SQL.
+
+        Uses pre-aggregated subqueries to avoid the multiplicative join problem
+        when multiple BOM rows share the same (material_code, aux_prop_id).
+        """
+        pattern = f"{mto_number}%"
+        rows = await self.db.execute_read(
+            """
+            SELECT
+                bom.mo_bill_no,
+                bom.mto_number,
+                bom.material_code,
+                bom.material_name,
+                bom.specification,
+                bom.aux_attributes,
+                bom.aux_prop_id,
+                bom.material_type,
+                bom.need_qty,
+                bom.picked_qty,
+                bom.no_picked_qty,
+                COALESCE(pr.real_qty, 0) as prod_receipt_real_qty,
+                COALESCE(pr.must_qty, 0) as prod_receipt_must_qty,
+                COALESCE(pk.actual_qty, 0) as pick_actual_qty,
+                COALESCE(pk.app_qty, 0) as pick_app_qty,
+                COALESCE(po.order_qty, 0) as purchase_order_qty,
+                COALESCE(po.stock_in_qty, 0) as purchase_stock_in_qty,
+                COALESCE(pur.real_qty, 0) as purchase_receipt_real_qty,
+                COALESCE(sub.order_qty, 0) as subcontract_order_qty,
+                COALESCE(sub.stock_in_qty, 0) as subcontract_stock_in_qty,
+                COALESCE(sd.real_qty, 0) as delivery_real_qty,
+                MAX(bom.synced_at) as synced_at
+            FROM cached_production_bom bom
+            LEFT JOIN (
+                SELECT material_code, aux_prop_id,
+                       SUM(real_qty) as real_qty, SUM(must_qty) as must_qty
+                FROM cached_production_receipts WHERE mto_number LIKE ?
+                GROUP BY material_code, aux_prop_id
+            ) pr ON bom.material_code = pr.material_code
+                 AND bom.aux_prop_id = pr.aux_prop_id
+            LEFT JOIN (
+                SELECT material_code, aux_prop_id,
+                       SUM(actual_qty) as actual_qty, SUM(app_qty) as app_qty
+                FROM cached_material_picking WHERE mto_number LIKE ?
+                GROUP BY material_code, aux_prop_id
+            ) pk ON bom.material_code = pk.material_code
+                 AND bom.aux_prop_id = pk.aux_prop_id
+            LEFT JOIN (
+                SELECT material_code, aux_prop_id,
+                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
+                FROM cached_purchase_orders WHERE mto_number LIKE ?
+                GROUP BY material_code, aux_prop_id
+            ) po ON bom.material_code = po.material_code
+                 AND bom.aux_prop_id = po.aux_prop_id
+            LEFT JOIN (
+                SELECT material_code, aux_prop_id,
+                       SUM(real_qty) as real_qty
+                FROM cached_purchase_receipts WHERE mto_number LIKE ?
+                GROUP BY material_code, aux_prop_id
+            ) pur ON bom.material_code = pur.material_code
+                  AND bom.aux_prop_id = pur.aux_prop_id
+            LEFT JOIN (
+                SELECT material_code, aux_prop_id,
+                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
+                FROM cached_subcontracting_orders WHERE mto_number LIKE ?
+                GROUP BY material_code, aux_prop_id
+            ) sub ON bom.material_code = sub.material_code
+                  AND bom.aux_prop_id = sub.aux_prop_id
+            LEFT JOIN (
+                SELECT material_code, aux_prop_id,
+                       SUM(real_qty) as real_qty
+                FROM cached_sales_delivery WHERE mto_number LIKE ?
+                GROUP BY material_code, aux_prop_id
+            ) sd ON bom.material_code = sd.material_code
+                 AND bom.aux_prop_id = sd.aux_prop_id
+            WHERE bom.mto_number LIKE ?
+            GROUP BY bom.material_code, bom.aux_prop_id
+            ORDER BY bom.material_code
+            """,
+            [pattern, pattern, pattern, pattern, pattern, pattern, pattern],
+        )
+
+        if not rows:
+            return CacheResult(data=[], synced_at=None, is_fresh=False)
+
+        # synced_at is the last column (index 21)
+        synced_times = [self._parse_timestamp(row[21]) for row in rows if row[21]]
+        oldest_sync = min(synced_times) if synced_times else None
+        is_fresh = self._is_fresh(oldest_sync) if oldest_sync else False
+
+        data = [self._row_to_bom_joined(row) for row in rows]
+        return CacheResult(data=data, synced_at=oldest_sync, is_fresh=is_fresh)
+
+    def _row_to_bom_joined(self, row: tuple) -> BOMJoinedRow:
+        """Convert joined query row to BOMJoinedRow.
+
+        Row columns:
+        0: mo_bill_no, 1: mto_number, 2: material_code, 3: material_name,
+        4: specification, 5: aux_attributes, 6: aux_prop_id, 7: material_type,
+        8: need_qty, 9: picked_qty, 10: no_picked_qty,
+        11: prod_receipt_real_qty, 12: prod_receipt_must_qty,
+        13: pick_actual_qty, 14: pick_app_qty,
+        15: purchase_order_qty, 16: purchase_stock_in_qty,
+        17: purchase_receipt_real_qty,
+        18: subcontract_order_qty, 19: subcontract_stock_in_qty,
+        20: delivery_real_qty,
+        21: synced_at (accessed in get_mto_bom_joined for freshness check)
+        """
+        return BOMJoinedRow(
+            mo_bill_no=row[0] or "",
+            mto_number=row[1] or "",
+            material_code=row[2] or "",
+            material_name=row[3] or "",
+            specification=row[4] or "",
+            aux_attributes=row[5] or "",
+            aux_prop_id=int(row[6] or 0),
+            material_type=int(row[7] or 0),
+            need_qty=Decimal(str(row[8] or 0)),
+            picked_qty=Decimal(str(row[9] or 0)),
+            no_picked_qty=Decimal(str(row[10] or 0)),
+            prod_receipt_real_qty=Decimal(str(row[11] or 0)),
+            prod_receipt_must_qty=Decimal(str(row[12] or 0)),
+            pick_actual_qty=Decimal(str(row[13] or 0)),
+            pick_app_qty=Decimal(str(row[14] or 0)),
+            purchase_order_qty=Decimal(str(row[15] or 0)),
+            purchase_stock_in_qty=Decimal(str(row[16] or 0)),
+            purchase_receipt_real_qty=Decimal(str(row[17] or 0)),
+            subcontract_order_qty=Decimal(str(row[18] or 0)),
+            subcontract_stock_in_qty=Decimal(str(row[19] or 0)),
+            delivery_real_qty=Decimal(str(row[20] or 0)),
         )
 
     def _build_cache_result(

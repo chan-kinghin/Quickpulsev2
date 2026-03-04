@@ -579,6 +579,7 @@ function mtoSearch() {
                             '物料编码': code,
                             '物料名称': item.material_name,
                             '规格型号': item.specification || '-',
+                            'BOM简称': is07 ? (item.bom_short_name || '-') : '-',
                             '辅助属性': item.aux_attributes || '-',
                             '物料类型': item.material_type,
                             '销售订单.数量': is07 ? parseFloat(item.sales_order_qty) || 0 : '-',
@@ -597,9 +598,9 @@ function mtoSearch() {
 
                     // Set column widths
                     ws['!cols'] = [
-                        { wch: 6 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 },
-                        { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 18 },
-                        { wch: 18 }, { wch: 20 }, { wch: 10 }
+                        { wch: 6 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 },
+                        { wch: 20 }, { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 15 },
+                        { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 10 }
                     ];
 
                     XLSX.writeFile(wb, `MTO_${this.mtoNumber}_${this.getTimestamp()}.xlsx`);

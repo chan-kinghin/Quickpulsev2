@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS cached_purchase_receipts (
     bill_type_number TEXT,  -- RKD01_SYS=外购, RKD02_SYS=委外
     aux_prop_id INTEGER DEFAULT 0,
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bill_no, mto_number, material_code, bill_type_number, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_purr_mto ON cached_purchase_receipts(mto_number);
 CREATE INDEX IF NOT EXISTS idx_purr_type ON cached_purchase_receipts(bill_type_number);
@@ -130,7 +131,8 @@ CREATE TABLE IF NOT EXISTS cached_material_picking (
     ppbom_bill_no TEXT,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(mto_number, material_code, ppbom_bill_no, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pick_mto ON cached_material_picking(mto_number);
 CREATE INDEX IF NOT EXISTS idx_pick_mto_synced ON cached_material_picking(mto_number, synced_at DESC);

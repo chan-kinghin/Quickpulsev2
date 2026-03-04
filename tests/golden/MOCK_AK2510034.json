@@ -1,0 +1,93 @@
+{
+  "mto_number": "AK2510034",
+  "parent_item": {
+    "mto_number": "AK2510034",
+    "customer_name": "深圳市华科电子有限公司",
+    "delivery_date": "2025-04-15"
+  },
+  "child_items": [
+    {
+      "material_code": "07.01.0128",
+      "material_name": "智能控制面板 A型",
+      "specification": "220V/50Hz 86型",
+      "aux_attributes": "",
+      "bom_short_name": "标准BOM",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 500,
+      "prod_instock_must_qty": 0,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 0,
+      "prod_instock_real_qty": 320,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "05.02.0345",
+      "material_name": "PCB主板 V2.1",
+      "specification": "FR4 1.6mm 双面板",
+      "aux_attributes": "绿色",
+      "bom_short_name": "",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 500,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 480,
+      "prod_instock_real_qty": 450,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "05.03.0112",
+      "material_name": "外壳组件 86型",
+      "specification": "ABS+PC 白色",
+      "aux_attributes": "",
+      "bom_short_name": "",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 500,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 500,
+      "prod_instock_real_qty": 500,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "03.01.0567",
+      "material_name": "触摸感应芯片 GT911",
+      "specification": "QFP-48",
+      "aux_attributes": "",
+      "bom_short_name": "",
+      "material_type_code": 2,
+      "material_type": "外购",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 0,
+      "purchase_order_qty": 1000,
+      "pick_actual_qty": 950,
+      "prod_instock_real_qty": 0,
+      "purchase_stock_in_qty": 1000,
+      "metrics": null
+    },
+    {
+      "material_code": "03.02.0891",
+      "material_name": "LED灯珠 0805",
+      "specification": "白光 6500K",
+      "aux_attributes": "",
+      "bom_short_name": "",
+      "material_type_code": 2,
+      "material_type": "外购",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 0,
+      "purchase_order_qty": 5000,
+      "pick_actual_qty": 4800,
+      "prod_instock_real_qty": 0,
+      "purchase_stock_in_qty": 5000,
+      "metrics": null
+    }
+  ],
+  "data_source": "cache",
+  "_captured_at": "2026-03-01T08:00:00",
+  "_source_url": "http://localhost:8000"
+}

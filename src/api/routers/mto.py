@@ -2,7 +2,7 @@
 
 import csv
 import logging
-from typing import List
+from typing import List, Optional
 from io import StringIO
 from urllib.parse import quote
 
@@ -24,16 +24,19 @@ async def get_mto_status(
     request: Request,
     mto_number: str = Path(..., min_length=2, max_length=50, pattern=r"^[A-Za-z0-9\-]+$"),
     use_cache: bool = Query(True, description="Use cached data if available and fresh"),
+    source: Optional[str] = Query(None, description="Force data source: 'cache' or 'live'. Overrides use_cache."),
     current_user: str = Depends(get_current_user),
 ):
     """Get MTO status with optional cache-first strategy.
 
     - use_cache=true (default): Returns cached data if fresh (<1 hour), much faster
     - use_cache=false: Always fetch real-time data from Kingdee API
+    - source=cache: Force cache-only (errors if no cached data)
+    - source=live: Force live Kingdee API
     """
     handler = request.app.state.mto_handler
     try:
-        return await handler.get_status(mto_number, use_cache=use_cache)
+        return await handler.get_status(mto_number, use_cache=use_cache, source=source)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KingdeeConnectionError as exc:
@@ -142,6 +145,7 @@ async def export_mto_excel(
     writer = csv.writer(output)
     writer.writerow(
         [
+            "序号",
             "物料编码",
             "物料名称",
             "规格型号",
@@ -154,12 +158,19 @@ async def export_mto_excel(
             "生产领料单.实发数量",
             "生产入库单.实收数量",
             "采购订单.累计入库数量",
+            "完成率",
         ]
     )
 
-    for child in status.children:
+    for idx, child in enumerate(status.children, start=1):
+        rate = "-"
+        if child.metrics and "fulfillment_rate" in child.metrics:
+            fv = child.metrics["fulfillment_rate"].value
+            if fv is not None:
+                rate = f"{int(fv * 100)}%"
         writer.writerow(
             [
+                idx,
                 child.material_code,
                 child.material_name,
                 child.specification,
@@ -172,6 +183,7 @@ async def export_mto_excel(
                 child.pick_actual_qty,
                 child.prod_instock_real_qty,
                 child.purchase_stock_in_qty,
+                rate,
             ]
         )
 

@@ -1,0 +1,29 @@
+{
+  "mto_number": "AK2510001",
+  "parent_item": {
+    "mto_number": "AK2510001",
+    "customer_name": "东莞市恒达电器有限公司",
+    "delivery_date": "2025-03-10"
+  },
+  "child_items": [
+    {
+      "material_code": "07.01.0055",
+      "material_name": "温控器 TC-100",
+      "specification": "220V/10A 数显",
+      "aux_attributes": "",
+      "bom_short_name": "温控标准BOM",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 1000,
+      "prod_instock_must_qty": 0,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 0,
+      "prod_instock_real_qty": 1000,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    }
+  ],
+  "data_source": "cache",
+  "_captured_at": "2026-03-01T08:00:00",
+  "_source_url": "http://localhost:8000"
+}

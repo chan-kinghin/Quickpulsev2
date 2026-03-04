@@ -1149,9 +1149,8 @@ class SyncService:
                 bill_no, mto_number, material_code, real_qty, must_qty, bill_type_number,
                 aux_prop_id, raw_data, synced_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, bill_type_number) DO UPDATE SET
+            ON CONFLICT(bill_no, mto_number, material_code, bill_type_number, aux_prop_id) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
-                aux_prop_id=excluded.aux_prop_id,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
         )
@@ -1180,9 +1179,8 @@ class SyncService:
                 mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
                 aux_prop_id, raw_data, synced_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(mto_number, material_code, ppbom_bill_no) DO UPDATE SET
+            ON CONFLICT(mto_number, material_code, ppbom_bill_no, aux_prop_id) DO UPDATE SET
                 app_qty=excluded.app_qty, actual_qty=excluded.actual_qty,
-                aux_prop_id=excluded.aux_prop_id,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP""",
             rows,
         )

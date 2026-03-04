@@ -1,0 +1,93 @@
+{
+  "mto_number": "AK2512059",
+  "parent_item": {
+    "mto_number": "AK2512059",
+    "customer_name": "广州锐特科技股份有限公司",
+    "delivery_date": "2025-06-20"
+  },
+  "child_items": [
+    {
+      "material_code": "07.02.0256",
+      "material_name": "工业网关 GW-200",
+      "specification": "RS485/Ethernet 24V",
+      "aux_attributes": "",
+      "bom_short_name": "网关标准BOM",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 200,
+      "prod_instock_must_qty": 0,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 0,
+      "prod_instock_real_qty": 80,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "05.01.0789",
+      "material_name": "网关主控板 V3.0",
+      "specification": "STM32F407 6层板",
+      "aux_attributes": "",
+      "bom_short_name": "主控板BOM",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 200,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 190,
+      "prod_instock_real_qty": 180,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "05.02.0456",
+      "material_name": "电源模块 PM-24V",
+      "specification": "24V/2A 隔离型",
+      "aux_attributes": "工业级",
+      "bom_short_name": "电源BOM",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 200,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 200,
+      "prod_instock_real_qty": 200,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "05.03.0334",
+      "material_name": "通信接口板 RS485",
+      "specification": "MAX485 2路",
+      "aux_attributes": "",
+      "bom_short_name": "",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 200,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 150,
+      "prod_instock_real_qty": 120,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    },
+    {
+      "material_code": "05.04.0221",
+      "material_name": "金属外壳 GW型",
+      "specification": "铝合金 阳极氧化",
+      "aux_attributes": "银色",
+      "bom_short_name": "",
+      "material_type_code": 1,
+      "material_type": "自制",
+      "sales_order_qty": 0,
+      "prod_instock_must_qty": 200,
+      "purchase_order_qty": 0,
+      "pick_actual_qty": 200,
+      "prod_instock_real_qty": 195,
+      "purchase_stock_in_qty": 0,
+      "metrics": null
+    }
+  ],
+  "data_source": "cache",
+  "_captured_at": "2026-03-01T08:00:00",
+  "_source_url": "http://localhost:8000"
+}

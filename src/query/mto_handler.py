@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict, defaultdict
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import IntEnum
@@ -39,6 +38,8 @@ from src.readers import (
 
 if TYPE_CHECKING:
     from src.query.cache_reader import CacheReader
+
+from src.query.cache_reader import BOMJoinedRow
 
 ZERO = Decimal("0")
 
@@ -148,13 +149,14 @@ class MTOQueryHandler:
         return None, None
 
     async def get_status(
-        self, mto_number: str, use_cache: bool = True
+        self, mto_number: str, use_cache: bool = True, source: Optional[str] = None
     ) -> MTOStatusResponse:
         """Get MTO status with three-tier cache strategy.
 
         Args:
             mto_number: The MTO number to query
             use_cache: If True, try caches before live API (default: True)
+            source: Force data source - 'cache' or 'live'. Overrides use_cache.
 
         Returns:
             MTOStatusResponse with data_source metadata
@@ -164,6 +166,18 @@ class MTOQueryHandler:
         2. L2 (SQLite): ~100ms - Persistent cache
         3. L3 (Kingdee): ~1-5s - Live API
         """
+        # Handle explicit source parameter (overrides use_cache)
+        if source == "cache":
+            if self._cache_reader is None:
+                raise ValueError("Cache not available")
+            result = await self._try_cache(mto_number)
+            if result is None:
+                raise ValueError(f"No cached data found for MTO {mto_number}")
+            return result
+        elif source == "live":
+            return await self._fetch_live(mto_number)
+        # else: source is None → existing behavior using use_cache flag
+
         # Track query frequency for smart cache warming (bounded)
         self._query_counter[mto_number] = self._query_counter.get(mto_number, 0) + 1
         self._query_counter.move_to_end(mto_number)
@@ -296,39 +310,30 @@ class MTOQueryHandler:
         )
 
     async def _try_cache(self, mto_number: str) -> Optional[MTOStatusResponse]:
-        """Attempt to build response from cache.
+        """Attempt to build response from cache using BOM-first architecture.
 
-        Uses config-driven logic to build children from cached data.
-        Returns None if critical data is missing or stale.
+        Uses a single SQL JOIN query (get_mto_bom_joined) to fetch all BOM children
+        with pre-aggregated receipt/pick/order data, replacing the previous 8 parallel
+        cache queries and complex routing logic.
+
+        Data flow:
+        1. Parallel fetch: sales orders, prod orders, and BOM-joined query
+        2. Finished goods (07.xx) from SAL_SaleOrder (NOT from BOM)
+        3. All other children from BOMJoinedRow → _bom_row_to_child()
         """
-        # Fetch all cache data in parallel
+        # Fetch sales orders, prod orders, and the BOM-joined query in parallel
         (
             sales_orders_result,
             prod_orders_result,
-            purchase_orders_result,
-            prod_receipts_result,
-            purchase_receipts_result,
-            material_picks_result,
-            sales_delivery_result,
-            production_bom_result,  # 新增：获取 PRD_PPBOM 数据用于 03 级包材
+            bom_joined_result,
         ) = await asyncio.gather(
             self._cache_reader.get_sales_orders(mto_number),
             self._cache_reader.get_production_orders(mto_number),
-            self._cache_reader.get_purchase_orders(mto_number),
-            self._cache_reader.get_production_receipts(mto_number),
-            self._cache_reader.get_purchase_receipts(mto_number),
-            self._cache_reader.get_material_picking(mto_number),
-            self._cache_reader.get_sales_delivery(mto_number),
-            self._cache_reader.get_production_bom_by_mto(mto_number),  # 新增
+            self._cache_reader.get_mto_bom_joined(mto_number),
         )
 
-        # Need at least one source form to have data
-        has_data = (
-            sales_orders_result.data
-            or prod_orders_result.data
-            or purchase_orders_result.data
-        )
-        if not has_data:
+        # Need at least some source data
+        if not (sales_orders_result.data or prod_orders_result.data):
             return None
 
         # Log warning when serving stale cached data
@@ -336,7 +341,6 @@ class MTOQueryHandler:
             name for name, result in [
                 ("sales_orders", sales_orders_result),
                 ("prod_orders", prod_orders_result),
-                ("purchase_orders", purchase_orders_result),
             ]
             if result.data and not result.is_fresh
         ]
@@ -349,59 +353,51 @@ class MTOQueryHandler:
         # Extract data from cache results
         sales_orders = sales_orders_result.data or []
         prod_orders = prod_orders_result.data or []
-        purchase_orders = purchase_orders_result.data or []
-        prod_receipts = prod_receipts_result.data or []
-        purchase_receipts = purchase_receipts_result.data or []
-        material_picks = material_picks_result.data or []
-        sales_deliveries = sales_delivery_result.data or []
-        production_bom = production_bom_result.data or []  # 新增：PRD_PPBOM 数据
+        bom_rows = bom_joined_result.data or []
 
-        # Build aggregation lookups
-        pick_request = _sum_by_material(material_picks, "app_qty")
-        pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
-        delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
-        receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
-        prd_mo_qty_by_key = _sum_by_material_and_aux(prod_orders, "qty")
-
-        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
-        prd_mo_03_keys: set = set()
-        for po in prod_orders:
-            if po.material_code.startswith("03."):
-                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
-                prd_mo_03_keys.add((po.material_code, aux_prop_id))
-        # Code-only set for routing checks (aux_prop_id mismatch between PRD_MO and PRD_INSTOCK)
-        prd_mo_03_codes: set = {code for code, _ in prd_mo_03_keys}
-
-        # Collect aux_prop_ids from cached data for lookup
+        # Collect aux_prop_ids for description lookup
         aux_prop_ids = set()
         for so in sales_orders:
             if hasattr(so, "aux_prop_id") and so.aux_prop_id:
                 aux_prop_ids.add(so.aux_prop_id)
-        for pur in purchase_orders:
-            if hasattr(pur, "aux_prop_id") and pur.aux_prop_id:
-                aux_prop_ids.add(pur.aux_prop_id)
-        for pr in prod_receipts:
-            if hasattr(pr, "aux_prop_id") and pr.aux_prop_id:
-                aux_prop_ids.add(pr.aux_prop_id)
-        for sd in sales_deliveries:
-            if hasattr(sd, "aux_prop_id") and sd.aux_prop_id:
-                aux_prop_ids.add(sd.aux_prop_id)
-        for mp in material_picks:
-            if hasattr(mp, "aux_prop_id") and mp.aux_prop_id:
-                aux_prop_ids.add(mp.aux_prop_id)
-        for bom in production_bom:  # 新增：从 PPBOM 收集辅助属性
-            if hasattr(bom, "aux_prop_id") and bom.aux_prop_id:
-                aux_prop_ids.add(bom.aux_prop_id)
+        for row in bom_rows:
+            if row.aux_prop_id:
+                aux_prop_ids.add(row.aux_prop_id)
 
         # Lookup aux property descriptions from Kingdee
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
 
-        # Build children from source forms based on material class config
         children = []
-        unmatched_materials = []
 
-        # Route records based on config patterns
-        # finished_goods (07.xx) from Sales Orders - AGGREGATE by (material_code, aux_prop_id)
+        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
+        prd_mo_03_codes: set = {
+            po.material_code for po in prod_orders
+            if po.material_code.startswith("03.")
+        }
+
+        # --- Finished goods (07.xx) from SAL_SaleOrder (NOT from BOM) ---
+        # Build receipt lookup from BOM rows for finished goods receipt matching
+        receipt_by_material: dict[tuple[str, int], Decimal] = {}
+        for row in bom_rows:
+            if row.prod_receipt_real_qty:
+                key = (row.material_code, row.aux_prop_id)
+                receipt_by_material[key] = receipt_by_material.get(key, ZERO) + row.prod_receipt_real_qty
+
+        delivered_by_material: dict[tuple[str, int], Decimal] = {}
+        for row in bom_rows:
+            if row.delivery_real_qty:
+                key = (row.material_code, row.aux_prop_id)
+                delivered_by_material[key] = delivered_by_material.get(key, ZERO) + row.delivery_real_qty
+
+        pick_request: dict[str, Decimal] = {}
+        pick_actual: dict[tuple[str, int], Decimal] = {}
+        for row in bom_rows:
+            if row.pick_app_qty:
+                pick_request[row.material_code] = pick_request.get(row.material_code, ZERO) + row.pick_app_qty
+            if row.pick_actual_qty:
+                key = (row.material_code, row.aux_prop_id)
+                pick_actual[key] = pick_actual.get(key, ZERO) + row.pick_actual_qty
+
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
             class_id, _ = self._get_material_class(so.material_code)
@@ -409,10 +405,7 @@ class MTOQueryHandler:
                 aux_prop_id = getattr(so, "aux_prop_id", 0) or 0
                 key = (so.material_code, aux_prop_id)
                 sales_by_key[key].append(so)
-            elif class_id is None:
-                unmatched_materials.append(("SAL_SaleOrder", so.material_code))
 
-        # Create one ChildItem per unique (material_code, aux_prop_id) for finished_goods
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
@@ -420,149 +413,23 @@ class MTOQueryHandler:
             )
             children.append(child)
 
-        # self_made (05.xx) from Production Receipts - AGGREGATE by (material_code, aux_prop_id)
-        # NOTE: PRD_MO doesn't have aux_prop_id, so we use PRD_INSTOCK as the primary source
-        # Each aux variant is displayed as a separate row
-        selfmade_receipt_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pr in prod_receipts:
-            class_id, _ = self._get_material_class(pr.material_code)
-            if class_id == "self_made":
-                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
-                key = (pr.material_code, aux_prop_id)
-                selfmade_receipt_by_key[key].append(pr)
-            elif class_id == "purchased":
-                # 03.xx 有工段（有 PRD_MO）→ 按自制处理 (match by code only — aux may differ)
-                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
-                key = (pr.material_code, aux_prop_id)
-                if pr.material_code in prd_mo_03_codes:
-                    selfmade_receipt_by_key[key].append(pr)
-            elif class_id is None:
-                unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
-
-        # Create one ChildItem per unique (material_code, aux_prop_id) for self_made
-        for key, receipt_list in selfmade_receipt_by_key.items():
-            child = self._build_aggregated_selfmade_child(
-                receipt_list, material_picks, aux_descriptions, prd_mo_qty_by_key
-            )
-            children.append(child)
-
-        # 自制 (05.xx) from PRD_PickMtrl - 从库存领料的物料
-        # 这些物料可能不在 PRD_INSTOCK 中，但有实际领料记录
-        # 也包含有工段的 03.xx 物料
-        pickmtrl_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pick in material_picks:
-            aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
-            key = (pick.material_code, aux_prop_id)
-            if pick.material_code.startswith("05.") or pick.material_code in prd_mo_03_codes:
-                pickmtrl_05_by_key[key].append(pick)
-
-        # 只添加不在 selfmade_receipt_by_key 中的物料
-        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
-        selfmade_receipt_codes: set = {code for code, _ in selfmade_receipt_by_key}
-        for key, pick_list in pickmtrl_05_by_key.items():
-            code, _ = key
-            if key in selfmade_receipt_by_key or code in selfmade_receipt_codes:
-                continue
-            child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
-            children.append(child)
-
-        # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
-        # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
-        # 也包含有工段的 03.xx 物料
-        prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
+        # --- BOM children: convert each BOMJoinedRow to ChildItem ---
+        prd_mo_qty_by_key: dict[tuple[str, int], Decimal] = {}
         for po in prod_orders:
-            class_id, _ = self._get_material_class(po.material_code)
-            if class_id == "self_made" or po.material_code in prd_mo_03_codes:
-                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
-                key = (po.material_code, aux_prop_id)
-                prd_mo_05_by_key[key].append(po)
+            aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
+            key = (po.material_code, aux_prop_id)
+            prd_mo_qty_by_key[key] = prd_mo_qty_by_key.get(key, ZERO) + getattr(po, "qty", ZERO)
 
-        # Code-only sets for dedup — aux_prop_id may differ between PRD_MO and PRD_INSTOCK/PickMtrl
-        pickmtrl_05_codes: set = {code for code, _ in pickmtrl_05_by_key}
-
-        # Only add items NOT already covered by receipts or picks
-        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
-        for key, po_list in prd_mo_05_by_key.items():
-            code, _ = key
-            if key in selfmade_receipt_by_key or key in pickmtrl_05_by_key:
-                continue
-            if code in selfmade_receipt_codes or code in pickmtrl_05_codes:
-                continue
-            child = self._build_selfmade_child_from_prd_mo(
-                po_list, receipt_by_material, pick_actual, aux_descriptions
-            )
+        for row in bom_rows:
+            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key, prd_mo_03_codes)
             children.append(child)
-
-        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
-        # Each aux variant is displayed as a separate row
-        # NOTE: PRD_PickMtrl picking data is by material_code only, so picking is shared across variants
-        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pur in purchase_orders:
-            class_id, _ = self._get_material_class(pur.material_code)
-            if class_id == "purchased":
-                if pur.material_code in prd_mo_03_codes:
-                    continue
-                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
-                key = (pur.material_code, aux_prop_id)
-                purchase_by_key[key].append(pur)
-            elif class_id is None:
-                unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
-
-        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
-        for key, pur_list in purchase_by_key.items():
-            child = self._build_aggregated_purchase_child(
-                pur_list, pick_request, pick_actual, aux_descriptions
-            )
-            children.append(child)
-
-        # 包材 (03.xx) from PRD_PPBOM - 显示领料数据（独立于 PUR 行）
-        ppbom_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for bom in production_bom:
-            # material_type=2 是外购（包材），或者物料编码以 03. 开头
-            if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
-                aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
-                key = (bom.material_code, aux_prop_id)
-                if bom.material_code in prd_mo_03_codes:  # 有工段的走自制路径，不放入 PPBOM
-                    continue
-                ppbom_by_key[key].append(bom)
-
-        # 创建 PPBOM 包材行（与 PUR 行分开显示）
-        for key, bom_list in ppbom_by_key.items():
-            child = self._build_purchased_child_from_ppbom(bom_list, aux_descriptions)
-            children.append(child)
-
-        # 包材 (03.xx) from PRD_PickMtrl - 直接领料的物料
-        # 这些物料可能不在 PUR 或 PPBOM 中，但有实际领料记录
-        pickmtrl_03_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pick in material_picks:
-            if pick.material_code.startswith("03."):
-                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
-                key = (pick.material_code, aux_prop_id)
-                if pick.material_code in prd_mo_03_codes:  # 有工段的走自制路径
-                    continue
-                pickmtrl_03_by_key[key].append(pick)
-
-        # 只添加不在 purchase_by_key 和 ppbom_by_key 中的物料
-        for key, pick_list in pickmtrl_03_by_key.items():
-            if key not in purchase_by_key and key not in ppbom_by_key:
-                child = self._build_purchased_child_from_pickmtrl(pick_list, aux_descriptions)
-                children.append(child)
-
-        # Log warning for unmatched materials
-        if unmatched_materials:
-            logger.warning(
-                "MTO %s (cache): %d materials skipped (no matching config pattern): %s",
-                mto_number, len(unmatched_materials),
-                ", ".join(f"{src}:{code}" for src, code in unmatched_materials[:5])
-                + ("..." if len(unmatched_materials) > 5 else "")
-            )
 
         # Build parent from first available sales order
         parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
 
         # Calculate cache age
         cache_age = None
-        for result in [sales_orders_result, prod_orders_result, purchase_orders_result]:
+        for result in [sales_orders_result, prod_orders_result, bom_joined_result]:
             if result.synced_at:
                 now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
                 synced = result.synced_at if result.synced_at.tzinfo is None else result.synced_at.replace(tzinfo=None)
@@ -584,14 +451,16 @@ class MTOQueryHandler:
         return result
 
     async def _fetch_live(self, mto_number: str) -> MTOStatusResponse:
-        """Fetch data from live Kingdee API using config-driven logic.
+        """Fetch data from live Kingdee API using BOM-first architecture.
 
-        Queries source forms directly based on material code class:
-        - 07.xx.xxx → SAL_SaleOrder
-        - 05.xx.xxx → PRD_MO
-        - 03.xx.xxx → PUR_PurchaseOrder
+        Uses the same _bom_row_to_child method as the cache path for consistent
+        child item construction. Finished goods (07.xx) are handled separately
+        via _build_aggregated_sales_child.
 
-        Records are AGGREGATED by (material_code, aux_prop_id) to avoid duplicate counting.
+        Data flow:
+        1. 9 parallel Kingdee API calls
+        2. Finished goods (07.xx) from SAL_SaleOrder (NOT from BOM)
+        3. All other children: live data → BOMJoinedRow → _bom_row_to_child()
         """
         # Fetch all source forms and receipt data in parallel
         (
@@ -600,100 +469,66 @@ class MTOQueryHandler:
             purchase_orders,
             prod_receipts,
             purchase_receipts,
+            subcontracting_orders,
             material_picks,
             sales_deliveries,
-            production_bom,  # 新增：获取 PRD_PPBOM 数据用于 03 级包材
+            production_bom,
         ) = await asyncio.gather(
             self._readers["sales_order"].fetch_by_mto(mto_number),
             self._readers["production_order"].fetch_by_mto(mto_number),
             self._readers["purchase_order"].fetch_by_mto(mto_number),
             self._readers["production_receipt"].fetch_by_mto(mto_number),
             self._readers["purchase_receipt"].fetch_by_mto(mto_number),
+            self._readers["subcontracting_order"].fetch_by_mto(mto_number),
             self._readers["material_picking"].fetch_by_mto(mto_number),
             self._readers["sales_delivery"].fetch_by_mto(mto_number),
-            self._readers["production_bom"].fetch_by_mto(mto_number),  # 新增
+            self._readers["production_bom"].fetch_by_mto(mto_number),
         )
 
-        # Aggregate stats at info level, per-record details at debug level
+        # Aggregate stats at info level
         logger.info(
             "MTO %s live query results: SAL_SaleOrder=%d, PRD_MO=%d, PUR=%d, PRD_INSTOCK=%d",
             mto_number, len(sales_orders), len(prod_orders), len(purchase_orders), len(prod_receipts)
         )
-        # Per-record details only at debug level to avoid hot-path noise
-        for so in sales_orders:
-            logger.debug(
-                "  SAL_SaleOrder: material=%s, aux_prop_id=%d, qty=%s, mto=%s",
-                so.material_code, getattr(so, 'aux_prop_id', 0), so.qty, so.mto_number
-            )
-        finished_keys = set()
-        for so in sales_orders:
-            class_id, _ = self._get_material_class(so.material_code)
-            if class_id == "finished_goods":
-                key = (so.material_code, getattr(so, 'aux_prop_id', 0) or 0)
-                finished_keys.add(key)
-        logger.debug(
-            "MTO %s: %d unique 成品 (material_code, aux_prop_id) keys: %s",
-            mto_number, len(finished_keys), list(finished_keys)
-        )
-
-        # Build aggregation lookups for receipts/deliveries
-        # Key: (material_code, aux_prop_id) for variant-aware matching
-        delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
-        receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
-        pick_request = _sum_by_material(material_picks, "app_qty")
-        pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
-        prd_mo_qty_by_key = _sum_by_material_and_aux(prod_orders, "qty")
-
-        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
-        prd_mo_03_keys: set = set()
-        for po in prod_orders:
-            if po.material_code.startswith("03."):
-                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
-                prd_mo_03_keys.add((po.material_code, aux_prop_id))
-        # Code-only set for routing checks (aux_prop_id mismatch between PRD_MO and PRD_INSTOCK)
-        prd_mo_03_codes: set = {code for code, _ in prd_mo_03_keys}
 
         # Collect aux_prop_ids for lookup
         aux_prop_ids = set()
-        for so in sales_orders:
-            if hasattr(so, "aux_prop_id") and so.aux_prop_id:
-                aux_prop_ids.add(so.aux_prop_id)
-        for pur in purchase_orders:
-            if hasattr(pur, "aux_prop_id") and pur.aux_prop_id:
-                aux_prop_ids.add(pur.aux_prop_id)
-        for pr in prod_receipts:
-            if hasattr(pr, "aux_prop_id") and pr.aux_prop_id:
-                aux_prop_ids.add(pr.aux_prop_id)
-        for sd in sales_deliveries:
-            if hasattr(sd, "aux_prop_id") and sd.aux_prop_id:
-                aux_prop_ids.add(sd.aux_prop_id)
-        for mp in material_picks:
-            if hasattr(mp, "aux_prop_id") and mp.aux_prop_id:
-                aux_prop_ids.add(mp.aux_prop_id)
-        for bom in production_bom:
-            if hasattr(bom, "aux_prop_id") and bom.aux_prop_id:
-                aux_prop_ids.add(bom.aux_prop_id)
+        for items in [sales_orders, purchase_orders, prod_receipts,
+                      sales_deliveries, material_picks, production_bom]:
+            for item in items:
+                if hasattr(item, "aux_prop_id") and item.aux_prop_id:
+                    aux_prop_ids.add(item.aux_prop_id)
 
         # Lookup aux property descriptions from BD_FLEXSITEMDETAILV
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
 
-        # Build children from source forms based on material class config
         children = []
-        unmatched_materials = []
 
-        # Route records based on config patterns
-        # finished_goods (07.xx) from Sales Orders - AGGREGATE by (material_code, aux_prop_id)
+        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
+        prd_mo_03_codes: set = {
+            po.material_code for po in prod_orders
+            if po.material_code.startswith("03.")
+        }
+
+        # PRD_MO qty lookup for demand quantities
+        prd_mo_qty_by_key: dict[tuple[str, int], Decimal] = {}
+        for po in prod_orders:
+            key = (po.material_code, getattr(po, "aux_prop_id", 0) or 0)
+            prd_mo_qty_by_key[key] = prd_mo_qty_by_key.get(key, ZERO) + getattr(po, "qty", ZERO)
+
+        # --- Finished goods (07.xx) from SAL_SaleOrder ---
+        receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
+        delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
+        pick_request = _sum_by_material(material_picks, "app_qty")
+        pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
+
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
             class_id, _ = self._get_material_class(so.material_code)
             if class_id == "finished_goods":
-                aux_prop_id = getattr(so, "aux_prop_id", 0) or 0
-                key = (so.material_code, aux_prop_id)
+                key = (so.material_code, getattr(so, "aux_prop_id", 0) or 0)
                 sales_by_key[key].append(so)
-            elif class_id is None:
-                unmatched_materials.append(("SAL_SaleOrder", so.material_code))
 
-        # Create one ChildItem per unique (material_code, aux_prop_id) for finished_goods
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
@@ -701,143 +536,16 @@ class MTOQueryHandler:
             )
             children.append(child)
 
-        # self_made (05.xx) from Production Receipts - AGGREGATE by (material_code, aux_prop_id)
-        # NOTE: PRD_MO doesn't have aux_prop_id, so we use PRD_INSTOCK as the primary source
-        # Each aux variant is displayed as a separate row
-        selfmade_receipt_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pr in prod_receipts:
-            class_id, _ = self._get_material_class(pr.material_code)
-            if class_id == "self_made":
-                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
-                key = (pr.material_code, aux_prop_id)
-                selfmade_receipt_by_key[key].append(pr)
-            elif class_id == "purchased":
-                # 03.xx 有工段（有 PRD_MO）→ 按自制处理 (match by code only — aux may differ)
-                aux_prop_id = getattr(pr, "aux_prop_id", 0) or 0
-                key = (pr.material_code, aux_prop_id)
-                if pr.material_code in prd_mo_03_codes:
-                    selfmade_receipt_by_key[key].append(pr)
-            elif class_id is None:
-                unmatched_materials.append(("PRD_INSTOCK", pr.material_code))
+        # --- BOM children via shared path ---
+        bom_rows = self._build_bom_joined_rows_from_live(
+            production_bom, prod_orders, prod_receipts, material_picks,
+            purchase_orders, purchase_receipts, subcontracting_orders,
+            sales_deliveries,
+        )
 
-        # Create one ChildItem per unique (material_code, aux_prop_id) for self_made
-        for key, receipt_list in selfmade_receipt_by_key.items():
-            child = self._build_aggregated_selfmade_child(
-                receipt_list, material_picks, aux_descriptions, prd_mo_qty_by_key
-            )
+        for row in bom_rows:
+            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key, prd_mo_03_codes)
             children.append(child)
-
-        # 自制 (05.xx) from PRD_PickMtrl - 从库存领料的物料
-        # 这些物料可能不在 PRD_INSTOCK 中，但有实际领料记录
-        # 也包含有工段的 03.xx 物料
-        pickmtrl_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pick in material_picks:
-            aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
-            key = (pick.material_code, aux_prop_id)
-            if pick.material_code.startswith("05.") or pick.material_code in prd_mo_03_codes:
-                pickmtrl_05_by_key[key].append(pick)
-
-        # 只添加不在 selfmade_receipt_by_key 中的物料
-        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
-        selfmade_receipt_codes: set = {code for code, _ in selfmade_receipt_by_key}
-        for key, pick_list in pickmtrl_05_by_key.items():
-            code, _ = key
-            if key in selfmade_receipt_by_key or code in selfmade_receipt_codes:
-                continue
-            child = self._build_selfmade_child_from_pickmtrl(pick_list, aux_descriptions)
-            children.append(child)
-
-        # self_made (05.xx) from PRD_MO - show production orders without receipts/picks
-        # These are planned orders that haven't been processed yet (e.g., 计划确认 status)
-        # 也包含有工段的 03.xx 物料
-        prd_mo_05_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for po in prod_orders:
-            class_id, _ = self._get_material_class(po.material_code)
-            if class_id == "self_made" or po.material_code in prd_mo_03_codes:
-                aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
-                key = (po.material_code, aux_prop_id)
-                prd_mo_05_by_key[key].append(po)
-
-        # Code-only sets for dedup — aux_prop_id may differ between PRD_MO and PRD_INSTOCK/PickMtrl
-        pickmtrl_05_codes: set = {code for code, _ in pickmtrl_05_by_key}
-
-        # Only add items NOT already covered by receipts or picks
-        # Check both exact (code, aux) key AND code-only (handles aux_prop_id mismatch)
-        for key, po_list in prd_mo_05_by_key.items():
-            code, _ = key
-            if key in selfmade_receipt_by_key or key in pickmtrl_05_by_key:
-                continue
-            if code in selfmade_receipt_codes or code in pickmtrl_05_codes:
-                continue
-            child = self._build_selfmade_child_from_prd_mo(
-                po_list, receipt_by_material, pick_actual, aux_descriptions
-            )
-            children.append(child)
-
-        # purchased (03.xx) from Purchase Orders - AGGREGATE by (material_code, aux_prop_id)
-        # Each aux variant is displayed as a separate row
-        # NOTE: PRD_PickMtrl picking data is by material_code only, so picking is shared across variants
-        purchase_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pur in purchase_orders:
-            class_id, _ = self._get_material_class(pur.material_code)
-            if class_id == "purchased":
-                if pur.material_code in prd_mo_03_codes:
-                    continue
-                aux_prop_id = getattr(pur, "aux_prop_id", 0) or 0
-                key = (pur.material_code, aux_prop_id)
-                purchase_by_key[key].append(pur)
-            elif class_id is None:
-                unmatched_materials.append(("PUR_PurchaseOrder", pur.material_code))
-
-        # Create one ChildItem per unique (material_code, aux_prop_id) for purchased
-        for key, pur_list in purchase_by_key.items():
-            child = self._build_aggregated_purchase_child(
-                pur_list, pick_request, pick_actual, aux_descriptions
-            )
-            children.append(child)
-
-        # 包材 (03.xx) from PRD_PPBOM - 显示领料数据（独立于 PUR 行）
-        # 即使 PUR 中已有相同物料，PPBOM 也单独显示为一行
-        ppbom_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for bom in production_bom:
-            # material_type=2 是外购/包材，或者物料编码以 03. 开头
-            if getattr(bom, "material_type", 0) == 2 or bom.material_code.startswith("03."):
-                aux_prop_id = getattr(bom, "aux_prop_id", 0) or 0
-                key = (bom.material_code, aux_prop_id)
-                if bom.material_code in prd_mo_03_codes:  # 有工段的走自制路径，不放入 PPBOM
-                    continue
-                ppbom_by_key[key].append(bom)
-
-        # 所有 PPBOM 03 级物料都添加为独立行
-        for key, bom_list in ppbom_by_key.items():
-            child = self._build_purchased_child_from_ppbom(bom_list, aux_descriptions)
-            children.append(child)
-
-        # 包材 (03.xx) from PRD_PickMtrl - 直接领料的物料
-        # 这些物料可能不在 PUR 或 PPBOM 中，但有实际领料记录
-        pickmtrl_03_by_key: dict[tuple[str, int], list] = defaultdict(list)
-        for pick in material_picks:
-            if pick.material_code.startswith("03."):
-                aux_prop_id = getattr(pick, "aux_prop_id", 0) or 0
-                key = (pick.material_code, aux_prop_id)
-                if pick.material_code in prd_mo_03_codes:  # 有工段的走自制路径
-                    continue
-                pickmtrl_03_by_key[key].append(pick)
-
-        # 只添加不在 purchase_by_key 和 ppbom_by_key 中的物料
-        for key, pick_list in pickmtrl_03_by_key.items():
-            if key not in purchase_by_key and key not in ppbom_by_key:
-                child = self._build_purchased_child_from_pickmtrl(pick_list, aux_descriptions)
-                children.append(child)
-
-        # Log warning for unmatched materials
-        if unmatched_materials:
-            logger.warning(
-                "MTO %s (live): %d materials skipped (no matching config pattern): %s",
-                mto_number, len(unmatched_materials),
-                ", ".join(f"{src}:{code}" for src, code in unmatched_materials[:5])
-                + ("..." if len(unmatched_materials) > 5 else "")
-            )
 
         # Build parent from first available sales order
         parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
@@ -858,6 +566,211 @@ class MTOQueryHandler:
             enrich_response(result, self._metric_engine)
 
         return result
+
+    def _build_bom_joined_rows_from_live(
+        self,
+        production_bom: list,
+        prod_orders: list,
+        prod_receipts: list,
+        material_picks: list,
+        purchase_orders: list,
+        purchase_receipts: list,
+        subcontracting_orders: list,
+        sales_deliveries: list,
+    ) -> list[BOMJoinedRow]:
+        """Convert live API data into BOMJoinedRow format for shared enrichment.
+
+        Does the same aggregation as the SQL JOIN in cache_reader, but in Python
+        for live data. Groups BOM items by (material_code, aux_prop_id).
+
+        For items found in source orders/receipts/picks but NOT in PPBOM,
+        synthetic BOMJoinedRow entries are created so they still appear in output.
+        """
+        # Pre-aggregate all source data by (material_code, aux_prop_id)
+        receipt_real = _sum_by_material_and_aux(prod_receipts, "real_qty")
+        receipt_must = _sum_by_material_and_aux(prod_receipts, "must_qty")
+        pick_actual_map = _sum_by_material_and_aux(material_picks, "actual_qty")
+        pick_app_map = _sum_by_material_and_aux(material_picks, "app_qty")
+        po_order = _sum_by_material_and_aux(purchase_orders, "order_qty")
+        po_stock_in = _sum_by_material_and_aux(purchase_orders, "stock_in_qty")
+        pur_real = _sum_by_material_and_aux(purchase_receipts, "real_qty")
+        sub_order = _sum_by_material_and_aux(subcontracting_orders, "order_qty")
+        sub_stock_in = _sum_by_material_and_aux(subcontracting_orders, "stock_in_qty")
+        del_real = _sum_by_material_and_aux(sales_deliveries, "real_qty")
+
+        def _make_row(code: str, aux: int, material_name: str, specification: str,
+                      aux_attributes: str, material_type: int, need_qty: Decimal,
+                      picked_qty: Decimal, no_picked_qty: Decimal,
+                      mo_bill_no: str = "", mto_number: str = "") -> BOMJoinedRow:
+            key = (code, aux)
+            return BOMJoinedRow(
+                mo_bill_no=mo_bill_no,
+                mto_number=mto_number,
+                material_code=code,
+                material_name=material_name,
+                specification=specification,
+                aux_attributes=aux_attributes,
+                aux_prop_id=aux,
+                material_type=material_type,
+                need_qty=need_qty,
+                picked_qty=picked_qty,
+                no_picked_qty=no_picked_qty,
+                prod_receipt_real_qty=receipt_real.get(key, ZERO),
+                prod_receipt_must_qty=receipt_must.get(key, ZERO),
+                pick_actual_qty=pick_actual_map.get(key, ZERO),
+                pick_app_qty=pick_app_map.get(key, ZERO),
+                purchase_order_qty=po_order.get(key, ZERO),
+                purchase_stock_in_qty=po_stock_in.get(key, ZERO),
+                purchase_receipt_real_qty=pur_real.get(key, ZERO),
+                subcontract_order_qty=sub_order.get(key, ZERO),
+                subcontract_stock_in_qty=sub_stock_in.get(key, ZERO),
+                delivery_real_qty=del_real.get(key, ZERO),
+            )
+
+        # --- Step 1: Build rows from PPBOM (primary source) ---
+        bom_groups: dict[tuple[str, int], list] = defaultdict(list)
+        for bom in production_bom:
+            key = (bom.material_code, getattr(bom, "aux_prop_id", 0) or 0)
+            bom_groups[key].append(bom)
+
+        rows = []
+        covered_keys: set[tuple[str, int]] = set()
+        covered_codes: set[str] = set()
+
+        for (code, aux), bom_list in bom_groups.items():
+            first = bom_list[0]
+            rows.append(_make_row(
+                code=code,
+                aux=aux,
+                material_name=getattr(first, "material_name", ""),
+                specification=getattr(first, "specification", ""),
+                aux_attributes=getattr(first, "aux_attributes", ""),
+                material_type=getattr(first, "material_type", 0),
+                need_qty=sum(getattr(b, "need_qty", ZERO) for b in bom_list),
+                picked_qty=sum(getattr(b, "picked_qty", ZERO) for b in bom_list),
+                no_picked_qty=sum(getattr(b, "no_picked_qty", ZERO) for b in bom_list),
+                mo_bill_no=getattr(first, "mo_bill_no", ""),
+                mto_number=getattr(first, "mto_number", ""),
+            ))
+            covered_keys.add((code, aux))
+            covered_codes.add(code)
+
+        # --- Step 2: Synthetic rows for items NOT in PPBOM ---
+        # Skip finished_goods (07.xx) — handled separately via _build_aggregated_sales_child
+
+        # Build set of 03.xx codes with PRD_MO for routing decisions
+        _prd_mo_03_codes: set[str] = {
+            po.material_code for po in prod_orders
+            if po.material_code.startswith("03.")
+        }
+
+        # 2a: Items from PRD_INSTOCK (05.xx or 03.xx) not in PPBOM
+        receipt_groups: dict[tuple[str, int], list] = defaultdict(list)
+        for pr in prod_receipts:
+            class_id, _ = self._get_material_class(pr.material_code)
+            if class_id in ("self_made", "purchased"):
+                aux = getattr(pr, "aux_prop_id", 0) or 0
+                receipt_groups[(pr.material_code, aux)].append(pr)
+
+        for (code, aux), pr_list in receipt_groups.items():
+            if (code, aux) in covered_keys or code in covered_codes:
+                continue
+            class_id, _ = self._get_material_class(code)
+            if class_id == "finished_goods":
+                continue
+            first = pr_list[0]
+            # 03.xx without PRD_MO → purchased (type=2); everything else → self-made (type=1)
+            if code.startswith("03.") and code not in _prd_mo_03_codes:
+                m_type = 2
+            else:
+                m_type = 1
+            rows.append(_make_row(
+                code=code, aux=aux,
+                material_name=getattr(first, "material_name", ""),
+                specification=getattr(first, "specification", ""),
+                aux_attributes="",
+                material_type=m_type,
+                need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+            ))
+            covered_keys.add((code, aux))
+            covered_codes.add(code)
+
+        # 2b: Purchase orders (03.xx) without PPBOM entry
+        pur_groups: dict[tuple[str, int], list] = defaultdict(list)
+        for pur in purchase_orders:
+            class_id, _ = self._get_material_class(pur.material_code)
+            if class_id == "purchased":
+                aux = getattr(pur, "aux_prop_id", 0) or 0
+                pur_groups[(pur.material_code, aux)].append(pur)
+
+        for (code, aux), pur_list in pur_groups.items():
+            if (code, aux) in covered_keys or code in covered_codes:
+                continue
+            first = pur_list[0]
+            rows.append(_make_row(
+                code=code, aux=aux,
+                material_name=getattr(first, "material_name", ""),
+                specification=getattr(first, "specification", ""),
+                aux_attributes=getattr(first, "aux_attributes", ""),
+                material_type=2,  # purchased
+                need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+            ))
+            covered_keys.add((code, aux))
+            covered_codes.add(code)
+
+        # 2c: PRD_MO (05.xx or 03.xx+selfmade) without PPBOM or receipts
+        mo_groups: dict[tuple[str, int], list] = defaultdict(list)
+        for po in prod_orders:
+            class_id, _ = self._get_material_class(po.material_code)
+            if class_id in ("self_made", "purchased"):
+                aux = getattr(po, "aux_prop_id", 0) or 0
+                mo_groups[(po.material_code, aux)].append(po)
+
+        for (code, aux), po_list in mo_groups.items():
+            if (code, aux) in covered_keys or code in covered_codes:
+                continue
+            class_id, _ = self._get_material_class(code)
+            if class_id == "finished_goods":
+                continue
+            first = po_list[0]
+            rows.append(_make_row(
+                code=code, aux=aux,
+                material_name=getattr(first, "material_name", ""),
+                specification=getattr(first, "specification", ""),
+                aux_attributes=getattr(first, "aux_attributes", ""),
+                material_type=1,  # self-made (PRD_MO implies production)
+                need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+            ))
+            covered_keys.add((code, aux))
+            covered_codes.add(code)
+
+        # 2d: Material picks without any other source
+        pick_groups: dict[tuple[str, int], list] = defaultdict(list)
+        for pick in material_picks:
+            class_id, _ = self._get_material_class(pick.material_code)
+            if class_id == "finished_goods":
+                continue
+            aux = getattr(pick, "aux_prop_id", 0) or 0
+            pick_groups[(pick.material_code, aux)].append(pick)
+
+        for (code, aux), pick_list in pick_groups.items():
+            if (code, aux) in covered_keys or code in covered_codes:
+                continue
+            first = pick_list[0]
+            # Infer type from code prefix
+            m_type = 1 if code.startswith("05.") else 2
+            rows.append(_make_row(
+                code=code, aux=aux,
+                material_name=getattr(first, "material_name", ""),
+                specification=getattr(first, "specification", ""),
+                aux_attributes="",
+                material_type=m_type,
+                need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+            ))
+            covered_keys.add((code, aux))
+            covered_codes.add(code)
+
+        return rows
 
     def _build_aggregated_sales_child(
         self,
@@ -887,10 +800,12 @@ class MTOQueryHandler:
         # 生产入库单.实收数量 — try exact (code, aux) first, then (code, 0) fallback
         # in case SAL_SaleOrder and PRD_INSTOCK have different aux_prop_id values
         key = (code, aux_prop_id)
+        _exact = receipt_by_material.get(key)
+        _fallback = receipt_by_material.get((code, 0))
         prod_instock_real_qty = (
-            receipt_by_material.get(key)
-            or receipt_by_material.get((code, 0))
-            or ZERO
+            _exact if _exact is not None else
+            _fallback if _fallback is not None else
+            ZERO
         )
 
         return ChildItem(
@@ -906,250 +821,87 @@ class MTOQueryHandler:
             prod_instock_real_qty=prod_instock_real_qty,
         )
 
-    def _build_aggregated_selfmade_child(
+    def _bom_row_to_child(
         self,
-        prod_receipts: list,
-        material_picks: list,
-        aux_descriptions: dict[int, str],
-        prd_mo_qty_by_key: dict[tuple[str, int], Decimal],
+        row: BOMJoinedRow,
+        aux_descriptions: dict,
+        prd_mo_qty_by_key: dict,
+        prd_mo_03_codes: set,
     ) -> ChildItem:
-        """Build ChildItem for 05.xx.xxx (自制) based on PRD_INSTOCK records.
+        """Convert a pre-joined BOM row into a ChildItem based on material_type.
 
-        字段映射 (金蝶原始字段):
-        - prod_instock_must_qty: 生产入库单.应收数量
-        - prod_instock_real_qty: 生产入库单.实收数量
-        - pick_actual_qty: 生产领料单.实发数量
+        This is the single conversion method for all BOM children (cache path).
+        Finished goods (07.xx) are handled separately via _build_aggregated_sales_child.
+
+        Routing rules:
+        - 03.xx with PRD_MO → treated as self-made (effective_type=1)
+        - material_type=1 → 自制 (self-made)
+        - material_type=2 → 包材 (purchased)
+        - material_type=3 → 委外 (subcontracted)
         """
-        first = prod_receipts[0]
-        code = first.material_code
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "")
+        aux_attrs = aux_descriptions.get(row.aux_prop_id, "") or row.aux_attributes
 
-        # 生产入库单.应收数量 — use PRD_MO.FQty (production order qty) as source of truth;
-        # Try exact (code, aux_prop_id) first, then (code, 0) fallback for 03.xx materials
-        # where PRD_MO has aux_prop_id=0 but PRD_INSTOCK has a specific variant
-        key = (code, aux_prop_id)
-        prod_instock_must_qty = (
-            prd_mo_qty_by_key.get(key)
-            or prd_mo_qty_by_key.get((code, 0))
-            or sum(r.must_qty for r in prod_receipts)
-        )
+        # Determine effective material type
+        # 03.xx with PRD_MO → self-made
+        is_03_selfmade = row.material_code in prd_mo_03_codes
+        effective_type = 1 if is_03_selfmade else row.material_type
 
-        # 生产入库单.实收数量
-        prod_instock_real_qty = sum(r.real_qty for r in prod_receipts)
-
-        # 生产领料单.实发数量 - 按 (material_code, aux_prop_id) 汇总
-        pick_actual_qty = sum(
-            p.actual_qty for p in material_picks
-            if p.material_code == code and (getattr(p, "aux_prop_id", 0) or 0) == aux_prop_id
-        )
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.SELF_MADE,
-            material_type_name="自制",
-            # 金蝶原始字段
-            prod_instock_must_qty=prod_instock_must_qty,
-            prod_instock_real_qty=prod_instock_real_qty,
-            pick_actual_qty=pick_actual_qty,
-        )
-
-    def _build_aggregated_purchase_child(
-        self,
-        purchase_orders: list,
-        pick_request: dict[tuple[str, int], Decimal],
-        pick_actual: dict[tuple[str, int], Decimal],
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 03.xx.xxx (外购) from PUR_PurchaseOrder records.
-
-        字段映射 (金蝶原始字段):
-        - purchase_order_qty: 采购订单.数量
-        - purchase_stock_in_qty: 采购订单.累计入库数量
-        - pick_actual_qty: 生产领料单.实发数量
-        """
-        first = purchase_orders[0]
-        code = first.material_code
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
-
-        # 采购订单.数量
-        purchase_order_qty = sum(getattr(po, "order_qty", ZERO) for po in purchase_orders)
-
-        # 采购订单.累计入库数量
-        purchase_stock_in_qty = sum(getattr(po, "stock_in_qty", ZERO) for po in purchase_orders)
-
-        # 生产领料单.实发数量 - 按 (material_code, aux_prop_id) 汇总
-        pick_actual_qty = pick_actual.get((code, aux_prop_id), ZERO)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.PURCHASED,
-            material_type_name="包材",
-            # 金蝶原始字段
-            purchase_order_qty=purchase_order_qty,
-            purchase_stock_in_qty=purchase_stock_in_qty,
-            pick_actual_qty=pick_actual_qty,
-        )
-
-    def _build_purchased_child_from_ppbom(
-        self,
-        bom_items: list,
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 03.xx.xxx (包材) from PRD_PPBOM.
-
-        当物料从现有库存领料时（没有针对此 MTO 的采购订单），使用 PPBOM 数据。
-
-        字段映射:
-        - purchase_order_qty: PPBOM.FMustQty (需求数量)
-        - purchase_stock_in_qty: 0 (无采购订单)
-        - pick_actual_qty: PPBOM.FPickedQty (已领数量)
-        """
-        first = bom_items[0]
-        code = first.material_code
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
-
-        # 从 PPBOM 获取领料数据
-        need_qty = sum(getattr(b, "need_qty", ZERO) for b in bom_items)
-        picked_qty = sum(getattr(b, "picked_qty", ZERO) for b in bom_items)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.PURCHASED,
-            material_type_name="包材",
-            # PPBOM 字段映射到显示列
-            purchase_order_qty=need_qty,      # 需求量 → "采购订单.数量" 列
-            purchase_stock_in_qty=ZERO,       # 无采购订单，入库为 0
-            pick_actual_qty=picked_qty,       # 已领量 → "生产领料单.实发数量" 列
-        )
-
-    def _build_purchased_child_from_pickmtrl(
-        self,
-        pick_items: list,
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 03.xx.xxx (包材) from PRD_PickMtrl (直接领料).
-
-        当物料从现有库存直接领料，不在 PUR 或 PPBOM 中时使用。
-        这些物料通常是库存充足、无需新采购的包材。
-
-        字段映射:
-        - purchase_order_qty: PRD_PickMtrl.FAppQty (申请数量)
-        - purchase_stock_in_qty: 0 (无采购订单)
-        - pick_actual_qty: PRD_PickMtrl.FActualQty (实发数量)
-        """
-        first = pick_items[0]
-        code = first.material_code
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
-
-        # 从 PickMtrl 获取领料数据
-        app_qty = sum(getattr(p, "app_qty", ZERO) for p in pick_items)
-        actual_qty = sum(getattr(p, "actual_qty", ZERO) for p in pick_items)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.PURCHASED,
-            material_type_name="包材",
-            # PickMtrl 字段映射到显示列
-            purchase_order_qty=app_qty,       # 申请量 → "采购订单.数量" 列
-            purchase_stock_in_qty=ZERO,       # 无采购入库
-            pick_actual_qty=actual_qty,       # 实发量 → "生产领料单.实发数量" 列
-        )
-
-    def _build_selfmade_child_from_pickmtrl(
-        self,
-        pick_items: list,
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 05.xx.xxx (自制) from PRD_PickMtrl (库存领料).
-
-        当物料从现有库存直接领料，不在 PRD_INSTOCK 中时使用。
-        这些物料通常是库存充足、无需新生产的自制件。
-
-        字段映射:
-        - prod_instock_must_qty: PRD_PickMtrl.FAppQty (申请数量)
-        - prod_instock_real_qty: 0 (无入库记录)
-        - pick_actual_qty: PRD_PickMtrl.FActualQty (实发数量)
-        """
-        first = pick_items[0]
-        code = first.material_code
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
-
-        # 从 PickMtrl 获取领料数据
-        app_qty = sum(getattr(p, "app_qty", ZERO) for p in pick_items)
-        actual_qty = sum(getattr(p, "actual_qty", ZERO) for p in pick_items)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.SELF_MADE,
-            material_type_name="自制",
-            # PickMtrl 字段映射到显示列
-            prod_instock_must_qty=app_qty,    # 申请量 → "生产入库单.应收数量" 列
-            prod_instock_real_qty=ZERO,       # 无入库记录
-            pick_actual_qty=actual_qty,       # 实发量 → "生产领料单.实发数量" 列
-        )
-
-    def _build_selfmade_child_from_prd_mo(
-        self,
-        prod_orders: list,
-        receipt_by_material: dict[tuple[str, int], Decimal],
-        pick_actual: dict[tuple[str, int], Decimal],
-        aux_descriptions: dict[int, str],
-    ) -> ChildItem:
-        """Build ChildItem for 05.xx.xxx (自制) from PRD_MO (生产订单).
-
-        当生产订单已下达但尚未开始生产时使用（如 计划确认 状态）。
-        这些物料在 PRD_INSTOCK 和 PRD_PickMtrl 中没有记录。
-
-        字段映射:
-        - prod_instock_must_qty: PRD_MO.FQty (订单数量，作为应收数量)
-        - prod_instock_real_qty: sum from PRD_INSTOCK (实际入库，通常为 0)
-        - pick_actual_qty: sum from PRD_PickMtrl (实际领料，通常为 0)
-        """
-        first = prod_orders[0]
-        code = first.material_code
-        aux_prop_id = getattr(first, "aux_prop_id", 0) or 0
-        aux_attrs = aux_descriptions.get(aux_prop_id, "") or getattr(first, "aux_attributes", "")
-
-        # PRD_MO.FQty as order/expected quantity
-        order_qty = sum(getattr(po, "qty", ZERO) for po in prod_orders)
-
-        # O(1) lookup from pre-computed dicts (usually 0 for unprocessed orders)
-        key = (code, aux_prop_id)
-        receipt_qty = receipt_by_material.get(key, ZERO)
-        pick_qty = pick_actual.get(key, ZERO)
-
-        return ChildItem(
-            material_code=code,
-            material_name=getattr(first, "material_name", ""),
-            specification=getattr(first, "specification", ""),
-            aux_attributes=aux_attrs,
-            material_type=MaterialType.SELF_MADE,
-            material_type_name="自制",
-            # PRD_MO 字段映射到显示列
-            prod_instock_must_qty=order_qty,   # 订单量 → "生产入库单.应收数量" 列
-            prod_instock_real_qty=receipt_qty, # 实际入库 → "生产入库单.实收数量" 列
-            pick_actual_qty=pick_qty,          # 实际领料 → "生产领料单.实发数量" 列
-        )
+        if effective_type == 1:  # 自制
+            # Use PRD_MO qty as demand if available, else BOM need_qty
+            key = (row.material_code, row.aux_prop_id)
+            _exact = prd_mo_qty_by_key.get(key)
+            _fallback = prd_mo_qty_by_key.get((row.material_code, 0))
+            demand_qty = (
+                _exact if _exact is not None else
+                _fallback if _fallback is not None else
+                row.need_qty
+            )
+            return ChildItem(
+                material_code=row.material_code,
+                material_name=row.material_name,
+                specification=row.specification,
+                aux_attributes=aux_attrs,
+                material_type=MaterialType.SELF_MADE,
+                material_type_name="自制",
+                prod_instock_must_qty=demand_qty,
+                prod_instock_real_qty=row.prod_receipt_real_qty,
+                pick_actual_qty=row.pick_actual_qty,
+            )
+        elif effective_type == 2:  # 外购/包材
+            return ChildItem(
+                material_code=row.material_code,
+                material_name=row.material_name,
+                specification=row.specification,
+                aux_attributes=aux_attrs,
+                material_type=MaterialType.PURCHASED,
+                material_type_name="包材",
+                purchase_order_qty=row.purchase_order_qty if row.purchase_order_qty else row.need_qty,
+                purchase_stock_in_qty=row.purchase_stock_in_qty,
+                pick_actual_qty=row.pick_actual_qty if row.pick_actual_qty else row.picked_qty,
+            )
+        elif effective_type == 3:  # 委外
+            return ChildItem(
+                material_code=row.material_code,
+                material_name=row.material_name,
+                specification=row.specification,
+                aux_attributes=aux_attrs,
+                material_type=MaterialType.SUBCONTRACTED,
+                material_type_name="委外",
+                purchase_order_qty=row.subcontract_order_qty if row.subcontract_order_qty else row.need_qty,
+                purchase_stock_in_qty=row.subcontract_stock_in_qty,
+                pick_actual_qty=row.pick_actual_qty,
+            )
+        else:
+            # Unknown type — still show it with BOM demand data
+            return ChildItem(
+                material_code=row.material_code,
+                material_name=row.material_name,
+                specification=row.specification,
+                aux_attributes=aux_attrs,
+                material_type=effective_type,
+                material_type_name="未知",
+                prod_instock_must_qty=row.need_qty,
+            )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
         """Build ParentItem from sales order information."""

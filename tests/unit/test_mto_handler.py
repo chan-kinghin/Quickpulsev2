@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.query.cache_reader import BOMJoinedRow
 from src.query.mto_handler import (
     MaterialType,
     MTOQueryHandler,
@@ -255,29 +256,14 @@ class TestMTOQueryHandler:
         from src.query.cache_reader import CacheResult
 
         mock_cache = MagicMock()
-        # Mock all cache methods to return empty (cache miss)
+        # Mock BOM-first cache methods to return empty (cache miss)
         mock_cache.get_sales_orders = AsyncMock(
             return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
         )
         mock_cache.get_production_orders = AsyncMock(
             return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
         )
-        mock_cache.get_purchase_orders = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
-        )
-        mock_cache.get_production_receipts = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
-        )
-        mock_cache.get_purchase_receipts = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
-        )
-        mock_cache.get_material_picking = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
-        )
-        mock_cache.get_sales_delivery = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
-        )
-        mock_cache.get_production_bom_by_mto = AsyncMock(
+        mock_cache.get_mto_bom_joined = AsyncMock(
             return_value=CacheResult(data=[], synced_at=None, is_fresh=False)
         )
 
@@ -312,7 +298,7 @@ class TestMTOQueryHandler:
         mock_cache = MagicMock()
         synced_at = datetime.utcnow()
 
-        # Mock cache to return sales orders (cache hit)
+        # Mock BOM-first cache to return sales orders (cache hit)
         mock_cache.get_sales_orders = AsyncMock(
             return_value=CacheResult(
                 data=sample_sales_orders,
@@ -323,22 +309,7 @@ class TestMTOQueryHandler:
         mock_cache.get_production_orders = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
-        mock_cache.get_purchase_orders = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
-        )
-        mock_cache.get_production_receipts = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
-        )
-        mock_cache.get_purchase_receipts = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
-        )
-        mock_cache.get_material_picking = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
-        )
-        mock_cache.get_sales_delivery = AsyncMock(
-            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
-        )
-        mock_cache.get_production_bom_by_mto = AsyncMock(
+        mock_cache.get_mto_bom_joined = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
 
@@ -1301,3 +1272,454 @@ class TestSalesReceiptFallback(TestMTOQueryHandler):
         assert child.sales_order_qty == Decimal("500")
         # Should find receipt via (code, 0) fallback, NOT show 0
         assert child.prod_instock_real_qty == Decimal("500")
+
+
+class TestBuildBomJoinedRowsFromLive:
+    """Tests for _build_bom_joined_rows_from_live synthetic entries.
+
+    This method converts live Kingdee API data into BOMJoinedRow objects.
+    Step 1 builds rows from PPBOM (primary source).
+    Step 2 creates SYNTHETIC rows for items found in receipts/picks/orders
+    but NOT in PPBOM.
+    """
+
+    def _make_handler(self, mock_readers):
+        """Create handler for direct method testing."""
+        return MTOQueryHandler(
+            production_order_reader=mock_readers["production_order"],
+            production_bom_reader=mock_readers["production_bom"],
+            production_receipt_reader=mock_readers["production_receipt"],
+            purchase_order_reader=mock_readers["purchase_order"],
+            purchase_receipt_reader=mock_readers["purchase_receipt"],
+            subcontracting_order_reader=mock_readers["subcontracting_order"],
+            material_picking_reader=mock_readers["material_picking"],
+            sales_delivery_reader=mock_readers["sales_delivery"],
+            sales_order_reader=mock_readers["sales_order"],
+        )
+
+    def test_all_items_in_ppbom_no_synthetic(self, mock_readers):
+        """When PPBOM covers all items, no synthetic rows are created."""
+        bom = ProductionBOMModel(
+            mo_bill_no="MO001",
+            mto_number="AS001",
+            material_code="05.01.001",
+            material_name="自制件A",
+            specification="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("100"),
+            picked_qty=Decimal("50"),
+            no_picked_qty=Decimal("50"),
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK001",
+            mto_number="AS001",
+            material_code="05.01.001",
+            material_name="自制件A",
+            specification="",
+            real_qty=Decimal("80"),
+            must_qty=Decimal("100"),
+            aux_prop_id=0,
+            mo_bill_no="MO001",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[bom],
+            prod_orders=[],
+            prod_receipts=[receipt],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        assert rows[0].material_code == "05.01.001"
+        assert rows[0].need_qty == Decimal("100")
+        # Receipt data aggregated into the BOM row
+        assert rows[0].prod_receipt_real_qty == Decimal("80")
+
+    def test_receipt_not_in_ppbom_creates_synthetic(self, mock_readers):
+        """PRD_INSTOCK item not in PPBOM gets a synthetic row."""
+        receipt = ProductionReceiptModel(
+            bill_no="RK100",
+            mto_number="AS100",
+            material_code="05.02.001",
+            material_name="自制件B",
+            specification="规格X",
+            real_qty=Decimal("50"),
+            must_qty=Decimal("50"),
+            aux_prop_id=0,
+            mo_bill_no="MO100",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],  # No PPBOM
+            prod_orders=[],
+            prod_receipts=[receipt],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "05.02.001"
+        assert row.material_type == 1  # self-made
+        assert row.need_qty == Decimal("0")  # synthetic has no BOM demand
+        assert row.prod_receipt_real_qty == Decimal("50")
+
+    def test_purchase_order_not_in_ppbom_creates_synthetic(self, mock_readers):
+        """PUR order not in PPBOM gets a synthetic row with type=2."""
+        purchase = PurchaseOrderModel(
+            bill_no="PO100",
+            mto_number="AS100",
+            material_code="03.01.001",
+            material_name="包材A",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            order_qty=Decimal("200"),
+            stock_in_qty=Decimal("100"),
+            remain_stock_in_qty=Decimal("100"),
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[purchase],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "03.01.001"
+        assert row.material_type == 2  # purchased
+        assert row.purchase_order_qty == Decimal("200")
+        assert row.purchase_stock_in_qty == Decimal("100")
+
+    def test_finished_goods_never_get_synthetic(self, mock_readers):
+        """07.xx items are never created as synthetic rows."""
+        receipt_07 = ProductionReceiptModel(
+            bill_no="RK200",
+            mto_number="AS200",
+            material_code="07.02.037",
+            material_name="成品A",
+            specification="",
+            real_qty=Decimal("100"),
+            must_qty=Decimal("100"),
+            aux_prop_id=0,
+            mo_bill_no="MO200",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[],
+            prod_receipts=[receipt_07],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        # 07.xx is finished_goods — handled via _build_aggregated_sales_child, not synthetic
+        assert len(rows) == 0
+
+    def test_dedup_prevents_duplicate_synthetic(self, mock_readers):
+        """Item in both receipts and picks only gets one synthetic row."""
+        receipt = ProductionReceiptModel(
+            bill_no="RK300",
+            mto_number="AS300",
+            material_code="05.01.005",
+            material_name="自制件C",
+            specification="",
+            real_qty=Decimal("40"),
+            must_qty=Decimal("50"),
+            aux_prop_id=0,
+            mo_bill_no="MO300",
+        )
+        pick = MaterialPickingModel(
+            bill_no="PM300",
+            mto_number="AS300",
+            material_code="05.01.005",
+            app_qty=Decimal("50"),
+            actual_qty=Decimal("40"),
+            ppbom_bill_no="MO300",
+            aux_prop_id=0,
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[],
+            prod_receipts=[receipt],
+            material_picks=[pick],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        # Only one row despite appearing in both receipts and picks
+        assert len(rows) == 1
+        assert rows[0].material_code == "05.01.005"
+        # Pick data should still be aggregated into the row
+        assert rows[0].pick_actual_qty == Decimal("40")
+
+    def test_ppbom_item_enriched_with_receipt_data(self, mock_readers):
+        """PPBOM item gets receipt/pick data via pre-aggregation in _make_row."""
+        bom = ProductionBOMModel(
+            mo_bill_no="MO400",
+            mto_number="AS400",
+            material_code="05.01.010",
+            material_name="自制件D",
+            specification="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("200"),
+            picked_qty=Decimal("100"),
+            no_picked_qty=Decimal("100"),
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK400",
+            mto_number="AS400",
+            material_code="05.01.010",
+            material_name="自制件D",
+            specification="",
+            real_qty=Decimal("150"),
+            must_qty=Decimal("200"),
+            aux_prop_id=0,
+            mo_bill_no="MO400",
+        )
+        pick = MaterialPickingModel(
+            bill_no="PM400",
+            mto_number="AS400",
+            material_code="05.01.010",
+            app_qty=Decimal("200"),
+            actual_qty=Decimal("180"),
+            ppbom_bill_no="MO400",
+            aux_prop_id=0,
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[bom],
+            prod_orders=[],
+            prod_receipts=[receipt],
+            material_picks=[pick],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "05.01.010"
+        assert row.need_qty == Decimal("200")
+        assert row.prod_receipt_real_qty == Decimal("150")
+        assert row.pick_actual_qty == Decimal("180")
+        assert row.pick_app_qty == Decimal("200")
+
+    def test_03_receipt_without_prd_mo_gets_type_2(self, mock_readers):
+        """03.xx in PRD_INSTOCK without PRD_MO gets synthetic row with type=2 (purchased).
+
+        Bug fix: previously all synthetic PRD_INSTOCK rows got type=1 (self-made),
+        even 03.xx items that have no production order and should be purchased.
+        """
+        receipt = ProductionReceiptModel(
+            bill_no="RK500",
+            mto_number="AS500",
+            material_code="03.01.005",
+            material_name="包材X",
+            specification="",
+            real_qty=Decimal("30"),
+            must_qty=Decimal("30"),
+            aux_prop_id=0,
+            mo_bill_no="",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[],  # No PRD_MO for this 03.xx
+            prod_receipts=[receipt],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "03.01.005"
+        assert row.material_type == 2  # purchased, NOT self-made
+
+    def test_03_receipt_with_prd_mo_gets_type_1(self, mock_readers):
+        """03.xx in PRD_INSTOCK with PRD_MO gets synthetic row with type=1 (self-made)."""
+        receipt = ProductionReceiptModel(
+            bill_no="RK600",
+            mto_number="AS600",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            real_qty=Decimal("300"),
+            must_qty=Decimal("500"),
+            aux_prop_id=0,
+            mo_bill_no="MO600",
+        )
+        prod_order = ProductionOrderModel(
+            bill_no="MO600",
+            mto_number="AS600",
+            workshop="纸箱工段",
+            material_code="03.05.001",
+            material_name="纸箱A",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("500"),
+            status="已审核",
+            create_date="2025-12-01",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[prod_order],  # Has PRD_MO → self-made
+            prod_receipts=[receipt],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "03.05.001"
+        assert row.material_type == 1  # self-made because PRD_MO exists
+
+    def test_prd_mo_only_creates_synthetic_when_no_bom_or_receipt(self, mock_readers):
+        """PRD_MO item not in PPBOM and not in receipts still gets a synthetic row."""
+        prod_order = ProductionOrderModel(
+            bill_no="MO700",
+            mto_number="AS700",
+            workshop="成型工段",
+            material_code="05.03.001",
+            material_name="自制件E",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("1000"),
+            status="已审核",
+            create_date="2025-12-01",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[prod_order],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "05.03.001"
+        assert row.material_type == 1  # self-made (PRD_MO implies production)
+
+    def test_covered_codes_dedup_prevents_aux_variant_synthetic(self, mock_readers):
+        """BOM item with aux=0 prevents synthetic row for same code with aux=5.
+
+        The covered_codes set uses material_code only, so a BOM entry for
+        (03.01.001, aux=0) prevents any synthetic row for 03.01.001 regardless
+        of aux_prop_id. This is correct because BOM is authoritative — receipt
+        data for other aux variants is already aggregated via _make_row lookups.
+        """
+        bom = ProductionBOMModel(
+            mo_bill_no="MO800",
+            mto_number="AS800",
+            material_code="03.01.001",
+            material_name="包材Y",
+            specification="",
+            aux_prop_id=0,
+            material_type=2,
+            need_qty=Decimal("100"),
+            picked_qty=Decimal("50"),
+            no_picked_qty=Decimal("50"),
+        )
+        # Receipt has different aux variant
+        receipt = ProductionReceiptModel(
+            bill_no="RK800",
+            mto_number="AS800",
+            material_code="03.01.001",
+            material_name="包材Y",
+            specification="",
+            real_qty=Decimal("30"),
+            must_qty=Decimal("30"),
+            aux_prop_id=5,  # Different from BOM!
+            mo_bill_no="MO800",
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[bom],
+            prod_orders=[],
+            prod_receipts=[receipt],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        # Only one row from BOM — no synthetic for the aux=5 receipt
+        assert len(rows) == 1
+        assert rows[0].material_code == "03.01.001"
+        assert rows[0].aux_prop_id == 0  # From BOM, not receipt
+
+    def test_pick_only_creates_synthetic_with_inferred_type(self, mock_readers):
+        """Material pick without any other source creates synthetic row."""
+        pick = MaterialPickingModel(
+            bill_no="PM900",
+            mto_number="AS900",
+            material_code="03.02.001",
+            app_qty=Decimal("100"),
+            actual_qty=Decimal("80"),
+            ppbom_bill_no="MO900",
+            aux_prop_id=0,
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[],
+            prod_receipts=[],
+            material_picks=[pick],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "03.02.001"
+        # 03.xx → type=2 (purchased inferred from prefix)
+        assert row.material_type == 2
+        assert row.pick_actual_qty == Decimal("80")
