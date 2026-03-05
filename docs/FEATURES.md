@@ -189,12 +189,27 @@ Shows all linked orders by type:
 | `/api/cache/warm` | POST | Pre-load MTOs |
 | `/api/cache/hot-mtos` | GET | Hot MTO list |
 
+### Agent Chat (`/api/agent-chat`)
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/agent-chat/status` | GET | Check agent chat availability |
+| `/api/agent-chat/stream` | POST | Stream agent chat response (SSE) |
+
+### Admin Analytics (`/api/admin`)
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/admin/usage/summary` | GET | Usage summary stats |
+| `/api/admin/usage/by-ip` | GET | Usage breakdown by IP |
+| `/api/admin/usage/timeline` | GET | Usage timeline data |
+| `/api/admin/usage/recent` | GET | Recent usage entries |
+
 ### Health & Static
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/` | GET | Login page |
 | `/dashboard.html` | GET | MTO query dashboard |
 | `/sync.html` | GET | Sync management |
+| `/admin.html` | GET | Admin analytics (使用分析) |
 | `/health` | GET | Health check |
 
 ---
@@ -220,35 +235,67 @@ Shows all linked orders by type:
 
 ---
 
-## Data Flow for MTO Lookup
+## Data Flow for MTO Lookup (BOM-first Architecture)
 
+### Cache Path (default, <100ms)
 ```
 User Input: MTO "AK2510034"
     │
     ▼
-[Kingdee Client] → Parallel Queries:
-    ├─ PRD_MO.FMTONo = 'AK2510034'
-    │  → Get parent item (material, customer, delivery date)
-    │
-    ├─ PRD_PPBOM.FMTONO = 'AK2510034'
-    │  → Get child items with material types
-    │
-    ├─ By Material Type:
-    │  ├─ Type 1 (自制): PRD_INSTOCK.FMtoNo
-    │  ├─ Type 2 (外购): STK_InStock (RKD01_SYS)
-    │  └─ Type 3 (委外): STK_InStock (RKD02_SYS)
-    │
-    └─ Additional queries:
-       ├─ PRD_PickMtrl (material picking)
-       ├─ SAL_OUTSTOCK (sales delivery)
-       └─ PUR_PurchaseOrder (order quantities)
+[SQLite] → 3 Queries:
+    ├─ SAL_SaleOrder        → Parent item (customer, delivery date)
+    ├─ PRD_MO               → Production order info
+    └─ BOM JOIN Query       → PPBOM LEFT JOIN receipts/picking/purchase
+    │                          (get_mto_bom_joined SQL query)
     │
     ▼
-[Aggregation] → Combine results by material code
+[_bom_row_to_child()] → Unified conversion (shared with live path)
     │
     ▼
 Response: MTOStatusResponse
 ```
+
+### Live Path (`?source=live`, 1-5s)
+```
+User Input: MTO "AK2510034"
+    │
+    ▼
+[Kingdee API] → Parallel Queries:
+    ├─ PRD_MO, SAL_SaleOrder, PRD_PPBOM
+    ├─ PRD_INSTOCK, STK_InStock
+    ├─ PUR_PurchaseOrder, PRD_PickMtrl
+    └─ SAL_OUTSTOCK
+    │
+    ▼
+[Synthetic BOMJoinedRow] → Same _bom_row_to_child() conversion
+    │
+    ▼
+Response: MTOStatusResponse
+```
+
+> Use `?source=cache` or `?source=live` to force a specific path for debugging.
+
+---
+
+## AI Chat & Agent Pipeline
+
+### Simple Chat (`/api/chat/`)
+- **LLM**: DeepSeek (OpenAI-compatible API via `openai` SDK)
+- **Modes**: MTO context mode + Analytics (SQL generation) mode
+- **Streaming**: Server-Sent Events (SSE) for real-time responses
+- **SQL Guard**: Whitelist-based table validation, auto-LIMIT, comment stripping
+
+### Agent Chat (`/api/agent-chat/`)
+- **Dual-agent pipeline**: RetrievalAgent (max 6 steps) → ReasoningAgent (max 8 steps)
+- **Fast path**: Skips retrieval for MTO-number questions and schema questions
+- **Token budget**: 48K per agent
+- **Config**: `AGENT_*` env prefix, falls back to `DEEPSEEK_*`
+
+### Admin Analytics (`/api/admin/`)
+- **IP Usage Tracking**: Automatic middleware tracks all API requests
+- **Geolocation**: IP → Chinese address display
+- **Endpoints**: `/usage/summary`, `/usage/by-ip`, `/usage/timeline`, `/usage/recent`
+- **UI**: `/admin.html` — 使用分析 dashboard
 
 ---
 
@@ -257,10 +304,10 @@ Response: MTOStatusResponse
 | Operation | Response Time | Notes |
 |-----------|---------------|-------|
 | Hot memory cache hit | <10ms | L1 cache |
-| SQLite cache hit | ~100ms | L2 cache |
+| SQLite cache hit (BOM JOIN) | ~50-100ms | L2 cache with SQL JOIN |
 | Kingdee API call | 1-5s | Live query |
-| Full sync (90 days) | 5-15 min | Parallel processing |
-| CSV export | <1s | Live data |
+| Full sync (365 days) | ~12 min | ~935K records |
+| CSV/Excel export | <1s | 14 columns including BOM简称 and 完成率 |
 
 ---
 

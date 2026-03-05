@@ -6,19 +6,37 @@
 
 ## 一、项目架构概述
 
-### 数据流
+### 数据流（BOM-first 架构，2026-03 重构后）
+
 ```
-MTO 单号 → 7个并行查询 → 按物料聚合 → 按类型构建 ChildItem → UI 显示
+缓存路径: MTO 单号 → 3 个 SQL 查询 (BOM JOIN) → _bom_row_to_child() → UI 显示
+实时路径: MTO 单号 → 并行金蝶 API → synthetic BOMJoinedRow → _bom_row_to_child() → UI 显示
 ```
+
+> 两条路径共用 `_bom_row_to_child()` 方法，确保输出一致。
 
 ### 关键文件
 | 文件 | 作用 | 修改频率 |
 |-----|------|---------|
 | `config/mto_config.json` | 物料类型路由 + 列计算配置 | ⭐ 高 |
-| `src/readers/factory.py` | 金蝶字段映射 (Python) | ⭐⭐ 中 |
+| `src/readers/factory.py` | 金蝶字段映射 — 实时路径 (Python) | ⭐⭐ 中 |
 | `src/readers/models.py` | Pydantic 数据模型 | ⭐⭐ 中 |
-| `src/query/mto_handler.py` | 数据聚合逻辑 | ⭐⭐⭐ 低 |
+| `src/query/cache_reader.py` | 缓存路径核心 — BOM JOIN 查询 + `_row_to_*` 方法 | ⭐⭐⭐ 高 |
+| `src/query/mto_handler.py` | 数据聚合逻辑 — `_bom_row_to_child()` 统一转换 | ⭐⭐⭐ 中 |
+| `src/sync/sync_service.py` | 同步写入 — INSERT 列必须与 cache_reader SELECT 对齐 | ⭐⭐ 中 |
 | `src/frontend/dashboard.html` | UI 表格显示 | ⭐⭐ 中 |
+
+### 三层缓存一致性检查清单
+
+> **添加/修改字段时必须同时修改以下三个文件**，否则缓存路径会静默丢失数据：
+
+| 层 | 文件 | 作用 |
+|----|------|------|
+| 1. 实时路径 | `src/readers/factory.py` | FieldMapping: 金蝶 API → model |
+| 2. 缓存读取 | `src/query/cache_reader.py` | SELECT 列 + `_row_to_*` 方法: SQLite → model |
+| 3. 同步写入 | `src/sync/sync_service.py` | INSERT 列: model → SQLite |
+
+**测试也要更新**：`tests/unit/test_cache_reader.py` 的 test row tuples 是位置相关的，加列后必须同步更新。
 
 ### 物料类型路由规则
 | 物料编码前缀 | 类型 | 源单 | MTO 字段 |

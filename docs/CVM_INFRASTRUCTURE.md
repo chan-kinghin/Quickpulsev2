@@ -92,8 +92,10 @@ All services are accessible via custom subdomains with Let's Encrypt SSL certifi
 
 | Container | Memory Limit | Health |
 |-----------|-------------|--------|
-| `quickpulse-prod` | 128 MB | `/health` |
-| `quickpulse-dev` | 96 MB | `/health` |
+| `quickpulse-prod` | 512 MB | `/health` |
+| `quickpulse-dev` | 384 MB | `/health` |
+
+> **Note**: Memory limits were increased from 128/96 MB to support 365-day sync (~935K records, ~290MB peak usage). Run syncs one at a time on CVM — running both simultaneously can OOM.
 
 - **Stack**: Python 3.11, FastAPI, uvicorn
 - **Source**: `/opt/ops/apps/quickpulse/{dev,prod}/repo/`

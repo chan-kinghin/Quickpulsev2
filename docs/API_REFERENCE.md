@@ -15,10 +15,12 @@ All `/api/*` responses include the header `X-API-Version: 1`.
 5. [Sync Management](#sync-management)
 6. [Cache Management](#cache-management)
 7. [Chat (AI Assistant)](#chat-ai-assistant)
-8. [Health](#health)
-9. [Error Handling](#error-handling)
-10. [Rate Limits](#rate-limits)
-11. [CORS Configuration](#cors-configuration)
+8. [Agent Chat (Dual-Agent Pipeline)](#agent-chat-dual-agent-pipeline)
+9. [Admin Analytics (IP Usage Tracking)](#admin-analytics-ip-usage-tracking)
+10. [Health](#health)
+11. [Error Handling](#error-handling)
+12. [Rate Limits](#rate-limits)
+13. [CORS Configuration](#cors-configuration)
 
 ---
 
@@ -121,15 +123,25 @@ Retrieve the full MTO status including parent order info, child BOM items, and s
 
 **Query parameters:**
 
-| Parameter   | Type | Default | Description                                        |
-|-------------|------|---------|----------------------------------------------------|
-| `use_cache` | bool | `true`  | Use cached data if available and fresh (< 1 hour)  |
+| Parameter   | Type   | Default | Description                                        |
+|-------------|--------|---------|----------------------------------------------------|
+| `use_cache` | bool   | `true`  | Use cached data if available and fresh (< 1 hour)  |
+| `source`    | string | `null`  | Force data source: `"cache"` or `"live"`. Overrides `use_cache`. |
 
 **Request:**
 
 ```bash
+# Default (cache with fallback)
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://fltpulse.szfluent.cn/api/mto/AK2510034?use_cache=true"
+  "https://fltpulse.szfluent.cn/api/mto/AK2510034"
+
+# Force cache-only (errors if no cached data)
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://fltpulse.szfluent.cn/api/mto/AK2510034?source=cache"
+
+# Force live Kingdee API
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://fltpulse.szfluent.cn/api/mto/AK2510034?source=live"
 ```
 
 **Response** `200 OK`:
@@ -300,7 +312,7 @@ curl -H "Authorization: Bearer $TOKEN" \
   "https://fltpulse.szfluent.cn/api/export/mto/AK2510034"
 ```
 
-**Response** `200 OK`: CSV file download with `Content-Disposition` header. The CSV columns are:
+**Response** `200 OK`: CSV file download with `Content-Disposition` header. The CSV has 14 columns:
 
 | Column               | Description               |
 |----------------------|---------------------------|
@@ -316,6 +328,8 @@ curl -H "Authorization: Bearer $TOKEN" \
 | 生产领料单.实发数量  | Material picking actual qty |
 | 生产入库单.实收数量  | Production receipt actual qty |
 | 采购订单.累计入库数量 | Purchase cumulative instock qty |
+| 完成率               | Fulfillment rate (%)      |
+| 完成状态             | Completion status         |
 
 ---
 
@@ -732,6 +746,91 @@ data: {"type": "done"}
   "error_code": "service_unavailable"
 }
 ```
+
+---
+
+## Agent Chat (Dual-Agent Pipeline)
+
+The agent chat uses a two-stage pipeline: RetrievalAgent (data gathering, max 6 steps) → ReasoningAgent (analysis, max 8 steps). It provides more sophisticated answers than the simple chat by iteratively querying the database.
+
+### GET /api/agent-chat/status
+
+Check whether the agent chat feature is available. **No authentication required.**
+
+**Request:**
+
+```bash
+curl "https://fltpulse.szfluent.cn/api/agent-chat/status"
+```
+
+**Response** `200 OK`:
+
+```json
+{
+  "available": true,
+  "model": "deepseek-chat"
+}
+```
+
+### POST /api/agent-chat/stream
+
+Stream an agent chat response using Server-Sent Events (SSE). The agent may execute multiple SQL queries iteratively before producing a final answer.
+
+**Rate limit:** 10 requests/minute
+
+**Request body** (JSON):
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -N \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "哪些MTO的完成率最低？"}
+    ]
+  }' \
+  "https://fltpulse.szfluent.cn/api/agent-chat/stream"
+```
+
+**SSE event types:**
+
+| Event type | Fields | Description |
+|------------|--------|-------------|
+| `token` | `content` | Streaming text token |
+| `step` | `agent`, `action`, `detail` | Agent step progress |
+| `sql` | `query` | SQL being executed |
+| `sql_result` | `columns`, `rows`, `total_rows` | Query results |
+| `error` | `message` | Error message |
+| `done` | -- | Stream complete |
+
+---
+
+## Admin Analytics (IP Usage Tracking)
+
+Admin endpoints for viewing usage analytics. All require authentication.
+
+### GET /api/admin/usage/summary
+
+Get overall usage statistics.
+
+**Request:**
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://fltpulse.szfluent.cn/api/admin/usage/summary"
+```
+
+### GET /api/admin/usage/by-ip
+
+Get usage breakdown by IP address with geolocation.
+
+### GET /api/admin/usage/timeline
+
+Get usage data over time for charting.
+
+### GET /api/admin/usage/recent
+
+Get recent API request entries.
 
 ---
 

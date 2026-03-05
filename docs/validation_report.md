@@ -1,5 +1,7 @@
 # QuickPulse vs Kingdee Validation Report
 
+> **Note**: This report was generated before the BOM-first architecture refactor (ce08d69, 2026-03-05). Results may differ with the new architecture. For current validation, use the golden-file test suite (`tests/golden/`) and reconciliation tooling (`scripts/reconcile.py`).
+
 ## Summary
 - **MTOs Tested**: 52
 - **Passed**: 34

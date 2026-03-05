@@ -1,5 +1,13 @@
 # QuickPulse V2 Implementation Plan
 
+> **Status**: Original phases (1-4) complete. This plan is now a historical reference. For the latest architecture, see `QUICKPULSE_OVERVIEW.md`.
+>
+> **Major milestones since original plan:**
+> - **2026-02**: DeepSeek LLM chat sidebar + Agent dual-pipeline (see `docs/archive/PLAN_chat_interface_COMPLETE.md`)
+> - **2026-02**: IP usage tracking + admin analytics dashboard
+> - **2026-03**: BOM-first architecture refactor — replaced ~800 lines of Python dict-matching with SQL JOINs, unified `_bom_row_to_child()`, 93 new tests (total: 718)
+> - **2026-03**: Golden-file tests + reconciliation tooling for cache vs live data verification
+
 ## 1. Project Overview
 
 ### Objective

@@ -438,55 +438,66 @@
 │  L3: Kingdee API 实时查询                                        │
 │  ├─ 数据源: 金蝶 K3Cloud WebAPI                                  │
 │  ├─ 响应时间: 1-5 秒                                             │
-│  └─ 实现: 7 个并行 API 调用 (asyncio.gather)                      │
+│  └─ 实现: 并行 API 调用 (asyncio.gather)                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 10.2 并行查询流程图
+### 10.2 BOM-first 架构 (2026-03 重构后)
 
-当触发 L3 实时查询时，系统同时发起 7 个 API 调用：
+**缓存路径 (L2)** 使用 SQL JOIN 代替 Python 字典匹配：
+
+```
+MTO 查询触发 (L2 缓存)
+       │
+       │ 3 个 SQL 查询
+       │
+       ├── SAL_SaleOrder          → 成品父项信息
+       ├── PRD_MO                 → 生产订单信息
+       └── get_mto_bom_joined()   → BOM JOIN 查询
+           │
+           │ SQL: PPBOM LEFT JOIN receipts/picking/purchase
+           │      ON (mto_number, material_code, aux_prop_id)
+           │
+           ▼
+       BOMJoinedRow 数据类
+           │
+           ▼
+       _bom_row_to_child()  ← 缓存和实时路径共用
+           │
+           ▼
+       MTOStatusResponse
+```
+
+**实时路径 (L3)** 仍使用并行 API，但最终也通过 `_bom_row_to_child()` 转换：
 
 ```
 MTO 查询触发 (L3 实时)
        │
-       │ asyncio.gather() 并行执行
+       │ asyncio.gather() 并行 API
        │
-       ├──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
-       │          │          │          │          │          │          │
-       ▼          ▼          ▼          ▼          ▼          ▼          ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-│ SAL_     │ │ PRD_MO   │ │ PUR_     │ │ PRD_     │ │ STK_     │ │ PRD_     │ │ SAL_     │
-│ SaleOrder│ │ 生产订单  │ │ Purchase │ │ INSTOCK  │ │ InStock  │ │ PickMtrl │ │ OUTSTOCK │
-│ 销售订单  │ │          │ │ Order    │ │ 生产入库  │ │ 采购入库  │ │ 生产领料  │ │ 销售出库  │
-│          │ │          │ │ 采购订单  │ │          │ │          │ │          │ │          │
-└──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘
-       │          │          │          │          │          │          │
-       └──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
-                                        │
-                                        ▼
-                          ┌───────────────────────────┐
-                          │  数据聚合 & 数量计算        │
-                          │  ├─ 按物料类型路由         │
-                          │  ├─ 构建聚合字典           │
-                          │  └─ 计算派生数量           │
-                          └───────────────────────────┘
-                                        │
-                                        ▼
-                          ┌───────────────────────────┐
-                          │  MTOStatusResponse        │
-                          │  ├─ parent: 订单信息       │
-                          │  ├─ children: BOM明细     │
-                          │  └─ data_source: 数据来源 │
-                          └───────────────────────────┘
+       ├── SAL_SaleOrder, PRD_MO, PRD_PPBOM
+       ├── PRD_INSTOCK, STK_InStock, PUR_PurchaseOrder
+       └── PRD_PickMtrl, SAL_OUTSTOCK
+           │
+           ▼
+       构造 synthetic BOMJoinedRow
+           │
+           ▼
+       _bom_row_to_child()  ← 同缓存路径
+           │
+           ▼
+       MTOStatusResponse
 ```
+
+> **关键改进**：旧架构用 7-8 个 `_build_*` 方法各自做字典匹配，容易遗漏字段导致数据丢失。新架构用 SQL JOIN 声明式关联 + 统一转换方法，确保两条路径输出一致。
 
 ### 10.3 查询耗时对比
 
 | 缓存层 | 典型耗时 | 适用场景 |
 |--------|----------|---------|
 | L1 内存 | < 10ms | 高频查询的热门 MTO |
-| L2 SQLite | ~100ms | 已同步但非热门的 MTO |
-| L3 API | 1-5s | 新 MTO 或强制刷新 |
+| L2 SQLite (BOM JOIN) | ~50-100ms | 已同步的 MTO（SQL JOIN 比旧的 8 查询更快） |
+| L3 API | 1-5s | 新 MTO 或 `?source=live` 强制刷新 |
 
 ---
 
