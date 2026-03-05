@@ -835,6 +835,7 @@ class MTOQueryHandler:
 
         Routing rules:
         - 03.xx with PRD_MO → treated as self-made (effective_type=1)
+        - 03.xx without PRD_MO → always purchased (overrides Kingdee FMaterialType)
         - material_type=1 → 自制 (self-made)
         - material_type=2 → 包材 (purchased)
         - material_type=3 → 委外 (subcontracted)
@@ -842,9 +843,14 @@ class MTOQueryHandler:
         aux_attrs = aux_descriptions.get(row.aux_prop_id, "") or row.aux_attributes
 
         # Determine effective material type
-        # 03.xx with PRD_MO → self-made
+        # Priority: PRD_MO membership > prefix > Kingdee FMaterialType
         is_03_selfmade = row.material_code in prd_mo_03_codes
-        effective_type = 1 if is_03_selfmade else row.material_type
+        if is_03_selfmade:
+            effective_type = 1  # 03.xx with PRD_MO → self-made
+        elif row.material_code.startswith("03."):
+            effective_type = 2  # 03.xx without PRD_MO → always purchased
+        else:
+            effective_type = row.material_type
 
         if effective_type == 1:  # 自制
             # Use PRD_MO qty as demand if available, else BOM need_qty
