@@ -281,9 +281,10 @@ class CacheReader:
 
         Each receipt/order table has TWO JOINs:
         - Exact match on (material_code, aux_prop_id)
-        - Fallback match on (material_code) where aux_prop_id=0
-        COALESCE prefers the exact match; fallback covers cases where Kingdee
-        doesn't populate FAuxPropId on receipt/order records.
+        - Fallback match on (material_code) only — sums ALL aux_prop_id values
+        COALESCE prefers the exact match; fallback covers bidirectional mismatch:
+        - BOM aux=X, receipt aux=0 (Kingdee didn't populate FAuxPropId)
+        - BOM aux=0, receipt aux=Y (BOM has no variant, receipts have specific variant)
         """
         pattern = f"{mto_number}%"
         rows = await self.db.execute_read(
@@ -325,7 +326,7 @@ class CacheReader:
                 SELECT material_code,
                        SUM(real_qty) as real_qty, SUM(must_qty) as must_qty
                 FROM cached_production_receipts
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
+                WHERE mto_number LIKE ?
                 GROUP BY material_code
             ) pr0 ON bom.material_code = pr0.material_code
 
@@ -341,7 +342,7 @@ class CacheReader:
                 SELECT material_code,
                        SUM(actual_qty) as actual_qty, SUM(app_qty) as app_qty
                 FROM cached_material_picking
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
+                WHERE mto_number LIKE ?
                 GROUP BY material_code
             ) pk0 ON bom.material_code = pk0.material_code
 
@@ -357,7 +358,7 @@ class CacheReader:
                 SELECT material_code,
                        SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
                 FROM cached_purchase_orders
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
+                WHERE mto_number LIKE ?
                 GROUP BY material_code
             ) po0 ON bom.material_code = po0.material_code
 
@@ -373,7 +374,7 @@ class CacheReader:
                 SELECT material_code,
                        SUM(real_qty) as real_qty
                 FROM cached_purchase_receipts
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
+                WHERE mto_number LIKE ?
                 GROUP BY material_code
             ) pur0 ON bom.material_code = pur0.material_code
 
@@ -389,7 +390,7 @@ class CacheReader:
                 SELECT material_code,
                        SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
                 FROM cached_subcontracting_orders
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
+                WHERE mto_number LIKE ?
                 GROUP BY material_code
             ) sub0 ON bom.material_code = sub0.material_code
 
@@ -405,7 +406,7 @@ class CacheReader:
                 SELECT material_code,
                        SUM(real_qty) as real_qty
                 FROM cached_sales_delivery
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
+                WHERE mto_number LIKE ?
                 GROUP BY material_code
             ) sd0 ON bom.material_code = sd0.material_code
 

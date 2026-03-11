@@ -598,15 +598,39 @@ class MTOQueryHandler:
         sub_stock_in = _sum_by_material_and_aux(subcontracting_orders, "stock_in_qty")
         del_real = _sum_by_material_and_aux(sales_deliveries, "real_qty")
 
-        def _get(lookup: dict, code: str, aux: int) -> Decimal:
-            """Get value by (code, aux) with fallback to (code, 0)."""
+        # Also aggregate by material_code only (for BOM aux=0 fallback)
+        _by_code: dict[str, dict] = {}
+        for label, aux_dict in [
+            ("receipt_real", receipt_real), ("receipt_must", receipt_must),
+            ("pick_actual", pick_actual_map), ("pick_app", pick_app_map),
+            ("po_order", po_order), ("po_stock_in", po_stock_in),
+            ("pur_real", pur_real), ("sub_order", sub_order),
+            ("sub_stock_in", sub_stock_in), ("del_real", del_real),
+        ]:
+            code_totals: dict[str, Decimal] = defaultdict(lambda: ZERO)
+            for (code, _aux), val in aux_dict.items():
+                code_totals[code] += val
+            _by_code[label] = code_totals
+
+        def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
+            """Get value by (code, aux) with bidirectional fallback.
+
+            - aux != 0: try exact (code, aux), then fallback to (code, 0)
+            - aux == 0: try exact (code, 0), then fallback to sum of ALL aux for code
+            """
             exact = lookup.get((code, aux))
             if exact is not None:
                 return exact
             if aux != 0:
+                # BOM has specific variant, receipt might have aux=0 (unspecified)
                 fallback = lookup.get((code, 0))
                 if fallback is not None:
                     return fallback
+            else:
+                # BOM has aux=0, sum ALL receipts for this material code
+                code_total = _by_code.get(lookup_label, {}).get(code)
+                if code_total is not None:
+                    return code_total
             return ZERO
 
         def _make_row(code: str, aux: int, material_name: str, specification: str,
@@ -625,16 +649,16 @@ class MTOQueryHandler:
                 need_qty=need_qty,
                 picked_qty=picked_qty,
                 no_picked_qty=no_picked_qty,
-                prod_receipt_real_qty=_get(receipt_real, code, aux),
-                prod_receipt_must_qty=_get(receipt_must, code, aux),
-                pick_actual_qty=_get(pick_actual_map, code, aux),
-                pick_app_qty=_get(pick_app_map, code, aux),
-                purchase_order_qty=_get(po_order, code, aux),
-                purchase_stock_in_qty=_get(po_stock_in, code, aux),
-                purchase_receipt_real_qty=_get(pur_real, code, aux),
-                subcontract_order_qty=_get(sub_order, code, aux),
-                subcontract_stock_in_qty=_get(sub_stock_in, code, aux),
-                delivery_real_qty=_get(del_real, code, aux),
+                prod_receipt_real_qty=_get(receipt_real, "receipt_real", code, aux),
+                prod_receipt_must_qty=_get(receipt_must, "receipt_must", code, aux),
+                pick_actual_qty=_get(pick_actual_map, "pick_actual", code, aux),
+                pick_app_qty=_get(pick_app_map, "pick_app", code, aux),
+                purchase_order_qty=_get(po_order, "po_order", code, aux),
+                purchase_stock_in_qty=_get(po_stock_in, "po_stock_in", code, aux),
+                purchase_receipt_real_qty=_get(pur_real, "pur_real", code, aux),
+                subcontract_order_qty=_get(sub_order, "sub_order", code, aux),
+                subcontract_stock_in_qty=_get(sub_stock_in, "sub_stock_in", code, aux),
+                delivery_real_qty=_get(del_real, "del_real", code, aux),
             )
 
         # --- Step 1: Build rows from PPBOM (primary source) ---
