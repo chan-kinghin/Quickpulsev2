@@ -403,7 +403,7 @@ SALES_ORDER_CONFIG = ReaderConfig(
     model_class=SalesOrderModel,
     field_mappings={
         "bill_no": FieldMapping("FBillNo"),
-        "mto_number": FieldMapping("FMtoNo"),
+        "mto_number": FieldMapping("FMtoNo", fallback_field="F_QWJI_JHGZH"),
         "material_code": FieldMapping("FMaterialId.FNumber"),
         "material_name": FieldMapping("FMaterialId.FName"),
         "specification": FieldMapping("FMaterialId.FSpecification"),

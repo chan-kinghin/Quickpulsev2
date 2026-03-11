@@ -598,11 +598,21 @@ class MTOQueryHandler:
         sub_stock_in = _sum_by_material_and_aux(subcontracting_orders, "stock_in_qty")
         del_real = _sum_by_material_and_aux(sales_deliveries, "real_qty")
 
+        def _get(lookup: dict, code: str, aux: int) -> Decimal:
+            """Get value by (code, aux) with fallback to (code, 0)."""
+            exact = lookup.get((code, aux))
+            if exact is not None:
+                return exact
+            if aux != 0:
+                fallback = lookup.get((code, 0))
+                if fallback is not None:
+                    return fallback
+            return ZERO
+
         def _make_row(code: str, aux: int, material_name: str, specification: str,
                       aux_attributes: str, material_type: int, need_qty: Decimal,
                       picked_qty: Decimal, no_picked_qty: Decimal,
                       mo_bill_no: str = "", mto_number: str = "") -> BOMJoinedRow:
-            key = (code, aux)
             return BOMJoinedRow(
                 mo_bill_no=mo_bill_no,
                 mto_number=mto_number,
@@ -615,16 +625,16 @@ class MTOQueryHandler:
                 need_qty=need_qty,
                 picked_qty=picked_qty,
                 no_picked_qty=no_picked_qty,
-                prod_receipt_real_qty=receipt_real.get(key, ZERO),
-                prod_receipt_must_qty=receipt_must.get(key, ZERO),
-                pick_actual_qty=pick_actual_map.get(key, ZERO),
-                pick_app_qty=pick_app_map.get(key, ZERO),
-                purchase_order_qty=po_order.get(key, ZERO),
-                purchase_stock_in_qty=po_stock_in.get(key, ZERO),
-                purchase_receipt_real_qty=pur_real.get(key, ZERO),
-                subcontract_order_qty=sub_order.get(key, ZERO),
-                subcontract_stock_in_qty=sub_stock_in.get(key, ZERO),
-                delivery_real_qty=del_real.get(key, ZERO),
+                prod_receipt_real_qty=_get(receipt_real, code, aux),
+                prod_receipt_must_qty=_get(receipt_must, code, aux),
+                pick_actual_qty=_get(pick_actual_map, code, aux),
+                pick_app_qty=_get(pick_app_map, code, aux),
+                purchase_order_qty=_get(po_order, code, aux),
+                purchase_stock_in_qty=_get(po_stock_in, code, aux),
+                purchase_receipt_real_qty=_get(pur_real, code, aux),
+                subcontract_order_qty=_get(sub_order, code, aux),
+                subcontract_stock_in_qty=_get(sub_stock_in, code, aux),
+                delivery_real_qty=_get(del_real, code, aux),
             )
 
         # --- Step 1: Build rows from PPBOM (primary source) ---
