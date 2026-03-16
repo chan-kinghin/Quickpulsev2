@@ -47,6 +47,8 @@ class MaterialClassMetrics:
     fulfilled_field: Optional[str] = None
     picking_field: Optional[str] = None
     metrics: list[MetricDefinition] = field(default_factory=list)
+    material_type_id: Optional[int] = None
+    is_finished_goods: bool = False
 
 
 class MetricEngine:
@@ -79,6 +81,18 @@ class MetricEngine:
         """Detect material class from code using registered patterns."""
         for config in self._class_configs.values():
             if config.pattern and config.pattern.match(material_code):
+                return config.class_id
+        return None
+
+    def detect_class_id_by_type(
+        self, material_type: int, is_finished_goods: bool = False
+    ) -> Optional[str]:
+        """Detect material class from FMaterialType integer and finished-goods flag."""
+        for config in self._class_configs.values():
+            if (
+                config.material_type_id == material_type
+                and config.is_finished_goods == is_finished_goods
+            ):
                 return config.class_id
         return None
 

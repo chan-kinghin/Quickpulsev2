@@ -94,6 +94,8 @@ class MaterialClassConfig:
     columns: dict[str, ColumnConfig]
     item_fields: dict[str, str]
     semantic: Optional[SemanticConfig] = None
+    material_type_id: Optional[int] = None
+    is_finished_goods: bool = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaterialClassConfig":
@@ -112,6 +114,8 @@ class MaterialClassConfig:
             },
             item_fields=data["item_fields"],
             semantic=semantic,
+            material_type_id=data.get("material_type_id"),
+            is_finished_goods=data.get("is_finished_goods", False),
         )
 
     def matches(self, material_code: str) -> bool:
@@ -268,6 +272,8 @@ class MTOConfig:
                     fulfilled_field=sem.fulfilled_field,
                     picking_field=sem.picking_field,
                     metrics=metric_defs,
+                    material_type_id=mc.material_type_id,
+                    is_finished_goods=mc.is_finished_goods,
                 ))
             except Exception as exc:
                 raise ValueError(

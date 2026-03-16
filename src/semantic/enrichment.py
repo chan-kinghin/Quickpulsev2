@@ -29,7 +29,9 @@ def enrich_response(response: MTOStatusResponse, engine: MetricEngine) -> None:
     total = len(response.children)
 
     for child in response.children:
-        class_id = engine.detect_class_id(child.material_code)
+        class_id = engine.detect_class_id_by_type(
+            child.material_type, getattr(child, "is_finished_goods", False)
+        )
         if not class_id:
             skipped += 1
             continue

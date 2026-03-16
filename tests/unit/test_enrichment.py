@@ -41,13 +41,15 @@ def _make_response(children: list[ChildItem]) -> MTOStatusResponse:
 
 
 def _make_engine() -> MetricEngine:
-    """Build engine with all 3 classes for testing (with patterns)."""
+    """Build engine with all 3 classes for testing (with patterns and type IDs)."""
     engine = MetricEngine()
     engine.register_class(MaterialClassMetrics(
         class_id="finished_goods",
         pattern=re.compile(r"^07\."),
         demand_field="sales_order_qty",
         fulfilled_field="prod_instock_real_qty",
+        material_type_id=1,
+        is_finished_goods=True,
         metrics=[
             MetricDefinition(name="fulfillment_rate", label="入库完成率", format="percent",
                              thresholds={"completed": 1.0, "warning": 0.5}),
@@ -59,6 +61,8 @@ def _make_engine() -> MetricEngine:
         demand_field="prod_instock_must_qty",
         fulfilled_field="prod_instock_real_qty",
         picking_field="pick_actual_qty",
+        material_type_id=1,
+        is_finished_goods=False,
         metrics=[
             MetricDefinition(name="fulfillment_rate", label="入库完成率", format="percent",
                              thresholds={"completed": 1.0, "warning": 0.5}),
@@ -71,6 +75,8 @@ def _make_engine() -> MetricEngine:
         demand_field="purchase_order_qty",
         fulfilled_field="purchase_stock_in_qty",
         picking_field="pick_actual_qty",
+        material_type_id=2,
+        is_finished_goods=False,
         metrics=[
             MetricDefinition(name="fulfillment_rate", label="入库完成率", format="percent",
                              thresholds={"completed": 1.0, "warning": 0.5}),
@@ -84,7 +90,8 @@ class TestEnrichResponse:
 
     def test_enriches_all_material_types(self):
         children = [
-            _make_child("07.01.001", sales_order_qty=Decimal("100"), prod_instock_real_qty=Decimal("80")),
+            _make_child("07.01.001", is_finished_goods=True,
+                        sales_order_qty=Decimal("100"), prod_instock_real_qty=Decimal("80")),
             _make_child("05.01.001", material_type_name="自制",
                         prod_instock_must_qty=Decimal("50"), prod_instock_real_qty=Decimal("50"),
                         pick_actual_qty=Decimal("30")),
@@ -119,9 +126,9 @@ class TestEnrichResponse:
         assert pur["fulfillment_rate"].value == Decimal("100") / Decimal("200")
         assert pur["fulfillment_rate"].status == "in_progress"
 
-    def test_unknown_material_code_skipped(self):
+    def test_unknown_material_type_skipped(self):
         children = [
-            _make_child("99.01.001"),  # no matching class
+            _make_child("99.01.001", material_type=99, material_type_name="未知"),  # no matching type
         ]
         response = _make_response(children)
         engine = _make_engine()
@@ -140,7 +147,8 @@ class TestEnrichResponse:
     def test_backward_compatible_serialization(self):
         """Enriched response should serialize the same structure, just with metrics added."""
         children = [
-            _make_child("07.01.001", sales_order_qty=Decimal("50"), prod_instock_real_qty=Decimal("50")),
+            _make_child("07.01.001", is_finished_goods=True,
+                        sales_order_qty=Decimal("50"), prod_instock_real_qty=Decimal("50")),
         ]
         response = _make_response(children)
         engine = _make_engine()
@@ -161,7 +169,8 @@ class TestEnrichResponse:
     def test_metric_computation_failure_continues(self):
         """If compute_for_item raises, enrichment continues for remaining items."""
         children = [
-            _make_child("07.01.001", sales_order_qty=Decimal("100"), prod_instock_real_qty=Decimal("50")),
+            _make_child("07.01.001", is_finished_goods=True,
+                        sales_order_qty=Decimal("100"), prod_instock_real_qty=Decimal("50")),
             _make_child("05.01.001", material_type_name="自制",
                         prod_instock_must_qty=Decimal("50"), prod_instock_real_qty=Decimal("50")),
         ]
@@ -188,22 +197,44 @@ class TestEnrichResponse:
         assert response.children[1].metrics is not None
         assert "fulfillment_rate" in response.children[1].metrics
 
-    def test_engine_without_patterns_skips_all(self):
-        """Engine with no patterns registered → no class detection → all skipped."""
+    def test_engine_without_registrations_skips_all(self):
+        """Engine with no classes registered → no type detection → all skipped."""
         children = [
-            _make_child("07.01.001", sales_order_qty=Decimal("100")),
+            _make_child("07.01.001", is_finished_goods=True,
+                        sales_order_qty=Decimal("100")),
         ]
         response = _make_response(children)
-        engine = MetricEngine()  # empty engine, no patterns
+        engine = MetricEngine()  # empty engine, no registrations
 
         enrich_response(response, engine)
         assert response.children[0].metrics is None
 
-    def test_mixed_known_and_unknown_codes(self):
-        """Only items with matching patterns get enriched."""
+    def test_type_based_routing_overrides_prefix(self):
+        """A 03.xx item with material_type=1, is_finished_goods=False gets self_made metrics."""
         children = [
-            _make_child("07.01.001", sales_order_qty=Decimal("100"), prod_instock_real_qty=Decimal("100")),
-            _make_child("99.99.999"),  # unknown
+            _make_child("03.01.999", material_type=1, material_type_name="自制",
+                        prod_instock_must_qty=Decimal("100"), prod_instock_real_qty=Decimal("60"),
+                        pick_actual_qty=Decimal("80")),
+        ]
+        response = _make_response(children)
+        engine = _make_engine()
+
+        enrich_response(response, engine)
+
+        # Should be classified as self_made (type=1, not finished goods)
+        # despite the 03.xx prefix which would have matched "purchased" under pattern matching
+        metrics = response.children[0].metrics
+        assert metrics is not None
+        assert "fulfillment_rate" in metrics
+        assert "over_pick_amount" in metrics  # self_made has over_pick, purchased does not in _make_engine
+        assert metrics["fulfillment_rate"].value == Decimal("60") / Decimal("100")
+
+    def test_mixed_known_and_unknown_types(self):
+        """Only items with matching material types get enriched."""
+        children = [
+            _make_child("07.01.001", is_finished_goods=True,
+                        sales_order_qty=Decimal("100"), prod_instock_real_qty=Decimal("100")),
+            _make_child("99.99.999", material_type=99, material_type_name="未知"),  # unknown type
             _make_child("03.01.001", material_type=2, material_type_name="包材",
                         purchase_order_qty=Decimal("50"), purchase_stock_in_qty=Decimal("25")),
         ]

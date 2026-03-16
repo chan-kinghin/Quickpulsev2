@@ -17,9 +17,9 @@ function mtoSearch() {
         isCollapsed: false,
 
         // === Filters ===
-        // 物料类型: 成品(07.xx), 自制(05.xx), 包材(03.xx)
+        // 物料类型: 成品, 自制, 包材, 委外
         filters: {
-            materialTypes: { '成品': true, '自制': true, '包材': true },
+            materialTypes: { '成品': true, '自制': true, '包材': true, '委外': true },
             status: 'all', // 保留但简化
             searchText: ''
         },
@@ -27,23 +27,23 @@ function mtoSearch() {
         // === Column Configuration ===
         // 列名直接使用金蝶的"表单.字段名"格式，不做任何计算
         columns: [
-            { key: 'index', label: '序号', width: 60, minWidth: 40, resizable: false, visible: true, sortable: false, locked: true },
-            { key: 'material_code', label: '物料编码', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: true },
-            { key: 'material_name', label: '物料名称', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: true },
-            { key: 'specification', label: '规格型号', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'bom_short_name', label: 'BOM简称', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, materialPrefix: '07' },
-            { key: 'aux_attributes', label: '辅助属性', width: 150, minWidth: 100, resizable: true, visible: true, sortable: false, locked: false },
-            { key: 'material_type', label: '物料类型', width: 90, minWidth: 70, resizable: true, visible: true, sortable: true, locked: false },
+            { key: 'index', label: '序号', width: 60, defaultWidth: 60, minWidth: 40, maxWidth: 120, resizable: false, visible: true, sortable: false, locked: true },
+            { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true },
+            { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true },
+            { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
+            { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, materialTypeFilter: 'finished_goods' },
+            { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
+            { key: 'material_type', label: '物料类型', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false },
             // 数量列：根据物料类型显示不同来源
-            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '07' },
-            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '05' },
-            { key: 'purchase_order_qty', label: '采购订单.数量', width: 120, minWidth: 80, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '03' },
+            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialTypeFilter: 'finished_goods' },
+            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialTypeFilter: 'self_made' },
+            { key: 'purchase_order_qty', label: '采购订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialTypeFilter: 'purchased_or_subcontract' },
             // 领料/入库列
-            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialPrefix: '05,03' },
-            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '07,05' },
-            { key: 'purchase_stock_in_qty', label: '采购订单.累计入库数量', width: 150, minWidth: 100, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialPrefix: '03' },
+            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialTypeFilter: 'non_finished_goods' },
+            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialTypeFilter: 'type_1' },
+            { key: 'purchase_stock_in_qty', label: '采购订单.累计入库数量', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialTypeFilter: 'purchased_or_subcontract' },
             // 语义层：完成率列（从 metrics 计算得出）
-            { key: 'fulfillment_rate', label: '完成率', width: 100, minWidth: 70, resizable: true, visible: true, sortable: true, locked: false, group: 'semantic' }
+            { key: 'fulfillment_rate', label: '完成率', width: 100, defaultWidth: 100, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false, group: 'semantic' }
         ],
 
         // === Sorting ===
@@ -314,7 +314,7 @@ function mtoSearch() {
         },
 
         resetFilters() {
-            this.filters.materialTypes = { '成品': true, '自制': true, '包材': true };
+            this.filters.materialTypes = { '成品': true, '自制': true, '包材': true, '委外': true };
             this.filters.status = 'all';
             this.filters.searchText = '';
             this.savePreferences();
@@ -374,21 +374,62 @@ function mtoSearch() {
             event.stopPropagation();
             const colIndex = this.columns.findIndex(c => c.key === columnKey);
             if (colIndex === -1) return;
+
+            // Find next visible resizable neighbor for proportional resize
+            let neighborIndex = null;
+            let neighborStartWidth = 0;
+            for (let i = colIndex + 1; i < this.columns.length; i++) {
+                if (this.columns[i].visible && this.columns[i].resizable) {
+                    neighborIndex = i;
+                    neighborStartWidth = this.columns[i].width;
+                    break;
+                }
+            }
+
             this.resizing = {
                 active: true,
                 columnIndex: colIndex,
                 startX: event.clientX,
-                startWidth: this.columns[colIndex].width
+                startWidth: this.columns[colIndex].width,
+                neighborIndex,
+                neighborStartWidth
             };
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
+
+            // Create visual guide line
+            this._guideLine = document.createElement('div');
+            this._guideLine.className = 'resize-guide-line';
+            this._guideLine.style.left = event.clientX + 'px';
+            document.body.appendChild(this._guideLine);
         },
 
         doResize(event) {
             if (!this.resizing.active) return;
             const diff = event.clientX - this.resizing.startX;
             const col = this.columns[this.resizing.columnIndex];
-            col.width = Math.max(col.minWidth, this.resizing.startWidth + diff);
+            const newWidth = this.resizing.startWidth + diff;
+            const clampedWidth = Math.min(col.maxWidth, Math.max(col.minWidth, newWidth));
+
+            // Shift+drag: proportional resize (shrink neighbor to keep total width constant)
+            if (event.shiftKey && this.resizing.neighborIndex !== null) {
+                const neighbor = this.columns[this.resizing.neighborIndex];
+                const totalWidth = this.resizing.startWidth + this.resizing.neighborStartWidth;
+                const neighborWidth = totalWidth - clampedWidth;
+                if (neighborWidth >= neighbor.minWidth && neighborWidth <= neighbor.maxWidth) {
+                    col.width = clampedWidth;
+                    neighbor.width = neighborWidth;
+                } else {
+                    col.width = clampedWidth;
+                }
+            } else {
+                col.width = clampedWidth;
+            }
+
+            // Update guide line position
+            if (this._guideLine) {
+                this._guideLine.style.left = event.clientX + 'px';
+            }
         },
 
         stopResize() {
@@ -396,12 +437,90 @@ function mtoSearch() {
             this.resizing.active = false;
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
+
+            // Remove guide line
+            if (this._guideLine) {
+                this._guideLine.remove();
+                this._guideLine = null;
+            }
+
             this.savePreferences();
         },
 
         getColumnStyle(columnKey) {
             const col = this.columns.find(c => c.key === columnKey);
-            return col ? `width: ${col.width}px; min-width: ${col.minWidth}px;` : '';
+            return col ? `width: ${col.width}px; min-width: ${col.minWidth}px; max-width: ${col.maxWidth}px;` : '';
+        },
+
+        // Double-click resize handle to auto-fit column width to content
+        autoFitColumn(columnKey) {
+            const col = this.columns.find(c => c.key === columnKey);
+            if (!col || !col.resizable) return;
+
+            // Find the table and measure content widths
+            const table = document.querySelector('.bom-table table');
+            if (!table) return;
+
+            const colIndex = this.getVisibleColumns().findIndex(c => c.key === columnKey);
+            if (colIndex === -1) return;
+
+            // Measure header text width
+            const headerCells = table.querySelectorAll('thead th:not(.col-hidden)');
+            let maxWidth = 0;
+
+            // Create off-screen measurement element
+            const measurer = document.createElement('span');
+            measurer.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:inherit;';
+            document.body.appendChild(measurer);
+
+            // Measure header
+            if (headerCells[colIndex]) {
+                const headerText = headerCells[colIndex].textContent.trim();
+                measurer.style.fontWeight = '500';
+                measurer.style.fontSize = '0.875rem';
+                measurer.textContent = headerText;
+                maxWidth = measurer.offsetWidth;
+            }
+
+            // Measure body cells
+            const rows = table.querySelectorAll('tbody tr');
+            measurer.style.fontWeight = 'normal';
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td:not(.col-hidden)');
+                if (cells[colIndex]) {
+                    measurer.textContent = cells[colIndex].textContent.trim();
+                    maxWidth = Math.max(maxWidth, measurer.offsetWidth);
+                }
+            });
+
+            document.body.removeChild(measurer);
+
+            // Add padding (px-4 = 32px both sides) + sort icon space
+            const padding = 48;
+            const fitWidth = Math.min(col.maxWidth, Math.max(col.minWidth, maxWidth + padding));
+            col.width = fitWidth;
+            this.savePreferences();
+        },
+
+        // Reset all column widths to defaults
+        resetColumnWidths() {
+            this.columns.forEach(col => {
+                col.width = col.defaultWidth;
+            });
+            this.savePreferences();
+        },
+
+        // Keyboard-based column resize: ←/→ = 10px, Shift+←/→ = 50px
+        resizeColumnByKeyboard(event, columnKey) {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            const col = this.columns.find(c => c.key === columnKey);
+            if (!col || !col.resizable) return;
+
+            event.preventDefault();
+            const step = event.shiftKey ? 50 : 10;
+            const delta = event.key === 'ArrowRight' ? step : -step;
+            col.width = Math.min(col.maxWidth, Math.max(col.minWidth, col.width + delta));
+            this.savePreferences();
         },
 
         colVisible(key) {
@@ -566,28 +685,28 @@ function mtoSearch() {
 
                 if (format === 'xlsx' && typeof XLSX !== 'undefined') {
                     // Client-side Excel export using SheetJS
-                    // 使用金蝶原始字段名，根据物料类型显示不同值
+                    // 使用物料类型字段控制列显示
                     const exportData = items.map((item, index) => {
-                        const code = item.material_code || '';
-                        const is07 = code.startsWith('07');
-                        const is05 = code.startsWith('05');
-                        const is03 = code.startsWith('03');
+                        const isFinished = item.is_finished_goods;
+                        const typeCode = item.material_type_code;
+                        const isSelfMade = typeCode === 1 && !isFinished;
+                        const isPurchasedOrSubcontract = typeCode === 2 || typeCode === 3;
 
                         const rate = this.getFulfillmentRate(item);
                         return {
                             '序号': index + 1,
-                            '物料编码': code,
+                            '物料编码': item.material_code || '',
                             '物料名称': item.material_name,
                             '规格型号': item.specification || '-',
-                            'BOM简称': is07 ? (item.bom_short_name || '-') : '-',
+                            'BOM简称': isFinished ? (item.bom_short_name || '-') : '-',
                             '辅助属性': item.aux_attributes || '-',
                             '物料类型': item.material_type,
-                            '销售订单.数量': is07 ? parseFloat(item.sales_order_qty) || 0 : '-',
-                            '生产入库单.应收数量': is05 ? parseFloat(item.prod_instock_must_qty) || 0 : '-',
-                            '采购订单.数量': is03 ? parseFloat(item.purchase_order_qty) || 0 : '-',
-                            '生产领料单.实发数量': (is05 || is03) ? parseFloat(item.pick_actual_qty) || 0 : '-',
-                            '生产入库单.实收数量': (is07 || is05) ? parseFloat(item.prod_instock_real_qty) || 0 : '-',
-                            '采购订单.累计入库数量': is03 ? parseFloat(item.purchase_stock_in_qty) || 0 : '-',
+                            '销售订单.数量': isFinished ? parseFloat(item.sales_order_qty) || 0 : '-',
+                            '生产入库单.应收数量': isSelfMade ? parseFloat(item.prod_instock_must_qty) || 0 : '-',
+                            '采购订单.数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_order_qty) || 0 : '-',
+                            '生产领料单.实发数量': !isFinished ? parseFloat(item.pick_actual_qty) || 0 : '-',
+                            '生产入库单.实收数量': typeCode === 1 ? parseFloat(item.prod_instock_real_qty) || 0 : '-',
+                            '采购订单.累计入库数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_stock_in_qty) || 0 : '-',
                             '完成率': rate !== null ? `${(rate * 100).toFixed(0)}%` : '-'
                         };
                     });
@@ -712,9 +831,10 @@ function mtoSearch() {
 
         getMaterialTypeBadge(type) {
             const badges = {
-                '成品': 'badge-finished',          // 成品 07.xx
-                '自制': 'badge-self-made',         // 自制件 05.xx
-                '包材': 'badge-purchased'          // 包材 03.xx
+                '成品': 'badge-finished',
+                '自制': 'badge-self-made',
+                '包材': 'badge-purchased',
+                '委外': 'badge-subcontract'
             };
 
             return badges[type] || 'bg-slate-800 text-slate-400 border border-slate-700';
@@ -1000,27 +1120,27 @@ function mtoSearch() {
         },
 
         // === Summary Calculations for Footer ===
-        // 使用金蝶原始字段名计算合计
+        // 使用物料类型字段计算合计
         calculateTotals() {
             const items = this.getSortedItems();
             return {
-                // 销售订单.数量 (成品 07.xx)
-                sales_order_qty: items.filter(i => i.material_code?.startsWith('07'))
+                // 销售订单.数量 (成品)
+                sales_order_qty: items.filter(i => i.is_finished_goods)
                     .reduce((sum, i) => sum + parseFloat(i.sales_order_qty || 0), 0),
-                // 生产入库单.应收数量 (自制件 05.xx)
-                prod_instock_must_qty: items.filter(i => i.material_code?.startsWith('05'))
+                // 生产入库单.应收数量 (自制件, type=1 非成品)
+                prod_instock_must_qty: items.filter(i => i.material_type_code === 1 && !i.is_finished_goods)
                     .reduce((sum, i) => sum + parseFloat(i.prod_instock_must_qty || 0), 0),
-                // 采购订单.数量 (包材 03.xx)
-                purchase_order_qty: items.filter(i => i.material_code?.startsWith('03'))
+                // 采购订单.数量 (外购 type=2 / 委外 type=3)
+                purchase_order_qty: items.filter(i => i.material_type_code === 2 || i.material_type_code === 3)
                     .reduce((sum, i) => sum + parseFloat(i.purchase_order_qty || 0), 0),
-                // 生产领料单.实发数量 (自制件/包材)
-                pick_actual_qty: items.filter(i => ['03', '05'].some(p => i.material_code?.startsWith(p)))
+                // 生产领料单.实发数量 (非成品)
+                pick_actual_qty: items.filter(i => !i.is_finished_goods)
                     .reduce((sum, i) => sum + parseFloat(i.pick_actual_qty || 0), 0),
-                // 生产入库单.实收数量 (成品/自制件)
-                prod_instock_real_qty: items.filter(i => ['05', '07'].some(p => i.material_code?.startsWith(p)))
+                // 生产入库单.实收数量 (type=1: 成品+自制件)
+                prod_instock_real_qty: items.filter(i => i.material_type_code === 1)
                     .reduce((sum, i) => sum + parseFloat(i.prod_instock_real_qty || 0), 0),
-                // 采购订单.累计入库数量 (包材)
-                purchase_stock_in_qty: items.filter(i => i.material_code?.startsWith('03'))
+                // 采购订单.累计入库数量 (外购 type=2 / 委外 type=3)
+                purchase_stock_in_qty: items.filter(i => i.material_type_code === 2 || i.material_type_code === 3)
                     .reduce((sum, i) => sum + parseFloat(i.purchase_stock_in_qty || 0), 0)
             };
         }

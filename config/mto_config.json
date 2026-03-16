@@ -5,6 +5,8 @@
       "pattern": "^07\\.",
       "display_name": "成品",
       "material_type": 1,
+      "material_type_id": 1,
+      "is_finished_goods": true,
       "source_form": "SAL_SaleOrder",
       "mto_field": "FMtoNo",
       "columns": {
@@ -70,6 +72,8 @@
       "pattern": "^05\\.",
       "display_name": "自制",
       "material_type": 1,
+      "material_type_id": 1,
+      "is_finished_goods": false,
       "source_form": "PRD_MO",
       "mto_field": "FMTONo",
       "columns": {
@@ -143,6 +147,8 @@
       "pattern": "^03\\.",
       "display_name": "外购",
       "material_type": 2,
+      "material_type_id": 2,
+      "is_finished_goods": false,
       "source_form": "PUR_PurchaseOrder",
       "mto_field": "FMtoNo",
       "columns": {

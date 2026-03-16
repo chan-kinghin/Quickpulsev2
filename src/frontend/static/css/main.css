@@ -21,6 +21,7 @@
     --violet-500: #8b5cf6;
     --violet-400: #a78bfa;
     --amber-500: #f59e0b;
+    --amber-400: #fbbf24;
     --rose-500: #f43f5e;
     --rose-400: #fb7185;
     --emerald-950: #064e3b;
@@ -56,6 +57,12 @@ body {
     border: 1px solid rgb(14 165 233 / 0.3);
 }
 
+.badge-subcontract {
+    background: rgb(245 158 11 / 0.2);
+    color: var(--amber-400);
+    border: 1px solid rgb(245 158 11 / 0.3);
+}
+
 .glow-emerald:focus {
     box-shadow: 0 0 0 2px var(--slate-950), 0 0 0 4px var(--emerald-500);
 }
@@ -70,10 +77,10 @@ body {
 /* === Column Resize Handles === */
 .resize-handle {
     position: absolute;
-    right: 0;
+    right: -4px;
     top: 0;
     bottom: 0;
-    width: 6px;
+    width: 14px;
     cursor: col-resize;
     background: transparent;
     transition: background 0.15s ease;
@@ -82,15 +89,15 @@ body {
 
 .resize-handle:hover,
 .resize-handle.active {
-    background: var(--emerald-500);
+    background: linear-gradient(to right, transparent 5px, var(--emerald-500) 5px, var(--emerald-500) 9px, transparent 9px);
 }
 
 .resize-handle::after {
     content: '';
     position: absolute;
-    right: 2px;
+    left: 50%;
     top: 50%;
-    transform: translateY(-50%);
+    transform: translate(-50%, -50%);
     width: 2px;
     height: 16px;
     background: var(--slate-600);
@@ -102,6 +109,19 @@ body {
 .resize-handle:hover::after {
     opacity: 1;
     background: var(--emerald-400);
+}
+
+/* Visual guide line shown during column resize drag */
+.resize-guide-line {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--sky-500);
+    opacity: 0.6;
+    z-index: 9999;
+    pointer-events: none;
+    box-shadow: 0 0 6px var(--sky-500);
 }
 
 th.resizable {
@@ -161,6 +181,12 @@ td.col-hidden {
     background: rgb(14 165 233 / 0.15);
     color: var(--sky-400);
     border-color: rgb(14 165 233 / 0.3);
+}
+
+.filter-chip-subcontract.filter-chip-active {
+    background: rgb(245 158 11 / 0.15);
+    color: var(--amber-400);
+    border-color: rgb(245 158 11 / 0.3);
 }
 
 .sortable-header {

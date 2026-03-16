@@ -35,7 +35,7 @@ class TestMaterialType:
     def test_display_names(self):
         """Test display name properties."""
         assert MaterialType.SELF_MADE.display_name == "自制"
-        assert MaterialType.PURCHASED.display_name == "包材"
+        assert MaterialType.PURCHASED.display_name == "外购"
         assert MaterialType.SUBCONTRACTED.display_name == "委外"
 
 
@@ -214,7 +214,7 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         for child in result.children:
             assert child.material_code.startswith("03.")
-            assert child.material_type_name == "包材"
+            assert child.material_type_name == "外购"
             assert child.purchase_order_qty == Decimal("100")
             assert child.purchase_stock_in_qty == Decimal("80")
 
@@ -490,7 +490,7 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         child = result.children[0]
         assert child.material_code == "03.01.010"
-        assert child.material_type_name == "包材"
+        assert child.material_type_name == "外购"
         assert child.purchase_order_qty == Decimal("200")
         assert child.purchase_stock_in_qty == Decimal("150")
 
@@ -599,7 +599,7 @@ class TestMTOQueryHandler:
         result = await handler.get_status("AS2512032", use_cache=False)
 
         selfmade = [c for c in result.children if c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_type_name == "包材"]
+        purchased = [c for c in result.children if c.material_type_name == "外购"]
 
         assert len(selfmade) == 1
         assert selfmade[0].material_code == "03.05.001"
@@ -611,47 +611,32 @@ class TestMTOQueryHandler:
         assert pur_child[0].purchase_order_qty == Decimal("200")
 
     @pytest.mark.asyncio
-    async def test_03_in_ppbom_with_wrong_material_type_routes_purchased(self, mock_readers):
-        """03.xx in PPBOM with FMaterialType=1 (wrong) and no PRD_MO → purchased.
+    async def test_03_in_ppbom_with_material_type_1_routes_selfmade(self, mock_readers):
+        """03.xx in PPBOM with FMaterialType=1 routes as self-made.
 
-        金蝶 PPBOM 的 FMaterialType 对某些 MTO 会错误地返回 1（自制），
-        但物料编码前缀 03.xx 应该覆盖这个错误值，强制路由为外购。
-        此测试覆盖 _bom_row_to_child() 的前缀兜底逻辑。
+        FMaterialType is the authoritative source from Kingdee PPBOM.
+        A 03.xx item with material_type=1 should route as self-made,
+        with prod_instock_must_qty populated from the BOM need_qty.
         """
-        # PPBOM entry with WRONG material_type=1 (should be 2 for 03.xx)
-        bom_03_wrong_type = ProductionBOMModel(
+        bom_03_selfmade = ProductionBOMModel(
             mo_bill_no="MO600",
             mto_number="AS2512059",
             material_code="03.01.010",
-            material_name="外购包材B",
+            material_name="自制包材B",
             specification="",
             aux_prop_id=0,
-            material_type=1,  # ← wrong! Kingdee says 自制 but it's 03.xx
+            material_type=1,  # FMaterialType=1 → self-made
             need_qty=Decimal("200"),
             picked_qty=Decimal("0"),
             no_picked_qty=Decimal("200"),
-        )
-        purchase_03 = PurchaseOrderModel(
-            bill_no="PO600",
-            mto_number="AS2512059",
-            material_code="03.01.010",
-            material_name="外购包材B",
-            specification="",
-            aux_attributes="",
-            aux_prop_id=0,
-            order_qty=Decimal("200"),
-            stock_in_qty=Decimal("150"),
-            remain_stock_in_qty=Decimal("50"),
         )
 
         mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_bom"].fetch_by_mto = AsyncMock(
-            return_value=[bom_03_wrong_type]
+            return_value=[bom_03_selfmade]
         )
-        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
-            return_value=[purchase_03]
-        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
@@ -665,16 +650,15 @@ class TestMTOQueryHandler:
 
         assert len(result.children) >= 1
         child = [c for c in result.children if c.material_code == "03.01.010"][0]
-        assert child.material_type_name == "包材"
-        assert child.purchase_order_qty == Decimal("200")
-        assert child.purchase_stock_in_qty == Decimal("150")
+        assert child.material_type_name == "自制"
+        assert child.prod_instock_must_qty == Decimal("200")
+        assert child.prod_instock_real_qty == Decimal("0")
 
     @pytest.mark.asyncio
     async def test_03_with_prd_mo_not_duplicated_in_purchased(self, mock_readers):
-        """03.xx with 工段 must NOT appear in both self-made and purchased paths.
+        """03.xx with FMaterialType=1 must NOT appear in both self-made and purchased paths.
 
-        有工段的 03.xx 不应同时出现在自制和外购中, 避免重复计数。
-        PPBOM 和 PickMtrl 外购分桶应排除有工段的物料。
+        有 FMaterialType=1 的 03.xx 不应同时出现在自制和外购中, 避免重复计数。
         """
         prod_order_03 = ProductionOrderModel(
             bill_no="MO500",
@@ -697,7 +681,7 @@ class TestMTOQueryHandler:
             aux_prop_id=0,
             mo_bill_no="MO500",
         )
-        # Same material also appears in PPBOM and PickMtrl — should be excluded from purchased
+        # PPBOM with FMaterialType=1 (self-made) — should only appear as self-made, not duplicated
         bom_03 = ProductionBOMModel(
             mo_bill_no="MO500",
             mto_number="AS2512032",
@@ -705,7 +689,7 @@ class TestMTOQueryHandler:
             material_name="纸箱A",
             specification="",
             aux_prop_id=0,
-            material_type=2,
+            material_type=1,
             need_qty=Decimal("500"),
             picked_qty=Decimal("300"),
             no_picked_qty=Decimal("200"),
@@ -746,7 +730,7 @@ class TestMTOQueryHandler:
 
         # Should only appear once as self-made, NOT duplicated in purchased
         selfmade = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "包材"]
+        purchased = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "外购"]
 
         assert len(selfmade) == 1
         assert len(purchased) == 0
@@ -776,63 +760,26 @@ class TestBomRowToChild:
             sales_order_reader=mock_readers["sales_order"],
         )
 
-    def test_03_with_wrong_material_type_overridden_to_purchased(self):
-        """BOMJoinedRow with material_code=03.xx and material_type=1 → purchased.
+    def test_03_with_material_type_1_routes_as_selfmade(self):
+        """BOMJoinedRow with material_code=03.xx and material_type=1 → self-made.
 
-        金蝶返回错误的 FMaterialType=1，但 03.xx 前缀兜底应强制为 purchased。
+        FMaterialType is the authoritative source; 03.xx with material_type=1
+        routes as self-made with prod_instock_must_qty populated.
         """
         row = BOMJoinedRow(
             mo_bill_no="MO700",
             mto_number="AS2512059",
             material_code="03.02.005",
-            material_name="外购客供件",
+            material_name="自制包材",
             specification="",
             aux_attributes="",
             aux_prop_id=0,
-            material_type=1,  # ← wrong from Kingdee
+            material_type=1,  # FMaterialType=1 → self-made
             need_qty=Decimal("100"),
             picked_qty=Decimal("0"),
             no_picked_qty=Decimal("100"),
-            prod_receipt_real_qty=Decimal("0"),
-            prod_receipt_must_qty=Decimal("0"),
-            pick_actual_qty=Decimal("0"),
-            pick_app_qty=Decimal("0"),
-            purchase_order_qty=Decimal("100"),
-            purchase_stock_in_qty=Decimal("80"),
-            purchase_receipt_real_qty=Decimal("0"),
-            subcontract_order_qty=Decimal("0"),
-            subcontract_stock_in_qty=Decimal("0"),
-            delivery_real_qty=Decimal("0"),
-        )
-        handler = self._make_handler()
-        child = handler._bom_row_to_child(
-            row=row,
-            aux_descriptions={},
-            prd_mo_qty_by_key={},
-            prd_mo_03_codes=set(),  # no PRD_MO for this 03.xx
-        )
-
-        assert child.material_type == MaterialType.PURCHASED
-        assert child.material_type_name == "包材"
-        assert child.purchase_order_qty == Decimal("100")
-        assert child.purchase_stock_in_qty == Decimal("80")
-
-    def test_03_with_prd_mo_stays_selfmade(self):
-        """BOMJoinedRow with material_code=03.xx in prd_mo_03_codes → self-made."""
-        row = BOMJoinedRow(
-            mo_bill_no="MO800",
-            mto_number="AS2512059",
-            material_code="03.06.002",
-            material_name="吸塑托盘",
-            specification="",
-            aux_attributes="",
-            aux_prop_id=0,
-            material_type=2,  # Kingdee says 外购, but PRD_MO overrides
-            need_qty=Decimal("500"),
-            picked_qty=Decimal("0"),
-            no_picked_qty=Decimal("500"),
-            prod_receipt_real_qty=Decimal("300"),
-            prod_receipt_must_qty=Decimal("500"),
+            prod_receipt_real_qty=Decimal("60"),
+            prod_receipt_must_qty=Decimal("100"),
             pick_actual_qty=Decimal("0"),
             pick_app_qty=Decimal("0"),
             purchase_order_qty=Decimal("0"),
@@ -846,14 +793,53 @@ class TestBomRowToChild:
         child = handler._bom_row_to_child(
             row=row,
             aux_descriptions={},
-            prd_mo_qty_by_key={("03.06.002", 0): Decimal("500")},
-            prd_mo_03_codes={"03.06.002"},  # has PRD_MO
+            prd_mo_qty_by_key={},
         )
 
         assert child.material_type == MaterialType.SELF_MADE
         assert child.material_type_name == "自制"
-        assert child.prod_instock_must_qty == Decimal("500")
-        assert child.prod_instock_real_qty == Decimal("300")
+        assert child.prod_instock_must_qty == Decimal("100")
+        assert child.prod_instock_real_qty == Decimal("60")
+
+    def test_03_with_material_type_2_routes_as_purchased(self):
+        """BOMJoinedRow with material_code=03.xx and material_type=2 → purchased.
+
+        FMaterialType=2 is trusted directly, routing as purchased.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO800",
+            mto_number="AS2512059",
+            material_code="03.06.002",
+            material_name="外购包材",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=2,  # FMaterialType=2 → purchased
+            need_qty=Decimal("500"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("500"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("500"),
+            purchase_stock_in_qty=Decimal("300"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+        )
+        handler = self._make_handler()
+        child = handler._bom_row_to_child(
+            row=row,
+            aux_descriptions={},
+            prd_mo_qty_by_key={},
+        )
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "外购"
+        assert child.purchase_order_qty == Decimal("500")
+        assert child.purchase_stock_in_qty == Decimal("300")
 
     def test_05_with_material_type_1_stays_selfmade(self):
         """Non-03 material (05.xx) with material_type=1 stays self-made (no override)."""
@@ -885,7 +871,6 @@ class TestBomRowToChild:
             row=row,
             aux_descriptions={},
             prd_mo_qty_by_key={},
-            prd_mo_03_codes=set(),
         )
 
         assert child.material_type == MaterialType.SELF_MADE
@@ -1196,7 +1181,7 @@ class TestAuxPropIdMismatchRouting(TestMTOQueryHandler):
         result = await handler.get_status("AS2512042-2", use_cache=False)
 
         selfmade = [c for c in result.children if c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_code == "03.05.010" and c.material_type_name == "包材"]
+        purchased = [c for c in result.children if c.material_code == "03.05.010" and c.material_type_name == "外购"]
 
         assert len(selfmade) == 1
         assert selfmade[0].material_code == "03.05.010"
@@ -1270,7 +1255,7 @@ class TestAuxPropIdMismatchRouting(TestMTOQueryHandler):
         result = await handler.get_status("AS2512042-2", use_cache=False)
 
         selfmade = [c for c in result.children if c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_type_name == "包材"]
+        purchased = [c for c in result.children if c.material_type_name == "外购"]
 
         # 03.05.010 → self-made (routed via PRD_MO)
         assert len(selfmade) == 1
@@ -1732,8 +1717,8 @@ class TestBuildBomJoinedRowsFromLive:
         assert row.pick_actual_qty == Decimal("180")
         assert row.pick_app_qty == Decimal("200")
 
-    def test_03_receipt_without_prd_mo_gets_type_2(self, mock_readers):
-        """03.xx in PRD_INSTOCK without PRD_MO gets synthetic row with type=2 (purchased).
+    def test_03_receipt_without_prd_mo_gets_type_1(self, mock_readers):
+        """03.xx in PRD_INSTOCK without PRD_MO gets synthetic row with type=1 (source-table: self-made).
 
         Bug fix: previously all synthetic PRD_INSTOCK rows got type=1 (self-made),
         even 03.xx items that have no production order and should be purchased.
@@ -1765,7 +1750,7 @@ class TestBuildBomJoinedRowsFromLive:
         assert len(rows) == 1
         row = rows[0]
         assert row.material_code == "03.01.005"
-        assert row.material_type == 2  # purchased, NOT self-made
+        assert row.material_type == 1  # source-table inference: PRD_INSTOCK → self-made
 
     def test_03_receipt_with_prd_mo_gets_type_1(self, mock_readers):
         """03.xx in PRD_INSTOCK with PRD_MO gets synthetic row with type=1 (self-made)."""
@@ -1919,6 +1904,6 @@ class TestBuildBomJoinedRowsFromLive:
         assert len(rows) == 1
         row = rows[0]
         assert row.material_code == "03.02.001"
-        # 03.xx → type=2 (purchased inferred from prefix)
-        assert row.material_type == 2
+        # source-table inference: pick with no other source → conservative default self-made
+        assert row.material_type == 1
         assert row.pick_actual_qty == Decimal("80")

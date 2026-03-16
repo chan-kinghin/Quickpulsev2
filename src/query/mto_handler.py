@@ -53,7 +53,7 @@ class MaterialType(IntEnum):
 
     @property
     def display_name(self) -> str:
-        return {1: "自制", 2: "包材", 3: "委外"}.get(self.value, "未知")
+        return {1: "自制", 2: "外购", 3: "委外"}.get(self.value, "未知")
 
 
 class MTOQueryHandler:
@@ -369,12 +369,6 @@ class MTOQueryHandler:
 
         children = []
 
-        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
-        prd_mo_03_codes: set = {
-            po.material_code for po in prod_orders
-            if po.material_code.startswith("03.")
-        }
-
         # --- Finished goods (07.xx) from SAL_SaleOrder (NOT from BOM) ---
         # Build receipt lookup from BOM rows for finished goods receipt matching
         receipt_by_material: dict[tuple[str, int], Decimal] = {}
@@ -421,7 +415,7 @@ class MTOQueryHandler:
             prd_mo_qty_by_key[key] = prd_mo_qty_by_key.get(key, ZERO) + getattr(po, "qty", ZERO)
 
         for row in bom_rows:
-            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key, prd_mo_03_codes)
+            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key)
             children.append(child)
 
         # Build parent from first available sales order
@@ -504,12 +498,6 @@ class MTOQueryHandler:
 
         children = []
 
-        # 有生产订单的 03.xx 物料 → 按自制处理，不算外购
-        prd_mo_03_codes: set = {
-            po.material_code for po in prod_orders
-            if po.material_code.startswith("03.")
-        }
-
         # PRD_MO qty lookup for demand quantities
         prd_mo_qty_by_key: dict[tuple[str, int], Decimal] = {}
         for po in prod_orders:
@@ -544,7 +532,7 @@ class MTOQueryHandler:
         )
 
         for row in bom_rows:
-            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key, prd_mo_03_codes)
+            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key)
             children.append(child)
 
         # Build parent from first available sales order
@@ -692,32 +680,20 @@ class MTOQueryHandler:
         # --- Step 2: Synthetic rows for items NOT in PPBOM ---
         # Skip finished_goods (07.xx) — handled separately via _build_aggregated_sales_child
 
-        # Build set of 03.xx codes with PRD_MO for routing decisions
-        _prd_mo_03_codes: set[str] = {
-            po.material_code for po in prod_orders
-            if po.material_code.startswith("03.")
-        }
-
-        # 2a: Items from PRD_INSTOCK (05.xx or 03.xx) not in PPBOM
+        # 2a: Items from PRD_INSTOCK not in PPBOM (skip 07.xx finished goods)
         receipt_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pr in prod_receipts:
-            class_id, _ = self._get_material_class(pr.material_code)
-            if class_id in ("self_made", "purchased"):
-                aux = getattr(pr, "aux_prop_id", 0) or 0
-                receipt_groups[(pr.material_code, aux)].append(pr)
+            if pr.material_code.startswith("07."):
+                continue
+            aux = getattr(pr, "aux_prop_id", 0) or 0
+            receipt_groups[(pr.material_code, aux)].append(pr)
 
         for (code, aux), pr_list in receipt_groups.items():
             if (code, aux) in covered_keys or code in covered_codes:
                 continue
-            class_id, _ = self._get_material_class(code)
-            if class_id == "finished_goods":
-                continue
             first = pr_list[0]
-            # 03.xx without PRD_MO → purchased (type=2); everything else → self-made (type=1)
-            if code.startswith("03.") and code not in _prd_mo_03_codes:
-                m_type = 2
-            else:
-                m_type = 1
+            # Items in PRD_INSTOCK are production receipts → self-made
+            m_type = 1
             rows.append(_make_row(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
@@ -732,10 +708,10 @@ class MTOQueryHandler:
         # 2b: Purchase orders (03.xx) without PPBOM entry
         pur_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pur in purchase_orders:
-            class_id, _ = self._get_material_class(pur.material_code)
-            if class_id == "purchased":
-                aux = getattr(pur, "aux_prop_id", 0) or 0
-                pur_groups[(pur.material_code, aux)].append(pur)
+            if pur.material_code.startswith("07."):
+                continue
+            aux = getattr(pur, "aux_prop_id", 0) or 0
+            pur_groups[(pur.material_code, aux)].append(pur)
 
         for (code, aux), pur_list in pur_groups.items():
             if (code, aux) in covered_keys or code in covered_codes:
@@ -755,16 +731,13 @@ class MTOQueryHandler:
         # 2c: PRD_MO (05.xx or 03.xx+selfmade) without PPBOM or receipts
         mo_groups: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
-            class_id, _ = self._get_material_class(po.material_code)
-            if class_id in ("self_made", "purchased"):
-                aux = getattr(po, "aux_prop_id", 0) or 0
-                mo_groups[(po.material_code, aux)].append(po)
+            if po.material_code.startswith("07."):
+                continue
+            aux = getattr(po, "aux_prop_id", 0) or 0
+            mo_groups[(po.material_code, aux)].append(po)
 
         for (code, aux), po_list in mo_groups.items():
             if (code, aux) in covered_keys or code in covered_codes:
-                continue
-            class_id, _ = self._get_material_class(code)
-            if class_id == "finished_goods":
                 continue
             first = po_list[0]
             rows.append(_make_row(
@@ -781,8 +754,7 @@ class MTOQueryHandler:
         # 2d: Material picks without any other source
         pick_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pick in material_picks:
-            class_id, _ = self._get_material_class(pick.material_code)
-            if class_id == "finished_goods":
+            if pick.material_code.startswith("07."):
                 continue
             aux = getattr(pick, "aux_prop_id", 0) or 0
             pick_groups[(pick.material_code, aux)].append(pick)
@@ -791,8 +763,8 @@ class MTOQueryHandler:
             if (code, aux) in covered_keys or code in covered_codes:
                 continue
             first = pick_list[0]
-            # Infer type from code prefix
-            m_type = 1 if code.startswith("05.") else 2
+            # Conservative default — picking data with no other source, assume self-made
+            m_type = 1
             rows.append(_make_row(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
@@ -850,6 +822,7 @@ class MTOQueryHandler:
             bom_short_name=bom_short_name,
             material_type=1,  # 成品
             material_type_name="成品",
+            is_finished_goods=True,
             # 金蝶原始字段
             sales_order_qty=sales_order_qty,
             prod_instock_real_qty=prod_instock_real_qty,
@@ -860,31 +833,21 @@ class MTOQueryHandler:
         row: BOMJoinedRow,
         aux_descriptions: dict,
         prd_mo_qty_by_key: dict,
-        prd_mo_03_codes: set,
     ) -> ChildItem:
         """Convert a pre-joined BOM row into a ChildItem based on material_type.
 
         This is the single conversion method for all BOM children (cache path).
         Finished goods (07.xx) are handled separately via _build_aggregated_sales_child.
 
-        Routing rules:
-        - 03.xx with PRD_MO → treated as self-made (effective_type=1)
-        - 03.xx without PRD_MO → always purchased (overrides Kingdee FMaterialType)
+        Routing rules (trust FMaterialType from Kingdee PPBOM directly):
         - material_type=1 → 自制 (self-made)
         - material_type=2 → 包材 (purchased)
         - material_type=3 → 委外 (subcontracted)
         """
         aux_attrs = aux_descriptions.get(row.aux_prop_id, "") or row.aux_attributes
 
-        # Determine effective material type
-        # Priority: PRD_MO membership > prefix > Kingdee FMaterialType
-        is_03_selfmade = row.material_code in prd_mo_03_codes
-        if is_03_selfmade:
-            effective_type = 1  # 03.xx with PRD_MO → self-made
-        elif row.material_code.startswith("03."):
-            effective_type = 2  # 03.xx without PRD_MO → always purchased
-        else:
-            effective_type = row.material_type
+        # Trust FMaterialType from Kingdee PPBOM directly
+        effective_type = row.material_type
 
         if effective_type == 1:  # 自制
             # Use PRD_MO qty as demand if available, else BOM need_qty
@@ -914,7 +877,7 @@ class MTOQueryHandler:
                 specification=row.specification,
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.PURCHASED,
-                material_type_name="包材",
+                material_type_name="外购",
                 purchase_order_qty=row.purchase_order_qty if row.purchase_order_qty else row.need_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty if row.pick_actual_qty else row.picked_qty,

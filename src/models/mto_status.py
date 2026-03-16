@@ -48,6 +48,7 @@ class ChildItem(BaseModel):
     bom_short_name: str = Field(default="", description="BOM简称")
     material_type: int = Field(..., serialization_alias="material_type_code")
     material_type_name: str = Field(..., serialization_alias="material_type")
+    is_finished_goods: bool = Field(default=False, description="True only for 07.xx items routed via SAL_SaleOrder")
 
     # 金蝶原始字段 - 数量类（根据物料类型，只有一个有值）
     sales_order_qty: Decimal = Field(default=Decimal(0), description="销售订单.数量")

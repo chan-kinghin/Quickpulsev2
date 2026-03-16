@@ -30,7 +30,7 @@ def _make_child(**kwargs) -> ChildItem:
 
 
 def _make_engine_with_all_classes() -> MetricEngine:
-    """Build an engine with all 3 material classes registered (with patterns)."""
+    """Build an engine with all 3 material classes registered (with patterns and type IDs)."""
     engine = MetricEngine()
 
     engine.register_class(MaterialClassMetrics(
@@ -39,6 +39,8 @@ def _make_engine_with_all_classes() -> MetricEngine:
         demand_field="sales_order_qty",
         fulfilled_field="prod_instock_real_qty",
         picking_field=None,
+        material_type_id=1,
+        is_finished_goods=True,
         metrics=[
             MetricDefinition(
                 name="fulfillment_rate", label="入库完成率", format="percent",
@@ -57,6 +59,8 @@ def _make_engine_with_all_classes() -> MetricEngine:
         demand_field="prod_instock_must_qty",
         fulfilled_field="prod_instock_real_qty",
         picking_field="pick_actual_qty",
+        material_type_id=1,
+        is_finished_goods=False,
         metrics=[
             MetricDefinition(
                 name="fulfillment_rate", label="入库完成率", format="percent",
@@ -78,6 +82,8 @@ def _make_engine_with_all_classes() -> MetricEngine:
         demand_field="purchase_order_qty",
         fulfilled_field="purchase_stock_in_qty",
         picking_field="pick_actual_qty",
+        material_type_id=2,
+        is_finished_goods=False,
         metrics=[
             MetricDefinition(
                 name="fulfillment_rate", label="入库完成率", format="percent",
@@ -129,6 +135,39 @@ class TestEngineClassDetection:
             demand_field="sales_order_qty",
         ))
         assert engine.detect_class_id("07.01.001") is None
+
+
+class TestEngineTypeBasedDetection:
+    """Test MetricEngine.detect_class_id_by_type — type-based class detection."""
+
+    def test_detect_class_id_by_type_finished_goods(self):
+        engine = _make_engine_with_all_classes()
+        assert engine.detect_class_id_by_type(1, is_finished_goods=True) == "finished_goods"
+
+    def test_detect_class_id_by_type_self_made(self):
+        engine = _make_engine_with_all_classes()
+        assert engine.detect_class_id_by_type(1, is_finished_goods=False) == "self_made"
+
+    def test_detect_class_id_by_type_purchased(self):
+        engine = _make_engine_with_all_classes()
+        assert engine.detect_class_id_by_type(2, is_finished_goods=False) == "purchased"
+
+    def test_detect_class_id_by_type_unknown(self):
+        engine = _make_engine_with_all_classes()
+        assert engine.detect_class_id_by_type(99) is None
+
+    def test_detect_class_id_by_type_empty_engine(self):
+        engine = MetricEngine()
+        assert engine.detect_class_id_by_type(1, is_finished_goods=True) is None
+
+    def test_detect_class_id_by_type_no_type_id_registered(self):
+        """Classes without material_type_id cannot be detected by type."""
+        engine = MetricEngine()
+        engine.register_class(MaterialClassMetrics(
+            class_id="finished_goods",
+            demand_field="sales_order_qty",
+        ))
+        assert engine.detect_class_id_by_type(1, is_finished_goods=True) is None
 
 
 class TestMetricEngine:
