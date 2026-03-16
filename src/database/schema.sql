@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS cached_production_bom (
     picked_qty REAL,
     no_picked_qty REAL,
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(mo_bill_no, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_bom_mo ON cached_production_bom(mo_bill_no);
 CREATE INDEX IF NOT EXISTS idx_bom_mto ON cached_production_bom(mto_number);
@@ -81,7 +82,8 @@ CREATE TABLE IF NOT EXISTS cached_subcontracting_orders (
     no_stock_in_qty REAL,
     aux_prop_id INTEGER DEFAULT 0,
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bill_no, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_subo_mto ON cached_subcontracting_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_subo_material ON cached_subcontracting_orders(material_code);
@@ -148,7 +150,8 @@ CREATE TABLE IF NOT EXISTS cached_sales_delivery (
     must_qty REAL,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_sald_mto ON cached_sales_delivery(mto_number);
 CREATE INDEX IF NOT EXISTS idx_sald_mto_synced ON cached_sales_delivery(mto_number, synced_at DESC);

@@ -341,6 +341,7 @@ class MTOQueryHandler:
             name for name, result in [
                 ("sales_orders", sales_orders_result),
                 ("prod_orders", prod_orders_result),
+                ("bom_joined", bom_joined_result),
             ]
             if result.data and not result.is_fresh
         ]
@@ -370,27 +371,34 @@ class MTOQueryHandler:
         children = []
 
         # --- Finished goods (07.xx) from SAL_SaleOrder (NOT from BOM) ---
-        # Build receipt lookup from BOM rows for finished goods receipt matching
+        # BOM-joined query now excludes 07.xx, so fetch 07.xx receipt/delivery
+        # data separately from individual cache tables
+        prod_receipts_result = await self._cache_reader.get_production_receipts(mto_number)
+        sales_delivery_result = await self._cache_reader.get_sales_delivery(mto_number)
+        material_picking_result = await self._cache_reader.get_material_picking(mto_number)
+
+        prod_receipts_07 = [r for r in (prod_receipts_result.data or []) if r.material_code.startswith("07.")]
+        sales_delivery_07 = [r for r in (sales_delivery_result.data or []) if r.material_code.startswith("07.")]
+        material_picks_07 = [r for r in (material_picking_result.data or []) if r.material_code.startswith("07.")]
+
         receipt_by_material: dict[tuple[str, int], Decimal] = {}
-        for row in bom_rows:
-            if row.prod_receipt_real_qty:
-                key = (row.material_code, row.aux_prop_id)
-                receipt_by_material[key] = receipt_by_material.get(key, ZERO) + row.prod_receipt_real_qty
+        for r in prod_receipts_07:
+            key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
+            receipt_by_material[key] = receipt_by_material.get(key, ZERO) + r.real_qty
 
         delivered_by_material: dict[tuple[str, int], Decimal] = {}
-        for row in bom_rows:
-            if row.delivery_real_qty:
-                key = (row.material_code, row.aux_prop_id)
-                delivered_by_material[key] = delivered_by_material.get(key, ZERO) + row.delivery_real_qty
+        for r in sales_delivery_07:
+            key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
+            delivered_by_material[key] = delivered_by_material.get(key, ZERO) + r.real_qty
 
         pick_request: dict[str, Decimal] = {}
         pick_actual: dict[tuple[str, int], Decimal] = {}
-        for row in bom_rows:
-            if row.pick_app_qty:
-                pick_request[row.material_code] = pick_request.get(row.material_code, ZERO) + row.pick_app_qty
-            if row.pick_actual_qty:
-                key = (row.material_code, row.aux_prop_id)
-                pick_actual[key] = pick_actual.get(key, ZERO) + row.pick_actual_qty
+        for r in material_picks_07:
+            if r.app_qty:
+                pick_request[r.material_code] = pick_request.get(r.material_code, ZERO) + r.app_qty
+            if r.actual_qty:
+                key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
+                pick_actual[key] = pick_actual.get(key, ZERO) + r.actual_qty
 
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
@@ -601,24 +609,19 @@ class MTOQueryHandler:
             _by_code[label] = code_totals
 
         def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
-            """Get value by (code, aux) with bidirectional fallback.
+            """Get value by (code, aux) with code-level fallback.
 
-            - aux != 0: try exact (code, aux), then fallback to (code, 0)
-            - aux == 0: try exact (code, 0), then fallback to sum of ALL aux for code
+            Matches the SQL dual-JOIN COALESCE behavior:
+            1. Try exact (code, aux) match
+            2. Fall back to code-level total (sum of ALL aux for this code)
             """
             exact = lookup.get((code, aux))
             if exact is not None:
                 return exact
-            if aux != 0:
-                # BOM has specific variant, receipt might have aux=0 (unspecified)
-                fallback = lookup.get((code, 0))
-                if fallback is not None:
-                    return fallback
-            else:
-                # BOM has aux=0, sum ALL receipts for this material code
-                code_total = _by_code.get(lookup_label, {}).get(code)
-                if code_total is not None:
-                    return code_total
+            # Always fall back to code-level total (matches SQL pr0 SUM behavior)
+            code_total = _by_code.get(lookup_label, {}).get(code)
+            if code_total is not None:
+                return code_total
             return ZERO
 
         def _make_row(code: str, aux: int, material_name: str, specification: str,
@@ -652,12 +655,13 @@ class MTOQueryHandler:
         # --- Step 1: Build rows from PPBOM (primary source) ---
         bom_groups: dict[tuple[str, int], list] = defaultdict(list)
         for bom in production_bom:
+            if bom.material_code.startswith("07."):
+                continue  # finished goods handled via _build_aggregated_sales_child
             key = (bom.material_code, getattr(bom, "aux_prop_id", 0) or 0)
             bom_groups[key].append(bom)
 
         rows = []
         covered_keys: set[tuple[str, int]] = set()
-        covered_codes: set[str] = set()
 
         for (code, aux), bom_list in bom_groups.items():
             first = bom_list[0]
@@ -675,10 +679,12 @@ class MTOQueryHandler:
                 mto_number=getattr(first, "mto_number", ""),
             ))
             covered_keys.add((code, aux))
-            covered_codes.add(code)
 
         # --- Step 2: Synthetic rows for items NOT in PPBOM ---
         # Skip finished_goods (07.xx) — handled separately via _build_aggregated_sales_child
+        # For synthetic rows, track by code to avoid showing same material twice
+        # when aux_prop_id differs between sources (e.g., PRD_MO aux=0, receipt aux=5001)
+        covered_codes: set[str] = {code for code, _aux in covered_keys}
 
         # 2a: Items from PRD_INSTOCK not in PPBOM (skip 07.xx finished goods)
         receipt_groups: dict[tuple[str, int], list] = defaultdict(list)

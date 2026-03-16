@@ -73,6 +73,8 @@ class PurchaseReceiptModel(BaseModel):
     bill_no: str = ""
     mto_number: str
     material_code: str
+    material_name: str = ""
+    specification: str = ""
     real_qty: Decimal
     must_qty: Decimal
     bill_type_number: str
@@ -85,6 +87,8 @@ class SubcontractingOrderModel(BaseModel):
     bill_no: str
     mto_number: str
     material_code: str
+    material_name: str = ""
+    specification: str = ""
     order_qty: Decimal
     stock_in_qty: Decimal
     no_stock_in_qty: Decimal
@@ -97,6 +101,8 @@ class MaterialPickingModel(BaseModel):
     bill_no: str = ""
     mto_number: str
     material_code: str
+    material_name: str = ""
+    specification: str = ""
     app_qty: Decimal
     actual_qty: Decimal
     ppbom_bill_no: str
@@ -109,6 +115,8 @@ class SalesDeliveryModel(BaseModel):
     bill_no: str = ""
     mto_number: str
     material_code: str
+    material_name: str = ""
+    specification: str = ""
     real_qty: Decimal
     must_qty: Decimal
     aux_prop_id: int = 0  # For matching by aux_attributes

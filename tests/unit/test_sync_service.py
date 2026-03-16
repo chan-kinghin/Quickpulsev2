@@ -152,45 +152,8 @@ class TestSyncService:
         with pytest.raises(SyncError, match="already running"):
             await service.run_sync(days_back=7)
 
-    @pytest.mark.asyncio
-    async def test_sync_orders_empty(
-        self, mock_readers, test_database, mock_sync_progress
-    ):
-        """Test sync with no orders returns empty list."""
-        # Mock reader to return empty
-        mock_readers["production_order"].fetch_by_date_range = AsyncMock(
-            return_value=[]
-        )
-
-        service = self.create_service(mock_readers, test_database, mock_sync_progress)
-
-        orders = await service._sync_orders(date(2025, 1, 1), date(2025, 1, 7))
-        assert orders == []
-
-    @pytest.mark.asyncio
-    async def test_sync_orders_with_data(
-        self, mock_readers, test_database, mock_sync_progress, sample_production_orders
-    ):
-        """Test sync with production orders."""
-        mock_readers["production_order"].fetch_by_date_range = AsyncMock(
-            return_value=sample_production_orders
-        )
-
-        service = self.create_service(mock_readers, test_database, mock_sync_progress)
-
-        orders = await service._sync_orders(date(2025, 1, 1), date(2025, 1, 7))
-
-        assert len(orders) == 2
-
-    @pytest.mark.asyncio
-    async def test_sync_bom_for_orders_empty(
-        self, mock_readers, test_database, mock_sync_progress
-    ):
-        """Test BOM sync with no orders."""
-        service = self.create_service(mock_readers, test_database, mock_sync_progress)
-
-        count = await service._sync_bom_for_orders([])
-        assert count == 0
+    # Tests for _sync_orders, _sync_orders_with_data, _sync_bom_for_orders_empty
+    # removed — those methods were dead code and have been deleted
 
     @pytest.mark.asyncio
     async def test_run_sync_success(

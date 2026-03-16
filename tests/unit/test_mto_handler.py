@@ -312,6 +312,15 @@ class TestMTOQueryHandler:
         mock_cache.get_mto_bom_joined = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
+        mock_cache.get_production_receipts = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        )
+        mock_cache.get_sales_delivery = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        )
+        mock_cache.get_material_picking = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 

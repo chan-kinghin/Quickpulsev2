@@ -215,6 +215,11 @@ class KingdeeClient:
                     if len(row) > 0 and isinstance(row[0], dict) and "Result" in row[0]:
                         logger.warning("Skipping error row in response")
                         continue
+                    if len(row) != len(field_keys):
+                        logger.warning(
+                            "API returned %d columns, expected %d for %s",
+                            len(row), len(field_keys), form_id,
+                        )
                     valid_rows.append(dict(zip(field_keys, row)))
 
             return valid_rows
