@@ -89,6 +89,15 @@ class Database:
                         )
                         continue
 
+                if migration_file.name == "007_add_aux_prop_id_to_production_orders.sql":
+                    # Check if column already exists (schema.sql may have it on fresh DB)
+                    if await self._column_exists("cached_production_orders", "aux_prop_id"):
+                        await self._connection.execute(
+                            "INSERT INTO _migrations (name) VALUES (?)",
+                            [migration_file.name]
+                        )
+                        continue
+
                 if migration_file.name == "004_fix_receipt_unique_constraints.sql":
                     # Check if bill_no column already exists (schema.sql may have it on fresh DB)
                     if await self._column_exists("cached_production_receipts", "bill_no"):
