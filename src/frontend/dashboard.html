@@ -323,12 +323,12 @@
                 </div>
 
                 <div class="overflow-x-auto overflow-y-auto bom-table" :class="isFullScreen ? 'max-h-[calc(100vh-180px)]' : 'max-h-[600px]'">
-                    <table role="table" class="w-full text-sm">
+                    <table role="table" class="text-sm" style="table-layout: fixed;" :style="'width:' + columns.filter(c => c.visible).reduce((sum, c) => sum + c.width, 0) + 'px'">
                         <thead class="sticky top-0 z-10">
                             <tr role="row" class="border-b border-slate-700">
                                 <!-- 序号 - not sortable, not resizable -->
                                 <th scope="col" :class="{ 'col-hidden': !colVisible('index') }"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sticky left-0 z-20"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sticky left-0 z-20"
                                     :style="getColumnStyle('index')">
                                     序号
                                 </th>
@@ -337,7 +337,7 @@
                                     @click="toggleSort('material_code')"
                                     :aria-sort="sort.column === 'material_code' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_code')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('material_code')">
                                     <div class="flex items-center gap-1">
                                         <span>物料编码</span>
@@ -352,7 +352,7 @@
                                     @click="toggleSort('material_name')"
                                     :aria-sort="sort.column === 'material_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_name')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('material_name')">
                                     <div class="flex items-center gap-1">
                                         <span>物料名称</span>
@@ -367,7 +367,7 @@
                                     @click="toggleSort('specification')"
                                     :aria-sort="sort.column === 'specification' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'specification')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('specification')">
                                     <div class="flex items-center gap-1">
                                         <span>规格型号</span>
@@ -382,7 +382,7 @@
                                     @click="toggleSort('bom_short_name')"
                                     :aria-sort="sort.column === 'bom_short_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'bom_short_name')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('bom_short_name')">
                                     <div class="flex items-center gap-1">
                                         <span>BOM简称</span>
@@ -395,7 +395,7 @@
                                 <!-- 辅助属性 - not sortable -->
                                 <th scope="col" :class="{ 'col-hidden': !colVisible('aux_attributes') }"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'aux_attributes')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap relative resizable"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 relative resizable"
                                     :style="getColumnStyle('aux_attributes')">
                                     辅助属性
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'aux_attributes')" @dblclick.stop="autoFitColumn('aux_attributes')"></div>
@@ -405,7 +405,7 @@
                                     @click="toggleSort('material_type')"
                                     :aria-sort="sort.column === 'material_type' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_type')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('material_type')">
                                     <div class="flex items-center gap-1">
                                         <span>物料类型</span>
@@ -420,7 +420,7 @@
                                     @click="toggleSort('sales_order_qty')"
                                     :aria-sort="sort.column === 'sales_order_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'sales_order_qty')"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-l border-emerald-900 sortable-header relative resizable"
+                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 border-l border-emerald-900 sortable-header relative resizable"
                                     :style="getColumnStyle('sales_order_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>销售订单.数量</span>
@@ -434,7 +434,7 @@
                                     @click="toggleSort('prod_instock_must_qty')"
                                     :aria-sort="sort.column === 'prod_instock_must_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'prod_instock_must_qty')"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('prod_instock_must_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>生产入库单.应收数量</span>
@@ -448,7 +448,7 @@
                                     @click="toggleSort('purchase_order_qty')"
                                     :aria-sort="sort.column === 'purchase_order_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'purchase_order_qty')"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap border-r border-emerald-900 sortable-header relative resizable"
+                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 border-r border-emerald-900 sortable-header relative resizable"
                                     :style="getColumnStyle('purchase_order_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>采购订单.数量</span>
@@ -463,7 +463,7 @@
                                     @click="toggleSort('pick_actual_qty')"
                                     :aria-sort="sort.column === 'pick_actual_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'pick_actual_qty')"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap border-l border-sky-900 sortable-header relative resizable"
+                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 border-l border-sky-900 sortable-header relative resizable"
                                     :style="getColumnStyle('pick_actual_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>生产领料单.实发数量</span>
@@ -477,7 +477,7 @@
                                     @click="toggleSort('prod_instock_real_qty')"
                                     :aria-sort="sort.column === 'prod_instock_real_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'prod_instock_real_qty')"
-                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap sortable-header relative resizable"
+                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 sortable-header relative resizable"
                                     :style="getColumnStyle('prod_instock_real_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>生产入库单.实收数量</span>
@@ -491,7 +491,7 @@
                                     @click="toggleSort('purchase_stock_in_qty')"
                                     :aria-sort="sort.column === 'purchase_stock_in_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'purchase_stock_in_qty')"
-                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 whitespace-nowrap border-r border-sky-900 sortable-header relative resizable"
+                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 border-r border-sky-900 sortable-header relative resizable"
                                     :style="getColumnStyle('purchase_stock_in_qty')">
                                     <div class="flex items-center justify-end gap-1">
                                         <span>采购订单.累计入库数量</span>
@@ -506,7 +506,7 @@
                                     @click="toggleSort('fulfillment_rate')"
                                     :aria-sort="sort.column === 'fulfillment_rate' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
                                     tabindex="0" @keydown="resizeColumnByKeyboard($event, 'fulfillment_rate')"
-                                    class="px-4 py-3 text-center font-medium text-amber-400 bg-slate-900 whitespace-nowrap border-l border-amber-900/50 sortable-header relative resizable"
+                                    class="px-4 py-3 text-center font-medium text-amber-400 bg-slate-900 border-l border-amber-900/50 sortable-header relative resizable"
                                     :style="getColumnStyle('fulfillment_rate')">
                                     <div class="flex items-center justify-center gap-1">
                                         <span>完成率</span>
@@ -528,7 +528,7 @@
                                     <!-- BOM简称 - only for 成品 (is_finished_goods) -->
                                     <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" role="cell" class="px-4 py-3 text-slate-400"
                                         x-text="item.is_finished_goods ? (item.bom_short_name || '-') : '-'"></td>
-                                    <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" role="cell" class="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate"
+                                    <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" role="cell" class="px-4 py-3 text-slate-400 text-xs break-words"
                                         :title="item.aux_attributes || ''"
                                         x-text="item.aux_attributes || '-'"></td>
                                     <td :class="{ 'col-hidden': !colVisible('material_type') }" role="cell" class="px-4 py-3">

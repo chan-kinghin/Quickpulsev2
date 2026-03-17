@@ -128,6 +128,14 @@ th.resizable {
     position: relative;
 }
 
+/* With table-layout:fixed, ensure cells handle overflow and text wraps */
+.bom-table table td,
+.bom-table table th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-word;
+}
+
 /* Safari-safe column hiding (x-show display:none breaks td in Safari) */
 th.col-hidden,
 td.col-hidden {

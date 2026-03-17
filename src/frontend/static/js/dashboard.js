@@ -93,7 +93,7 @@ function mtoSearch() {
 
         // === Preferences ===
         STORAGE_KEY: 'quickpulse_preferences',
-        STORAGE_VERSION: 1,
+        STORAGE_VERSION: 2,
 
         // === Lifecycle ===
         init() {
@@ -449,7 +449,7 @@ function mtoSearch() {
 
         getColumnStyle(columnKey) {
             const col = this.columns.find(c => c.key === columnKey);
-            return col ? `width: ${col.width}px; min-width: ${col.minWidth}px; max-width: ${col.maxWidth}px;` : '';
+            return col ? `width: ${col.width}px; min-width: ${col.minWidth}px; max-width: ${col.maxWidth}px; overflow: hidden; text-overflow: ellipsis;` : '';
         },
 
         // Double-click resize handle to auto-fit column width to content
