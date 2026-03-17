@@ -75,7 +75,7 @@ def main():
 
     bom_result = query(api_sdk, bom_params)
 
-    type_names = {1: "自制", 2: "外购", 3: "委外"}
+    type_names = {1: "自制", 2: "包材", 3: "委外"}
     type_counts = {1: 0, 2: 0, 3: 0, 0: 0}
 
     print(f"  共 {len(bom_result)} 条子项")

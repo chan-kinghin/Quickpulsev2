@@ -53,7 +53,7 @@ class MaterialType(IntEnum):
 
     @property
     def display_name(self) -> str:
-        return {1: "自制", 2: "外购", 3: "委外"}.get(self.value, "未知")
+        return {1: "自制", 2: "包材", 3: "委外"}.get(self.value, "未知")
 
 
 class MTOQueryHandler:
@@ -883,7 +883,7 @@ class MTOQueryHandler:
                 specification=row.specification,
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.PURCHASED,
-                material_type_name="外购",
+                material_type_name="包材",
                 purchase_order_qty=row.purchase_order_qty if row.purchase_order_qty else row.need_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty if row.pick_actual_qty else row.picked_qty,

@@ -35,7 +35,7 @@ class TestMaterialType:
     def test_display_names(self):
         """Test display name properties."""
         assert MaterialType.SELF_MADE.display_name == "自制"
-        assert MaterialType.PURCHASED.display_name == "外购"
+        assert MaterialType.PURCHASED.display_name == "包材"
         assert MaterialType.SUBCONTRACTED.display_name == "委外"
 
 
@@ -214,7 +214,7 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         for child in result.children:
             assert child.material_code.startswith("03.")
-            assert child.material_type_name == "外购"
+            assert child.material_type_name == "包材"
             assert child.purchase_order_qty == Decimal("100")
             assert child.purchase_stock_in_qty == Decimal("80")
 
@@ -499,7 +499,7 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         child = result.children[0]
         assert child.material_code == "03.01.010"
-        assert child.material_type_name == "外购"
+        assert child.material_type_name == "包材"
         assert child.purchase_order_qty == Decimal("200")
         assert child.purchase_stock_in_qty == Decimal("150")
 
@@ -608,7 +608,7 @@ class TestMTOQueryHandler:
         result = await handler.get_status("AS2512032", use_cache=False)
 
         selfmade = [c for c in result.children if c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_type_name == "外购"]
+        purchased = [c for c in result.children if c.material_type_name == "包材"]
 
         assert len(selfmade) == 1
         assert selfmade[0].material_code == "03.05.001"
@@ -739,7 +739,7 @@ class TestMTOQueryHandler:
 
         # Should only appear once as self-made, NOT duplicated in purchased
         selfmade = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "外购"]
+        purchased = [c for c in result.children if c.material_code == "03.05.001" and c.material_type_name == "包材"]
 
         assert len(selfmade) == 1
         assert len(purchased) == 0
@@ -846,7 +846,7 @@ class TestBomRowToChild:
         )
 
         assert child.material_type == MaterialType.PURCHASED
-        assert child.material_type_name == "外购"
+        assert child.material_type_name == "包材"
         assert child.purchase_order_qty == Decimal("500")
         assert child.purchase_stock_in_qty == Decimal("300")
 
@@ -1190,7 +1190,7 @@ class TestAuxPropIdMismatchRouting(TestMTOQueryHandler):
         result = await handler.get_status("AS2512042-2", use_cache=False)
 
         selfmade = [c for c in result.children if c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_code == "03.05.010" and c.material_type_name == "外购"]
+        purchased = [c for c in result.children if c.material_code == "03.05.010" and c.material_type_name == "包材"]
 
         assert len(selfmade) == 1
         assert selfmade[0].material_code == "03.05.010"
@@ -1264,7 +1264,7 @@ class TestAuxPropIdMismatchRouting(TestMTOQueryHandler):
         result = await handler.get_status("AS2512042-2", use_cache=False)
 
         selfmade = [c for c in result.children if c.material_type_name == "自制"]
-        purchased = [c for c in result.children if c.material_type_name == "外购"]
+        purchased = [c for c in result.children if c.material_type_name == "包材"]
 
         # 03.05.010 → self-made (routed via PRD_MO)
         assert len(selfmade) == 1

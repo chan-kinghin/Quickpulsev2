@@ -69,7 +69,7 @@
     },
     {
       "id": "self_made",
-      "pattern": "^05\\.",
+      "pattern": "^0[56]\\.",
       "display_name": "自制",
       "material_type": 1,
       "material_type_id": 1,
@@ -145,7 +145,7 @@
     {
       "id": "purchased",
       "pattern": "^03\\.",
-      "display_name": "外购",
+      "display_name": "包材",
       "material_type": 2,
       "material_type_id": 2,
       "is_finished_goods": false,
