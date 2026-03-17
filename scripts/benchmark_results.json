@@ -1,0 +1,532 @@
+{
+  "metadata": {
+    "model": "deepseek-chat",
+    "base_url": "https://api.deepseek.com",
+    "max_tokens": 1024,
+    "temperature": 0.3,
+    "database": "/Users/kinghinchan/Documents/Cursor Projects/Quickpulsev2/Quickpulsev2/data/quickpulse.db",
+    "database_exists": true,
+    "question_count": 8,
+    "timestamp": "2026-02-18T09:58:46"
+  },
+  "questions": [
+    {
+      "id": "q1_mto_lookup",
+      "category": "MTO lookup",
+      "question": "AK2510034的入库完成率是多少"
+    },
+    {
+      "id": "q2_schema",
+      "category": "Schema",
+      "question": "cached_production_bom表有哪些字段，各自是什么含义"
+    },
+    {
+      "id": "q3_domain_concept",
+      "category": "Domain concept",
+      "question": "什么是超领，怎么通过数据检测超领情况"
+    },
+    {
+      "id": "q4_analytical",
+      "category": "Analytical",
+      "question": "哪些物料的入库完成率最低，请列出前10个"
+    },
+    {
+      "id": "q5_ambiguous",
+      "category": "Ambiguous",
+      "question": "帮我看看最近的订单情况"
+    },
+    {
+      "id": "q6_aggregation",
+      "category": "Aggregation",
+      "question": "统计各物料类型的平均入库完成率"
+    },
+    {
+      "id": "q7_error_prone",
+      "category": "Error-prone SQL",
+      "question": "查询所有入库数量超过需求数量的记录"
+    },
+    {
+      "id": "q8_multi_table",
+      "category": "Multi-table",
+      "question": "对比采购入库和生产入库的总完成数量"
+    }
+  ],
+  "results": [
+    {
+      "pipeline": "simple",
+      "question_id": "q1_mto_lookup",
+      "question": "AK2510034的入库完成率是多少",
+      "wall_clock_ms": 15424.255417000002,
+      "llm_call_count": 2,
+      "total_tokens": 4217,
+      "input_tokens": 3502,
+      "output_tokens": 715,
+      "response_text": "根据查询结果，生产订单 **AK2510034** 的入库情况总结如下：\n\n**整体情况：**\n该订单包含多种自制件（物料编码以`05`开头），入库完成率差异巨大，存在**严重超量入库**和**部分物料未入库**并存的情况。\n\n**主要发现：**\n1.  **严重超量入库**：多个物料的入库完成率远超100%，例如：\n    *   `带扣 CLIP-GL12（新模）`、`边扣 LK-GL12（R 右）`、`边扣 LK-GL12（L 左）`等物料的某些批次完成率高达**36000%**。\n    *   `圆柱（新模具） KC-8120`、`带扣 CLIP-8120（磨砂面-新模具）`、`弹片 8120弹片`等物料的某些批次完成率也超过**100000%**。\n    *   这表明可能存在**重复入库**、**数据记录错误**或**通用物料被集中入库到该订单**的情况。\n\n2.  **入库不足或未开始**：部分关键物料入库率为0或极低，影响订单整体进度：\n    *   `镜片 FM-9210`、`镜片 FM-GL12`、`外框 WK-9210`：**入库数量为0**。\n    *   `盒子 K-42盒子`：入库率仅 **22.28%**。\n    *   `液态硅胶镜带 BD-8120液态不刻字`：入库率仅 **4.51%**。\n    *   `电镀镜片 FM-9210M`（主要批次）：入库率仅 **20.6%**。\n\n3.  **正常完成项**：部分物料已按计划100%完成入库，如`边扣 LK-2662-A`、`液态硅胶面罩 MZ-8170液态`、`带扣 CLIP-40`等。\n\n**结论：**\n**AK2510034** 的入库状态**异常**。虽然部分物料已完成，但存在大量**异常超领（入库）**，同时另一些物料**严重短缺**。建议立即核查超量入库物料的准确性，并重点关注入库率为0或极低的物料，以推动生产。",
+      "sql_generated": "SELECT po.mto_number AS '生产订单号', po.material_code AS '物料编码', po.material_name AS '物料名称', po.specification AS '规格型号', po.qty AS '订单数量', COALESCE(SUM(pr.real_qty), 0) AS '累计入库数量', CASE WHEN po.qty > 0 THEN ROUND(COALESCE(SUM(pr.real_qty), 0) * 100.0 / po.qty, 2) ELSE 0 END AS '入库完成率(%)' FROM cached_production_orders po LEFT JOIN cached_production_receipts pr ON po.mto_number = pr.mto_number AND po.material_code = pr.material_code WHERE po.mto_number = 'AK2510034' GROUP BY po.mto_number, po.material_code, po.material_name, po.specification, po.qty LIMIT 100",
+      "sql_result_rows": 100,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q1_mto_lookup",
+      "question": "AK2510034的入库完成率是多少",
+      "wall_clock_ms": 8374.288125,
+      "llm_call_count": 3,
+      "total_tokens": 6703,
+      "input_tokens": 6111,
+      "output_tokens": 592,
+      "response_text": "MTO编号 **AK2510034** 的入库完成率为 **5.82%**。\n\n具体数据如下：\n- **实际入库数量**：299,166\n- **需求数量**：5,139,344.36\n- **入库完成率**：5.82%\n\n该订单目前入库进度较低，仅完成约5.8%。",
+      "sql_generated": "SELECT \n    SUM(r.real_qty) as 实际入库数量,\n    SUM(b.need_qty) as 需求数量,\n    ROUND(COALESCE(SUM(r.real_qty), 0) * 100.0 / COALESCE(SUM(b.need_qty), 1), 2) as 入库完成率\nFROM cached_production_bom b\nLEFT JOIN cached_production_receipts r ON b.mto_number = r.mto_number AND b.material_code = r.material_code\nWHERE b.mto_number = 'AK2510034'",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 1,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "fast_path",
+          "tool_args": {}
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "mto_lookup",
+          "tool_args": {
+            "mto_number": "AK2510034"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 2,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    SUM(r.real_qty) as 实际入库数量,\n    SUM(b.need_qty) as 需求数量,\n    ROUND(COALESCE(SUM(r.real_qty), 0) * 100.0 / COALESCE(SUM(b.need_qty), 1), 2) as 入库完成率\nFROM cached_production_bom b\nLEFT JOIN cached_production_receipts r ON b.mto_number = r.mto_number AND b.material_code = r.material_code\nWHERE b.mto_number = 'AK2510034'"
+          }
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q2_schema",
+      "question": "cached_production_bom表有哪些字段，各自是什么含义",
+      "wall_clock_ms": 2259.067583,
+      "llm_call_count": 1,
+      "total_tokens": 806,
+      "input_tokens": 714,
+      "output_tokens": 92,
+      "response_text": "",
+      "sql_generated": "SELECT \n    name AS 字段名,\n    type AS 数据类型,\n    CASE \n        WHEN \"notnull\" = 1 THEN '是'\n        ELSE '否'\n    END AS 是否非空,\n    CASE \n        WHEN pk = 1 THEN '是'\n        ELSE '否'\n    END AS 是否主键\nFROM pragma_table_info('cached_production_bom')\nLIMIT 100;",
+      "sql_result_rows": 0,
+      "error": "SQL validation failed: 不允许访问表: pragma_table_info",
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q2_schema",
+      "question": "cached_production_bom表有哪些字段，各自是什么含义",
+      "wall_clock_ms": 7199.7199589999955,
+      "llm_call_count": 1,
+      "total_tokens": 1896,
+      "input_tokens": 1349,
+      "output_tokens": 547,
+      "response_text": "根据系统已提供的表结构信息，**cached_production_bom（生产用料清单）** 表包含以下字段：\n\n| 字段名 | 数据类型 | 含义 |\n|--------|----------|------|\n| **mto_number** | TEXT | MTO编号，生产订单标识 |\n| **mo_bill_no** | TEXT | 生产订单单号，关联 cached_production_orders 表的 bill_no |\n| **material_code** | TEXT | 物料编码 |\n| **material_name** | TEXT | 物料名称 |\n| **specification** | TEXT | 规格型号 |\n| **material_type** | INTEGER | 物料类型（1=自制, 2=外购, 3=委外） |\n| **need_qty** | REAL | 需求数量，计划需要领用的数量 |\n| **picked_qty** | REAL | 已领数量，实际已从仓库领出的数量 |\n| **no_picked_qty** | REAL | 未领数量，need_qty - picked_qty 的差值 |\n\n**关键字段说明：**\n- **material_type** 用于区分物料来源：自制件需要生产，外购件需要采购，委外件需要委外加工\n- **no_picked_qty** 为负数时表示**超领**（已领数量超过需求数量）\n- 该表与 **cached_production_orders** 表通过 `mo_bill_no = bill_no` 关联\n\n如需查询具体数据，可以使用 `sql_query` 工具执行 SELECT 查询。",
+      "sql_generated": null,
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "fast_path",
+          "tool_args": {}
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q3_domain_concept",
+      "question": "什么是超领，怎么通过数据检测超领情况",
+      "wall_clock_ms": 16161.967459000003,
+      "llm_call_count": 2,
+      "total_tokens": 6582,
+      "input_tokens": 5860,
+      "output_tokens": 722,
+      "response_text": "根据查询结果，当前存在**严重的超领问题**，涉及多个生产订单。主要情况如下：\n\n1.  **超领规模巨大**：所有记录均显示“是”超领，且**超领数量普遍在数十万至上百万件**。例如，订单 AS2509080-4 的“盒子（已印刷）”超领超过652万件，订单 AS2511051-1 的“K4透明儿童内衬”超领超过433万件。\n\n2.  **高频问题订单**：\n    *   **AS2510071-2B** (MO260104118)：此订单出现次数最多，涉及多种物料（如外框、内衬、止滑片、长管等）严重超领。\n    *   **AS2511051-1** (MO260102852)：同样涉及多种包装和配件（如盒子、镜带、内衬）大规模超领。\n    *   **AK2510022** (MO260100999)：面罩订单的“止滑片已印刷”和“PC镜片”超领严重。\n\n3.  **主要超领物料类型**：问题集中在**包装材料**（如盒子、外框）和**配件**（如镜带、内衬、止滑片），这些多为 **05.xx.xxx（自制件）** 和 **03.xx.xxx（外购件）**。\n\n**结论**：生产领料环节存在严重的数量控制失效，**实际领料量远超BOM需求数十倍甚至上百倍**，这会导致巨大的物料浪费和成本失控。建议立即对上述高频问题订单（如 AS2510071-2B、AS2511051-1）的领料流程进行重点核查。",
+      "sql_generated": "SELECT mp.mto_number AS '生产订单号', po.bill_no AS '生产订单单据号', po.material_code AS '产品物料编码', po.material_name AS '产品物料名称', pb.material_code AS '领用物料编码', pb.material_name AS '领用物料名称', pb.specification AS '规格型号', pb.aux_attributes AS '辅助属性', pb.need_qty AS 'BOM需求数量', SUM(mp.actual_qty) AS '实际领料总数量', (SUM(mp.actual_qty) - pb.need_qty) AS '超领数量', CASE WHEN SUM(mp.actual_qty) > pb.need_qty THEN '是' ELSE '否' END AS '是否超领' FROM cached_material_picking mp LEFT JOIN cached_production_orders po ON mp.mto_number = po.mto_number LEFT JOIN cached_production_bom pb ON mp.mto_number = pb.mto_number AND mp.material_code = pb.material_code AND (mp.aux_prop_id = pb.aux_prop_id OR (mp.aux_prop_id IS NULL AND pb.aux_prop_id IS NULL)) WHERE pb.material_code IS NOT NULL GROUP BY mp.mto_number, mp.material_code, mp.aux_prop_id HAVING SUM(mp.actual_qty) > pb.need_qty ORDER BY (SUM(mp.actual_qty) - pb.need_qty) DESC LIMIT 100",
+      "sql_result_rows": 100,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q3_domain_concept",
+      "question": "什么是超领，怎么通过数据检测超领情况",
+      "wall_clock_ms": 27924.748416999995,
+      "llm_call_count": 4,
+      "total_tokens": 11045,
+      "input_tokens": 9054,
+      "output_tokens": 1991,
+      "response_text": "## 什么是超领？\n\n**超领**是指生产领料时，**实际领取数量（picked_qty）超过了计划需要数量（need_qty）**的情况。\n\n---\n\n## 如何检测超领情况？\n\n### 检测逻辑\n1. **判定条件**：`picked_qty > need_qty` 且 `need_qty > 0`\n2. **超领数量**：`picked_qty - need_qty`\n3. **超领率**：`(picked_qty - need_qty) / need_qty × 100%`\n\n### 当前系统超领情况（前20条）\n\n| MTO单号 | 物料编码 | 物料名称 | 计划需要 | 实际领取 | **超领数量** | **超领率** |\n|---------|----------|----------|----------|----------|-------------|-----------|\n| AS2601014 | 07.25.06 | 泳帽 | 49 | 30,000 | **29,951** | 61,124% |\n| AS2508039-A1 | 07.17.133 | 潜水镜+呼吸管+蛙鞋 | 1,150 | 25,200 | **24,050** | 2,091% |\n| AS2509035 | 07.02.084 | 泳镜 | 7,344 | 28,918 | **21,574** | 294% |\n| AS2512005 | 07.01.15 | 泳帽 | 6,900 | 23,900 | **17,000** | 246% |\n| DS25C318S | 07.02.095 | 泳镜 | 1,450 | 7,880 | **6,430** | 443% |\n\n### 关键发现\n\n1. **严重超领**：部分订单超领率极高（如 AS2601014 超领 61,124%），可能存在数据录入错误或批量领料异常\n2. **高频物料**：泳镜（07.02.xx）、泳帽（07.01.xx）是超领高发物料\n3. **重复记录**：部分MTO单号出现多次超领记录（如 AS2508039-32 出现4次）\n\n### 建议排查方向\n- 检查超领率异常高的订单是否存在数据录入错误\n- 分析高频超领物料是否存在BOM用量设定不合理\n- 核实领料流程是否存在重复领料或批量操作失误",
+      "sql_generated": "SELECT \n  bom.mto_number AS MTO单号,\n  bom.material_code AS 物料编码,\n  bom.material_name AS 物料名称,\n  bom.need_qty AS 计划需要数量,\n  bom.picked_qty AS 实际领取数量,\n  ROUND(bom.picked_qty - bom.need_qty, 2) AS 超领数量,\n  ROUND((bom.picked_qty - bom.need_qty) * 100.0 / bom.need_qty, 2) AS 超领率\nFROM cached_production_bom bom\nWHERE bom.picked_qty > bom.need_qty\n  AND bom.need_qty > 0\nORDER BY 超领数量 DESC\nLIMIT 20",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 1,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "start",
+          "tool_args": {}
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n  bom.mto_number AS MTO单号,\n  bom.material_code AS 物料编码,\n  bom.material_name AS 物料名称,\n  bom.need_qty AS 计划需要数量,\n  bom.picked_qty AS 实际领取数量,\n  ROUND(bom.picked_qty - bom.need_qty, 2) AS 超领数量,\n  ROUND((bom.picked_qty - bom.need_qty) * 100.0 / bom.need_qty, 2) AS 超领率(%)\nFROM cached_production_bom bom\nWHERE bom.picked_qty > bom.need_qty\n  AND bom.need_qty > 0\nORDER BY 超领数量 DESC\nLIMIT 20"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 2,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n  bom.mto_number AS MTO单号,\n  bom.material_code AS 物料编码,\n  bom.material_name AS 物料名称,\n  bom.need_qty AS 计划需要数量,\n  bom.picked_qty AS 实际领取数量,\n  ROUND(bom.picked_qty - bom.need_qty, 2) AS 超领数量,\n  ROUND((bom.picked_qty - bom.need_qty) * 100.0 / bom.need_qty, 2) AS 超领率\nFROM cached_production_bom bom\nWHERE bom.picked_qty > bom.need_qty\n  AND bom.need_qty > 0\nORDER BY 超领数量 DESC\nLIMIT 20"
+          }
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q4_analytical",
+      "question": "哪些物料的入库完成率最低，请列出前10个",
+      "wall_clock_ms": 7650.602250000005,
+      "llm_call_count": 2,
+      "total_tokens": 2089,
+      "input_tokens": 1770,
+      "output_tokens": 319,
+      "response_text": "根据查询结果，入库完成率最低的前10个物料均为**外购件**（物料编码以03开头），且**入库完成率均为0%**。这些物料目前**总入库数量全部为0**，但存在未完成的采购订单需求。\n\n**主要问题物料类型：**\n1.  **包装辅料**：如“包边带”、“透明封口贴”。\n2.  **专用标签/静电膜**：主要为泳镜、潜水镜配套的多种型号静电膜（如跟型GT14、GS76、MS21-MS26等），涉及多个具体型号。\n\n**关键结论：**\n这些物料的采购订单已下达，但尚未有任何入库记录，可能影响依赖这些物料的后续生产计划。建议优先跟进这些物料的采购与到货情况。",
+      "sql_generated": "SELECT material_code AS 物料编码, material_name AS 物料名称, specification AS 规格型号, SUM(order_qty) AS 总订单数量, SUM(stock_in_qty) AS 总入库数量, CASE WHEN SUM(order_qty) > 0 THEN ROUND((SUM(stock_in_qty) * 100.0 / SUM(order_qty)), 2) ELSE 0 END AS 入库完成率百分比 FROM cached_purchase_orders GROUP BY material_code, material_name, specification HAVING SUM(order_qty) > 0 ORDER BY 入库完成率百分比 ASC LIMIT 10",
+      "sql_result_rows": 10,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q4_analytical",
+      "question": "哪些物料的入库完成率最低，请列出前10个",
+      "wall_clock_ms": 26516.76412500001,
+      "llm_call_count": 4,
+      "total_tokens": 8905,
+      "input_tokens": 7007,
+      "output_tokens": 1898,
+      "response_text": "## 入库完成率最低的前10个物料\n\n根据查询结果，以下10个物料的入库完成率为 **0%**（完全没有入库记录）：\n\n| 排名 | 物料编码 | 物料名称 | 需求数量 | 实际入库 | 完成率 |\n|------|----------|----------|----------|----------|--------|\n| 1 | 01.22.002 | 固态硅胶 | 0.1 | 0 | 0.0% |\n| 2 | 01.22.003 | 固态硅胶 | 0.01 | 0 | 0.0% |\n| 3 | 01.22.004 | 固态硅胶 | 0.055 | 0 | 0.0% |\n| 4 | 02.04.038 | 吸塑模具2CLN009 | 1,440 | 0 | 0.0% |\n| 5 | 03.01.012 | 小方袋 | 58,432 | 0 | 0.0% |\n| 6 | 03.02.02.075 | JOSS专用泳镜瓷白内衬PET材质 | 453,720 | 0 | 0.0% |\n| 7 | 03.02.02.082 | GT41泳镜 托盘 | 20,000 | 0 | 0.0% |\n| 8 | 03.02.02.161 | 大号泳镜片托盘PVC材质 | 20,000 | 0 | 0.0% |\n| 9 | 03.02.02.162 | 小号泳镜片托盘PVC材质 | 20,000 | 0 | 0.0% |\n| 10 | 03.02.02.171.01 | K81 PET透明保护片 | 2,420 | 0 | 0.0% |\n\n### ⚠️ 异常情况说明\n\n1. **全部为0%完成率**：前10个物料均无任何入库记录，需要重点关注\n2. **高需求物料风险**：\n   - **JOSS专用泳镜瓷白内衬**：需求453,720个，完全未入库\n   - **小方袋**：需求58,432个，完全未入库\n   - **泳镜托盘类**：多个托盘物料各需求20,000个，均未入库\n\n建议立即跟进这些物料的生产/采购进度，确认是否存在供应中断或生产延误问题。",
+      "sql_generated": "SELECT \n    bom.material_code,\n    bom.material_name,\n    SUM(COALESCE(receipt.real_qty, 0)) AS total_real_qty,\n    SUM(bom.need_qty) AS total_need_qty,\n    ROUND(SUM(COALESCE(receipt.real_qty, 0)) * 100.0 / SUM(bom.need_qty), 2) AS completion_rate\nFROM cached_production_bom bom\nLEFT JOIN cached_production_receipts receipt \n    ON bom.material_code = receipt.material_code\nWHERE bom.need_qty > 0\nGROUP BY bom.material_code, bom.material_name\nORDER BY completion_rate ASC\nLIMIT 10",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "start",
+          "tool_args": {}
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_production_bom"
+          }
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_production_receipts"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    bom.material_code,\n    bom.material_name,\n    SUM(COALESCE(receipt.real_qty, 0)) AS total_real_qty,\n    SUM(bom.need_qty) AS total_need_qty,\n    ROUND(SUM(COALESCE(receipt.real_qty, 0)) * 100.0 / SUM(bom.need_qty), 2) AS completion_rate\nFROM cached_production_bom bom\nLEFT JOIN cached_production_receipts receipt \n    ON bom.material_code = receipt.material_code\nWHERE bom.need_qty > 0\nGROUP BY bom.material_code, bom.material_name\nORDER BY completion_rate ASC\nLIMIT 10"
+          }
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q5_ambiguous",
+      "question": "帮我看看最近的订单情况",
+      "wall_clock_ms": 11010.225875000004,
+      "llm_call_count": 2,
+      "total_tokens": 4338,
+      "input_tokens": 3873,
+      "output_tokens": 465,
+      "response_text": "根据查询结果，最近（2026年2月2日）的订单情况总结如下：\n\n**主要订单概览：**\n1.  **DS261017S**：包含4个生产订单，涉及泳镜、内衬和外箱，状态均为“4”（通常表示已完成或关闭）。\n2.  **AS2601037**：包含3个生产订单，主要为镜盒和外箱，状态为“4”。\n3.  **AS2509051**：包含2个生产订单，涉及电镀镜片和镜片，状态为“4”。\n4.  **AS2512002**：包含1个生产订单，为镜片，状态为“4”。\n\n**近期活跃订单：**\n*   **DS261019S**：这是一个大型泳镜（GS68型号）生产项目，创建于1月30日。它包含了**大量**的组件生产订单（从镜片、镜框到硅胶件、带扣等），覆盖注塑、成型、印刷等多个工段。**值得注意的是，这些组件的订单状态均为“6”**，这可能表示它们正处于**生产进行中**或**待处理**状态，是需要重点关注的生产批次。\n\n**较早的订单：**\n*   **DS25C319S**：包含4个组件订单，创建于1月31日，状态为“1”（通常表示已创建或待开始）。\n\n**总结：**\n近期系统内新增的订单主要集中在2月2日，且多数显示为已完成状态（状态4）。然而，**DS261019S** 项目下的众多组件订单（状态6）是当前生产活动的核心，表明GS68型号泳镜正在紧张的生产备料阶段。较早的 **DS25C319S** 项目订单状态仍为初始状态，可能需要跟进其生产启动情况。",
+      "sql_generated": "SELECT mto_number AS 'MTO单号', bill_no AS '订单号', workshop AS '车间', material_name AS '物料名称', specification AS '规格', qty AS '订单数量', status AS '状态', create_date AS '创建日期' FROM cached_production_orders ORDER BY create_date DESC LIMIT 100",
+      "sql_result_rows": 100,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q5_ambiguous",
+      "question": "帮我看看最近的订单情况",
+      "wall_clock_ms": 70341.67779100001,
+      "llm_call_count": 7,
+      "total_tokens": 22733,
+      "input_tokens": 19613,
+      "output_tokens": 3120,
+      "response_text": "## 最近订单情况概览\n\n### 📊 生产订单状态分布（近30天）\n\n| 状态 | 订单数量 | 总数量 | 最新日期 |\n|------|----------|--------|----------|\n| **状态4** | 1,291单 | 203.2万 | 2026-02-02 |\n| **状态5** | 285单 | 51.6万 | 2026-01-30 |\n| **状态2** | 37单 | 3.6万 | 2026-01-30 |\n| **状态6** | 33单 | 1.9万 | 2026-01-30 |\n| **状态1** | 4单 | 470 | 2026-01-31 |\n\n> **状态4**订单占绝对主导（约80%），可能是\"生产中\"状态；**状态5**次之，可能是\"已完成\"状态。\n\n---\n\n### ⚠️ 采购订单异常（完成率为0的物料）\n\n发现**20种物料采购完成率为0%**，全部未到货：\n\n| 物料编码 | 物料名称 | 订购量 | 已入库 |\n|----------|----------|--------|--------|\n| 01.09.02.011 | 包边带 | 80 | 0 |\n| 03.23.019 | 透明封口贴 | 22,800 | 0 |\n| 03.24.888.082 | 泳镜中性静电膜 | 50 | 0 |\n| 03.26.02.21 | 潜水镜针织带 | 4,680 | 0 |\n| 03.24.888.05.001 | 大面罩客户专用静电膜 | 9,280 | 0 |\n| ...及其他15种静电膜/针织带类物料 | | | |\n\n**风险提示**：大量包装材料（静电膜、针织带、封口贴）完全未到货，可能影响后续生产。\n\n---\n\n### 🔍 生产订单执行进度（部分示例）\n\n| MTO编号 | 物料名称 | 订单量 | 状态 | 入库完成率 |\n|---------|----------|--------|------|------------|\n| AS2509051 | 电镀镜片 | 2,403 | 4 | **60.45%** |\n| AS2509051 | 镜片 | 2,403 | 4 | 3.88% |\n| AS2512002 | 镜片 | 1,440 | 4 | 3.9% |\n| DS25C319S | 电镀镜片 | 100-170 | 1 | **1019%** (超领) |\n| DS261017S | 泳镜/K4内衬等 | 705-1510 | 4 | 0% (未领料) |\n| DS261019S | 内框/外框/镜圈等 | 210-910 | 6 | 0% (未领料) |\n\n**异常情况**：\n- **DS25C319S** 系列订单入库完成率异常高（351%-1019%），存在严重超领\n- **DS261017S**、**DS261019S** 等多个MTO订单已领料量为0，尚未开始生产\n\n---\n\n### 📌 总结建议\n\n1. **采购风险**：20种包材类物料零到货，需紧急跟进供应商交货\n2. **生产异常**：DS25C319S存在严重超领，需核查领料记录\n3. **待启动订单**：多个MTO订单（DS261017S、DS261019S等）已创建但未领料，需安排生产\n4. **进度滞后**：AS2509051镜片类订单完成率仅3.88%-60.45%，需关注生产进度",
+      "sql_generated": "SELECT \n    o.mto_number as MTO编号,\n    o.material_name as 物料名称,\n    o.qty as 订单数量,\n    o.status as 状态,\n    o.create_date as 创建日期,\n    SUM(b.need_qty) as BOM需求总量,\n    SUM(b.picked_qty) as 已领料量,\n    SUM(r.real_qty) as 已入库量,\n    ROUND(COALESCE(SUM(r.real_qty), 0) * 100.0 / NULLIF(SUM(b.need_qty), 0), 2) as 入库完成率\nFROM cached_production_orders o\nLEFT JOIN cached_production_bom b ON b.mo_bill_no = o.bill_no\nLEFT JOIN cached_production_receipts r ON r.mto_number = o.mto_number\nWHERE o.create_date >= date('now', '-30 days')\nGROUP BY o.mto_number, o.material_name, o.qty, o.status, o.create_date\nORDER BY o.create_date DESC\nLIMIT 30",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 2,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "start",
+          "tool_args": {}
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {}
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 2,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_production_orders"
+          }
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 2,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_sales_orders"
+          }
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 2,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_purchase_orders"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    status as 状态,\n    COUNT(*) as 订单数量,\n    SUM(qty) as 总数量,\n    MAX(create_date) as 最新日期\nFROM cached_production_orders\nWHERE create_date >= date('now', '-30 days')\nGROUP BY status\nORDER BY 最新日期 DESC"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 2,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    material_code as 物料编码,\n    material_name as 物料名称,\n    SUM(order_qty) as 总订购量,\n    SUM(stock_in_qty) as 已入库量,\n    ROUND(SUM(stock_in_qty) * 100.0 / SUM(order_qty), 2) as 完成率\nFROM cached_purchase_orders\nWHERE order_qty > 0\nGROUP BY material_code, material_name\nHAVING 完成率 < 100\nORDER BY 完成率 ASC\nLIMIT 20"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 3,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    o.mto_number as MTO编号,\n    o.material_name as 物料名称,\n    o.qty as 订单数量,\n    o.status as 状态,\n    o.create_date as 创建日期,\n    SUM(b.need_qty) as BOM需求总量,\n    SUM(b.picked_qty) as 已领料量,\n    SUM(r.real_qty) as 已入库量,\n    ROUND(COALESCE(SUM(r.real_qty), 0) * 100.0 / NULLIF(SUM(b.need_qty), 0), 2) as 入库完成率\nFROM cached_production_orders o\nLEFT JOIN cached_production_bom b ON b.mo_bill_no = o.bill_no\nLEFT JOIN cached_production_receipts r ON r.mto_number = o.mto_number\nWHERE o.create_date >= date('now', '-30 days')\nGROUP BY o.mto_number, o.material_name, o.qty, o.status, o.create_date\nORDER BY o.create_date DESC\nLIMIT 30"
+          }
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q6_aggregation",
+      "question": "统计各物料类型的平均入库完成率",
+      "wall_clock_ms": 5478.687415999985,
+      "llm_call_count": 2,
+      "total_tokens": 1426,
+      "input_tokens": 1227,
+      "output_tokens": 199,
+      "response_text": "根据查询结果，各物料类型的平均入库完成率如下：\n\n1.  **成品（类型 1）**：平均入库完成率约为 **22.95%**。\n2.  **自制件（类型 2）**：平均入库完成率为 **0%**。\n\n**总结**：\n- 成品物料的入库进度整体较低，平均完成率不足四分之一。\n- 自制件物料的入库进度严重滞后，平均完成率为零，表明相关生产或入库环节可能尚未启动或存在较大瓶颈。",
+      "sql_generated": "SELECT material_type, AVG(CASE WHEN need_qty > 0 THEN COALESCE(picked_qty, 0) / need_qty ELSE 0 END) * 100 AS 平均入库完成率 FROM cached_production_bom WHERE material_type IN (1, 2, 3) GROUP BY material_type LIMIT 100",
+      "sql_result_rows": 2,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q6_aggregation",
+      "question": "统计各物料类型的平均入库完成率",
+      "wall_clock_ms": 29119.03854099998,
+      "llm_call_count": 4,
+      "total_tokens": 8307,
+      "input_tokens": 6451,
+      "output_tokens": 1856,
+      "response_text": "## 各物料类型平均入库完成率统计结果\n\n根据查询结果，目前数据库中**仅有自制物料**有入库完成记录：\n\n| 物料类型 | 类型名称 | 平均入库完成率 | 记录数 |\n|---------|---------|---------------|--------|\n| 1 | 自制 | **880.9%** | 101,629 |\n| 2 | 外购 | 无数据 | - |\n| 3 | 委外 | 无数据 | - |\n\n### ⚠️ 异常提示\n\n**自制物料的平均完成率高达880.9%**，这明显异常，可能原因包括：\n\n1. **超量入库严重**：实际入库数量远超需求数量\n2. **数据关联问题**：BOM与入库单的关联可能存在重复或多对多关系\n3. **need_qty过小**：部分记录的需求数量很小，导致比率异常放大\n\n### 建议\n\n- 外购和委外物料没有入库记录，可能需要检查采购/委外入库流程\n- 建议进一步排查自制物料超量入库的具体原因，检查是否存在重复入库或BOM需求数量设置错误",
+      "sql_generated": "SELECT \n  bom.material_type,\n  CASE bom.material_type \n    WHEN 1 THEN '自制'\n    WHEN 2 THEN '外购'\n    WHEN 3 THEN '委外'\n    ELSE '未知'\n  END AS material_type_name,\n  AVG(receipt.real_qty * 1.0 / bom.need_qty) AS avg_completion_rate,\n  COUNT(*) AS record_count\nFROM cached_production_bom bom\nJOIN cached_production_receipts receipt \n  ON bom.mto_number = receipt.mto_number \n  AND bom.material_code = receipt.material_code\nWHERE bom.need_qty > 0 \n  AND receipt.real_qty IS NOT NULL\nGROUP BY bom.material_type\nORDER BY bom.material_type",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "start",
+          "tool_args": {}
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {}
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_production_bom"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n  bom.material_type,\n  CASE bom.material_type \n    WHEN 1 THEN '自制'\n    WHEN 2 THEN '外购'\n    WHEN 3 THEN '委外'\n    ELSE '未知'\n  END AS material_type_name,\n  AVG(receipt.real_qty * 1.0 / bom.need_qty) AS avg_completion_rate,\n  COUNT(*) AS record_count\nFROM cached_production_bom bom\nJOIN cached_production_receipts receipt \n  ON bom.mto_number = receipt.mto_number \n  AND bom.material_code = receipt.material_code\nWHERE bom.need_qty > 0 \n  AND receipt.real_qty IS NOT NULL\nGROUP BY bom.material_type\nORDER BY bom.material_type"
+          }
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q7_error_prone",
+      "question": "查询所有入库数量超过需求数量的记录",
+      "wall_clock_ms": 10162.460457999998,
+      "llm_call_count": 2,
+      "total_tokens": 3338,
+      "input_tokens": 2898,
+      "output_tokens": 440,
+      "response_text": "根据查询结果，共发现 **100 条** 入库数量超过需求数量的记录。以下是关键发现：\n\n1.  **主要涉及物料**：绝大多数为外购件（物料编码以 `03.xx.xxx` 开头）。\n2.  **超量情况**：\n    *   大部分记录超量较小（几到几十个），属于常见波动。\n    *   存在**显著异常**：例如，MTO号 `AK2508012-1` 的自制件 `05.20.01.01.004` **超量入库1100个**，远超需求。MTO号 `AS2508039` 的外购件 `03.03.001` 多次超量，最高一次超量 **1393个**。\n3.  **高频MTO**：`AS2508012-A1`、`AS2510031-2`、`AS2510066` 等MTO号下有多条超量记录。\n\n**总结**：入库超量现象普遍，多数为轻微超差，但需重点关注 `AK2508012-1` 和 `AS2508039` 等MTO下的**严重超量入库**情况，建议核查相关单据的入库流程。",
+      "sql_generated": "SELECT bill_no AS '单据编号', mto_number AS 'MTO号', material_code AS '物料编码', real_qty AS '实际入库数量', must_qty AS '需求数量', (real_qty - must_qty) AS '超量入库数量' FROM cached_production_receipts WHERE real_qty > must_qty UNION ALL SELECT bill_no AS '单据编号', mto_number AS 'MTO号', material_code AS '物料编码', real_qty AS '实际入库数量', must_qty AS '需求数量', (real_qty - must_qty) AS '超量入库数量' FROM cached_purchase_receipts WHERE real_qty > must_qty LIMIT 100",
+      "sql_result_rows": 100,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q7_error_prone",
+      "question": "查询所有入库数量超过需求数量的记录",
+      "wall_clock_ms": 40697.01312499998,
+      "llm_call_count": 4,
+      "total_tokens": 13650,
+      "input_tokens": 10898,
+      "output_tokens": 2752,
+      "response_text": "## 超入库记录查询结果\n\n共发现 **100 条** 入库数量超过需求数量的记录，以下是主要异常情况：\n\n### 🔴 严重超入库 TOP 5\n\n| 类型 | MTO编号 | 物料编码 | 物料名称 | 需求数量 | 入库数量 | 超量 | 完成率 |\n|------|---------|----------|----------|----------|----------|------|--------|\n| 生产 | AS2509080-5 | 07.23.011 | 包装袋/盒子等 | 22 | 55,000 | **54,978** | 250,000% |\n| 生产 | AS2509080-5 | 07.23.011 | 包装袋/盒子等 | 85 | 55,000 | **54,915** | 64,706% |\n| 生产 | AK2509006 | 05.20.01.04.007 | 鼻梁(已印刷) | 300 | 42,300 | **42,000** | 14,100% |\n| 采购 | AS2510022 | 03.23.009 | 贴纸 | 428 | 35,900 | **35,472** | 8,388% |\n| 采购 | DK25B301S | 03.22.002 | 泳镜说明书 | 900 | 26,100 | **25,200** | 2,900% |\n\n### 📊 问题分布\n\n**按类型统计：**\n- **生产超入库**：主要集中在包装袋、鼻梁等物料\n- **采购超入库**：主要集中在贴纸、轨道袋、PE骨袋等物料\n\n**重点关注MTO：**\n1. **AS2509080-5** - 包装袋超量最严重（超5.4万件）\n2. **AS2510022** - 贴纸存在大量超入库记录（多条记录超3万件）\n3. **AK2509006** - 鼻梁(已印刷)超量4.2万件\n4. **AS2508039** - 贴纸和潜水镜纸卡存在多处超入库\n\n### ⚠️ 建议\n- 核实 **AS2509080-5** 的包装袋入库是否重复录入或单位错误\n- 检查 **AS2510022** 贴纸的采购订单与入库单匹配情况\n- 排查是否存在批量入库未正确关联需求单的情况",
+      "sql_generated": "SELECT \n    '生产' AS 类型,\n    bom.mto_number,\n    bom.material_code,\n    bom.material_name,\n    bom.need_qty AS 需求数量,\n    receipt.real_qty AS 入库数量,\n    (receipt.real_qty - bom.need_qty) AS 超量,\n    ROUND((receipt.real_qty / bom.need_qty) * 100, 2) AS 入库完成率\nFROM cached_production_bom bom\nJOIN cached_production_receipts receipt \n    ON bom.mto_number = receipt.mto_number \n    AND bom.material_code = receipt.material_code\nWHERE receipt.real_qty > bom.need_qty AND bom.need_qty > 0\n\nUNION ALL\n\nSELECT \n    '采购' AS 类型,\n    po.mto_number,\n    po.material_code,\n    po.material_name,\n    po.order_qty AS 需求数量,\n    pr.real_qty AS 入库数量,\n    (pr.real_qty - po.order_qty) AS 超量,\n    ROUND((pr.real_qty / po.order_qty) * 100, 2) AS 入库完成率\nFROM cached_purchase_orders po\nJOIN cached_purchase_receipts pr \n    ON po.mto_number = pr.mto_number \n    AND po.material_code = pr.material_code\nWHERE pr.real_qty > po.order_qty AND po.order_qty > 0\n\nORDER BY 超量 DESC\nLIMIT 100",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "start",
+          "tool_args": {}
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_production_bom"
+          }
+        },
+        {
+          "agent": "retrieval",
+          "step_number": 1,
+          "tool_name": "schema_lookup",
+          "tool_args": {
+            "table_name": "cached_production_receipts"
+          }
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    '生产' AS 类型,\n    bom.mto_number,\n    bom.material_code,\n    bom.material_name,\n    bom.need_qty AS 需求数量,\n    receipt.real_qty AS 入库数量,\n    (receipt.real_qty - bom.need_qty) AS 超量,\n    ROUND((receipt.real_qty / bom.need_qty) * 100, 2) AS 入库完成率\nFROM cached_production_bom bom\nJOIN cached_production_receipts receipt \n    ON bom.mto_number = receipt.mto_number \n    AND bom.material_code = receipt.material_code\nWHERE receipt.real_qty > bom.need_qty AND bom.need_qty > 0\n\nUNION ALL\n\nSELECT \n    '采购' AS 类型,\n    po.mto_number,\n    po.material_code,\n    po.material_name,\n    po.order_qty AS 需求数量,\n    pr.real_qty AS 入库数量,\n    (pr.real_qty - po.order_qty) AS 超量,\n    ROUND((pr.real_qty / po.order_qty) * 100, 2) AS 入库完成率\nFROM cached_purchase_orders po\nJOIN cached_purchase_receipts pr \n    ON po.mto_number = pr.mto_number \n    AND po.material_code = pr.material_code\nWHERE pr.real_qty > po.order_qty AND po.order_qty > 0\n\nORDER BY 超量 DESC\nLIMIT 100"
+          }
+        }
+      ]
+    },
+    {
+      "pipeline": "simple",
+      "question_id": "q8_multi_table",
+      "question": "对比采购入库和生产入库的总完成数量",
+      "wall_clock_ms": 5327.023083999961,
+      "llm_call_count": 2,
+      "total_tokens": 1388,
+      "input_tokens": 1221,
+      "output_tokens": 167,
+      "response_text": "根据查询结果，采购入库和生产入库的总完成数量对比如下：\n\n*   **采购入库**：总计 **11,668,683.5** 件。\n*   **生产入库**：总计 **15,308,428.0** 件。\n\n**总结**：生产入库的总完成数量高于采购入库，两者合计总入库数量为 **26,977,111.5** 件。",
+      "sql_generated": "SELECT '采购入库' AS 入库类型, SUM(real_qty) AS 总完成数量 FROM cached_purchase_receipts UNION ALL SELECT '生产入库' AS 入库类型, SUM(real_qty) AS 总完成数量 FROM cached_production_receipts LIMIT 100",
+      "sql_result_rows": 2,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": []
+    },
+    {
+      "pipeline": "agent",
+      "question_id": "q8_multi_table",
+      "question": "对比采购入库和生产入库的总完成数量",
+      "wall_clock_ms": 48291.36741599996,
+      "llm_call_count": 3,
+      "total_tokens": 6958,
+      "input_tokens": 5345,
+      "output_tokens": 1613,
+      "response_text": "## 采购入库 vs 生产入库完成数量对比\n\n| 入库类型 | MTO数量 | 物料种类 | 总完成数量 | 应入库数量 | 完成率 |\n|----------|---------|----------|------------|------------|--------|\n| **生产入库** | 545 | 2,335 | 15,308,428 | 17,372,983 | **88.12%** |\n| **采购入库** | 436 | 935 | 11,668,683.5 | 10,325,235.9 | **113.01%** |\n\n### 关键发现\n\n1. **完成数量对比**：生产入库总完成量（1530万）高于采购入库（1167万），约高出 **31%**\n\n2. **完成率差异**：\n   - 生产入库完成率 **88.12%**，仍有约 206 万数量未完成入库\n   - 采购入库完成率 **113.01%**，存在 **超入库** 现象（超入库约 134 万）\n\n3. **覆盖范围**：生产入库涉及的 MTO 和物料种类更多，说明生产环节更复杂\n\n### 建议关注\n- 生产入库完成率偏低，需排查是否有物料短缺或生产延误\n- 采购入库超量，需核实是否存在重复入库或订单数量调整未同步",
+      "sql_generated": "SELECT \n    receipt_type,\n    COUNT(DISTINCT mto_number) AS mto_count,\n    COUNT(DISTINCT material_code) AS material_count,\n    SUM(real_qty) AS total_completed_qty,\n    SUM(must_qty) AS total_must_qty,\n    ROUND(SUM(real_qty) * 100.0 / SUM(must_qty), 2) AS completion_rate\nFROM (\n    SELECT '采购入库' AS receipt_type, mto_number, material_code, real_qty, must_qty\n    FROM cached_purchase_receipts\n    UNION ALL\n    SELECT '生产入库', mto_number, material_code, real_qty, must_qty\n    FROM cached_production_receipts\n) t\nWHERE real_qty > 0\nGROUP BY receipt_type;",
+      "sql_result_rows": 0,
+      "error": null,
+      "self_corrections": 0,
+      "agent_steps": [
+        {
+          "agent": "retrieval",
+          "step_number": 0,
+          "tool_name": "start",
+          "tool_args": {}
+        },
+        {
+          "agent": "reasoning",
+          "step_number": 1,
+          "tool_name": "sql_query",
+          "tool_args": {
+            "query": "SELECT \n    receipt_type,\n    COUNT(DISTINCT mto_number) AS mto_count,\n    COUNT(DISTINCT material_code) AS material_count,\n    SUM(real_qty) AS total_completed_qty,\n    SUM(must_qty) AS total_must_qty,\n    ROUND(SUM(real_qty) * 100.0 / SUM(must_qty), 2) AS completion_rate\nFROM (\n    SELECT '采购入库' AS receipt_type, mto_number, material_code, real_qty, must_qty\n    FROM cached_purchase_receipts\n    UNION ALL\n    SELECT '生产入库', mto_number, material_code, real_qty, must_qty\n    FROM cached_production_receipts\n) t\nWHERE real_qty > 0\nGROUP BY receipt_type;"
+          }
+        }
+      ]
+    }
+  ]
+}

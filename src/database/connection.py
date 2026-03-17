@@ -66,42 +66,28 @@ class Database:
         async with self._connection.execute("SELECT name FROM _migrations") as cursor:
             applied = {row[0] for row in await cursor.fetchall()}
 
+        # Migrations that just ADD COLUMN — skip if schema.sql already has it.
+        # Map: migration filename → (table, column) to check.
+        _column_guards: dict[str, tuple[str, str]] = {
+            "003_add_bom_short_name.sql":
+                ("cached_sales_orders", "bom_short_name"),
+            "005_add_aux_prop_id_to_purchase_and_subcontracting.sql":
+                ("cached_purchase_receipts", "aux_prop_id"),
+            "007_add_aux_prop_id_to_production_orders.sql":
+                ("cached_production_orders", "aux_prop_id"),
+        }
+
         # Apply new migrations in sorted order
         for migration_file in sorted(migrations_dir.glob("*.sql")):
             if migration_file.name not in applied:
-                # Special handling for migrations that add columns (SQLite lacks IF NOT EXISTS)
-                if migration_file.name == "003_add_bom_short_name.sql":
-                    # Check if column already exists (schema.sql may have it)
-                    if await self._column_exists("cached_sales_orders", "bom_short_name"):
-                        # Mark as applied without running (column exists from schema.sql)
-                        await self._connection.execute(
-                            "INSERT INTO _migrations (name) VALUES (?)",
-                            [migration_file.name]
-                        )
-                        continue
-
-                if migration_file.name == "005_add_aux_prop_id_to_purchase_and_subcontracting.sql":
-                    # Check if columns already exist (schema.sql may have them on fresh DB)
-                    if await self._column_exists("cached_purchase_receipts", "aux_prop_id"):
-                        await self._connection.execute(
-                            "INSERT INTO _migrations (name) VALUES (?)",
-                            [migration_file.name]
-                        )
-                        continue
-
-                if migration_file.name == "007_add_aux_prop_id_to_production_orders.sql":
-                    # Check if column already exists (schema.sql may have it on fresh DB)
-                    if await self._column_exists("cached_production_orders", "aux_prop_id"):
-                        await self._connection.execute(
-                            "INSERT INTO _migrations (name) VALUES (?)",
-                            [migration_file.name]
-                        )
-                        continue
+                # ADD COLUMN migrations: skip if column already exists
+                guard = _column_guards.get(migration_file.name)
+                if guard and await self._column_exists(*guard):
+                    await self._mark_migration_applied(migration_file.name)
+                    continue
 
                 if migration_file.name == "004_fix_receipt_unique_constraints.sql":
-                    # Check if bill_no column already exists (schema.sql may have it on fresh DB)
                     if await self._column_exists("cached_production_receipts", "bill_no"):
-                        # Column exists — just fix the indexes (idempotent part)
                         await self._connection.executescript("""
                             DROP INDEX IF EXISTS idx_prdr_unique;
                             DROP INDEX IF EXISTS idx_sald_unique;
@@ -113,18 +99,18 @@ class Database:
                             CREATE UNIQUE INDEX IF NOT EXISTS idx_purr_unique
                             ON cached_purchase_receipts(bill_no, mto_number, material_code, bill_type_number);
                         """)
-                        await self._connection.execute(
-                            "INSERT INTO _migrations (name) VALUES (?)",
-                            [migration_file.name]
-                        )
+                        await self._mark_migration_applied(migration_file.name)
                         continue
 
                 sql = migration_file.read_text(encoding="utf-8")
                 await self._connection.executescript(sql)
-                await self._connection.execute(
-                    "INSERT INTO _migrations (name) VALUES (?)",
-                    [migration_file.name]
-                )
+                await self._mark_migration_applied(migration_file.name)
+
+    async def _mark_migration_applied(self, name: str) -> None:
+        """Record a migration as applied without running its SQL."""
+        await self._connection.execute(
+            "INSERT INTO _migrations (name) VALUES (?)", [name]
+        )
 
     async def _column_exists(self, table: str, column: str) -> bool:
         """Check if a column exists in a table."""

@@ -1,0 +1,242 @@
+{
+  "metadata": {
+    "dry_run": false,
+    "num_questions": 8,
+    "judge_model": "deepseek-chat",
+    "judge_input_tokens": 10473,
+    "judge_output_tokens": 1330,
+    "dimensions": [
+      {
+        "key": "accuracy",
+        "name_cn": "准确性",
+        "description": "回答是否正确？SQL是否有效？数据是否准确？"
+      },
+      {
+        "key": "completeness",
+        "name_cn": "完整性",
+        "description": "是否覆盖了问题的所有方面？是否遗漏关键信息？"
+      },
+      {
+        "key": "helpfulness",
+        "name_cn": "实用性",
+        "description": "回复是否有用、结构清晰、易于理解？"
+      },
+      {
+        "key": "error_handling",
+        "name_cn": "错误处理",
+        "description": "是否优雅地处理了错误或边界情况？是否有自我纠正？"
+      },
+      {
+        "key": "transparency",
+        "name_cn": "透明度",
+        "description": "是否展示了推理过程？用户能否理解系统是如何得出答案的？"
+      }
+    ]
+  },
+  "aggregate": {
+    "simple_pipeline": {
+      "scores": {
+        "accuracy": 3.0,
+        "completeness": 2.88,
+        "helpfulness": 3.25,
+        "error_handling": 2.38,
+        "transparency": 2.75
+      },
+      "overall": 2.85
+    },
+    "agent_pipeline": {
+      "scores": {
+        "accuracy": 4.38,
+        "completeness": 4.62,
+        "helpfulness": 4.75,
+        "error_handling": 4.0,
+        "transparency": 4.12
+      },
+      "overall": 4.38
+    },
+    "winner": "agent",
+    "wins": {
+      "simple": 1,
+      "agent": 7,
+      "tie": 0
+    }
+  },
+  "per_question": [
+    {
+      "question_index": 0,
+      "question": "AK2510034的入库完成率是多少",
+      "randomized_order": "simple=A",
+      "simple_scores": {
+        "accuracy": 4,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 4,
+        "transparency": 5,
+        "brief_comment": "回复详细分析了各物料的入库异常情况，结构清晰，但未给出一个明确的整体完成率数字。"
+      },
+      "agent_scores": {
+        "accuracy": 3,
+        "completeness": 2,
+        "helpfulness": 3,
+        "error_handling": 2,
+        "transparency": 2,
+        "brief_comment": "回复直接给出了一个明确的整体完成率数字，但未提及数据中存在的严重异常，可能误导用户。"
+      },
+      "judge_time_ms": 3993.6
+    },
+    {
+      "question_index": 1,
+      "question": "cached_production_bom表有哪些字段，各自是什么含义",
+      "randomized_order": "simple=A",
+      "simple_scores": {
+        "accuracy": 1,
+        "completeness": 1,
+        "helpfulness": 1,
+        "error_handling": 1,
+        "transparency": 2,
+        "brief_comment": "仅返回了错误信息，未提供用户所需的表结构信息。"
+      },
+      "agent_scores": {
+        "accuracy": 5,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 5,
+        "transparency": 5,
+        "brief_comment": "准确、完整地列出了表的所有字段、数据类型和含义，并提供了关键说明和关联关系，非常实用。"
+      },
+      "judge_time_ms": 3764.3
+    },
+    {
+      "question_index": 2,
+      "question": "什么是超领，怎么通过数据检测超领情况",
+      "randomized_order": "simple=B",
+      "simple_scores": {
+        "accuracy": 3,
+        "completeness": 3,
+        "helpfulness": 4,
+        "error_handling": 2,
+        "transparency": 3,
+        "brief_comment": "报告了超领现象并指出了问题订单，但缺乏对“超领”本身的定义和具体的检测逻辑，数据解读可能存在问题。"
+      },
+      "agent_scores": {
+        "accuracy": 5,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 4,
+        "transparency": 5,
+        "brief_comment": "准确、完整地定义了超领并提供了清晰的数据检测方法和具体示例，结构清晰实用。"
+      },
+      "judge_time_ms": 3645.7
+    },
+    {
+      "question_index": 3,
+      "question": "哪些物料的入库完成率最低，请列出前10个",
+      "randomized_order": "simple=B",
+      "simple_scores": {
+        "accuracy": 3,
+        "completeness": 3,
+        "helpfulness": 3,
+        "error_handling": 3,
+        "transparency": 2,
+        "brief_comment": "回复概括了问题类型并给出了结论，但缺乏具体物料清单和关键数据，信息不完整且透明度不足。"
+      },
+      "agent_scores": {
+        "accuracy": 5,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 4,
+        "transparency": 4,
+        "brief_comment": "回复准确、完整且实用，提供了清晰的表格和风险分析，但未明确说明数据来源或查询逻辑。"
+      },
+      "judge_time_ms": 4272.5
+    },
+    {
+      "question_index": 4,
+      "question": "帮我看看最近的订单情况",
+      "randomized_order": "simple=B",
+      "simple_scores": {
+        "accuracy": 3,
+        "completeness": 3,
+        "helpfulness": 4,
+        "error_handling": 2,
+        "transparency": 3,
+        "brief_comment": "回复聚焦于订单列表和状态解读，结构清晰，但缺乏对关键异常（如超领、零到货）的识别和处理。"
+      },
+      "agent_scores": {
+        "accuracy": 4,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 4,
+        "transparency": 4,
+        "brief_comment": "回复全面、结构化，提供了详尽的订单状态、异常数据和具体建议，实用性极强。"
+      },
+      "judge_time_ms": 3824.4
+    },
+    {
+      "question_index": 5,
+      "question": "统计各物料类型的平均入库完成率",
+      "randomized_order": "simple=B",
+      "simple_scores": {
+        "accuracy": 1,
+        "completeness": 2,
+        "helpfulness": 2,
+        "error_handling": 1,
+        "transparency": 2,
+        "brief_comment": "回复存在严重的数据错误（物料类型与名称不匹配），且未覆盖所有物料类型，结论不可靠。"
+      },
+      "agent_scores": {
+        "accuracy": 3,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 5,
+        "transparency": 5,
+        "brief_comment": "全面覆盖了所有物料类型，并出色地识别和分析了数据异常，提供了清晰的建议。"
+      },
+      "judge_time_ms": 3816.9
+    },
+    {
+      "question_index": 6,
+      "question": "查询所有入库数量超过需求数量的记录",
+      "randomized_order": "simple=B",
+      "simple_scores": {
+        "accuracy": 4,
+        "completeness": 3,
+        "helpfulness": 4,
+        "error_handling": 3,
+        "transparency": 3,
+        "brief_comment": "回复概括了主要发现并指出了关键异常，但信息颗粒度较粗，缺乏具体的数据表格和深入分析。"
+      },
+      "agent_scores": {
+        "accuracy": 5,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 4,
+        "transparency": 4,
+        "brief_comment": "回复结构清晰、数据详实，提供了具体的TOP5异常、问题分布和可操作建议，实用性极强。"
+      },
+      "judge_time_ms": 4104.4
+    },
+    {
+      "question_index": 7,
+      "question": "对比采购入库和生产入库的总完成数量",
+      "randomized_order": "simple=B",
+      "simple_scores": {
+        "accuracy": 5,
+        "completeness": 3,
+        "helpfulness": 3,
+        "error_handling": 3,
+        "transparency": 2,
+        "brief_comment": "准确回答了核心问题，但信息过于简略，缺乏深度分析和上下文。"
+      },
+      "agent_scores": {
+        "accuracy": 5,
+        "completeness": 5,
+        "helpfulness": 5,
+        "error_handling": 4,
+        "transparency": 4,
+        "brief_comment": "回复全面、数据详实、分析深入，并提供了有价值的业务建议。"
+      },
+      "judge_time_ms": 3355.8
+    }
+  ]
+}
