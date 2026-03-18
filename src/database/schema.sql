@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS cached_purchase_orders (
     stock_in_qty REAL,
     remain_stock_in_qty REAL,
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_puro_mto ON cached_purchase_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_puro_material ON cached_purchase_orders(material_code);
@@ -99,7 +100,8 @@ CREATE TABLE IF NOT EXISTS cached_production_receipts (
     must_qty REAL,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
     raw_data TEXT,
-    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_prdr_mto ON cached_production_receipts(mto_number);
 CREATE INDEX IF NOT EXISTS idx_prdr_mto_synced ON cached_production_receipts(mto_number, synced_at DESC);

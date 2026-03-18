@@ -455,6 +455,7 @@ class TestCacheReaderRowConversion:
         mock_db = MagicMock()
         reader = CacheReader(mock_db, ttl_minutes=60)
 
+        raw_data = '{"material_name": "委外加工件", "specification": "CNC精加工"}'
         row = (
             "SUB20260120-003",  # 0: bill_no
             "AK2510034",        # 1: mto_number
@@ -463,7 +464,7 @@ class TestCacheReaderRowConversion:
             Decimal("300.00"),  # 4: stock_in_qty
             Decimal("200.00"),  # 5: no_stock_in_qty
             3001,               # 6: aux_prop_id
-            '{"raw": "data"}',  # 7: raw_data
+            raw_data,           # 7: raw_data
             "2026-01-20 08:00:00",  # 8: synced_at
         )
 
@@ -476,6 +477,9 @@ class TestCacheReaderRowConversion:
         assert model.stock_in_qty == Decimal("300.00")
         assert model.no_stock_in_qty == Decimal("200.00")
         assert model.aux_prop_id == 3001
+        # material_name and specification extracted from raw_data JSON
+        assert model.material_name == "委外加工件"
+        assert model.specification == "CNC精加工"
 
     def test_row_to_subcontracting_order_with_nones(self):
         """Test _row_to_subcontracting_order with None/zero values."""
@@ -502,6 +506,9 @@ class TestCacheReaderRowConversion:
         assert model.stock_in_qty == Decimal("0")
         assert model.no_stock_in_qty == Decimal("0")
         assert model.aux_prop_id == 0
+        # No raw_data means defaults
+        assert model.material_name == ""
+        assert model.specification == ""
 
     def test_row_to_production_receipt_happy_path(self):
         """Test _row_to_production_receipt with all fields populated."""
@@ -586,6 +593,7 @@ class TestCacheReaderRowConversion:
         mock_db = MagicMock()
         reader = CacheReader(mock_db, ttl_minutes=60)
 
+        raw_data = '{"material_name": "铝合金螺丝", "specification": "M6x20mm"}'
         row = (
             "RKD20260118-005",  # 0: bill_no
             "AK2510034",        # 1: mto_number
@@ -594,7 +602,7 @@ class TestCacheReaderRowConversion:
             Decimal("300.00"),  # 4: must_qty
             "RKD01_SYS",        # 5: bill_type_number
             5001,               # 6: aux_prop_id
-            '{"raw": "data"}',  # 7: raw_data
+            raw_data,           # 7: raw_data
             "2026-01-18 09:00:00",  # 8: synced_at
         )
 
@@ -607,6 +615,9 @@ class TestCacheReaderRowConversion:
         assert model.must_qty == Decimal("300.00")
         assert model.bill_type_number == "RKD01_SYS"
         assert model.aux_prop_id == 5001
+        # material_name and specification extracted from raw_data JSON
+        assert model.material_name == "铝合金螺丝"
+        assert model.specification == "M6x20mm"
 
     def test_row_to_purchase_receipt_with_nones(self):
         """Test _row_to_purchase_receipt with None values."""
@@ -632,6 +643,9 @@ class TestCacheReaderRowConversion:
         assert model.must_qty == Decimal("0")
         assert model.bill_type_number == ""
         assert model.aux_prop_id == 0
+        # No raw_data means defaults
+        assert model.material_name == ""
+        assert model.specification == ""
 
     def test_row_to_purchase_receipt_subcontracting_type(self):
         """Test _row_to_purchase_receipt with RKD02_SYS (subcontracting receipt)."""
@@ -660,6 +674,7 @@ class TestCacheReaderRowConversion:
         mock_db = MagicMock()
         reader = CacheReader(mock_db, ttl_minutes=60)
 
+        raw_data = '{"material_name": "包装纸板", "specification": "A4 350g"}'
         row = (
             "AK2510034",        # 0: mto_number
             "03.01.008",        # 1: material_code
@@ -667,7 +682,7 @@ class TestCacheReaderRowConversion:
             Decimal("115.50"),  # 3: actual_qty
             "PPBOM20260105-001",  # 4: ppbom_bill_no
             7001,               # 5: aux_prop_id
-            '{"raw": "data"}',  # 6: raw_data
+            raw_data,           # 6: raw_data
             "2026-01-22 11:00:00",  # 7: synced_at
         )
 
@@ -679,6 +694,9 @@ class TestCacheReaderRowConversion:
         assert model.actual_qty == Decimal("115.50")
         assert model.ppbom_bill_no == "PPBOM20260105-001"
         assert model.aux_prop_id == 7001
+        # material_name and specification extracted from raw_data JSON
+        assert model.material_name == "包装纸板"
+        assert model.specification == "A4 350g"
 
     def test_row_to_material_picking_with_nones(self):
         """Test _row_to_material_picking with None values."""
@@ -704,12 +722,16 @@ class TestCacheReaderRowConversion:
         assert model.actual_qty == Decimal("0")
         assert model.ppbom_bill_no == ""
         assert model.aux_prop_id == 0
+        # No raw_data means defaults
+        assert model.material_name == ""
+        assert model.specification == ""
 
     def test_row_to_sales_delivery_happy_path(self):
         """Test _row_to_sales_delivery with all fields populated."""
         mock_db = MagicMock()
         reader = CacheReader(mock_db, ttl_minutes=60)
 
+        raw_data = '{"material_name": "成品组装件", "specification": "标准型号B"}'
         row = (
             "SD20260125-002",   # 0: bill_no
             "AK2510034",        # 1: mto_number
@@ -717,7 +739,7 @@ class TestCacheReaderRowConversion:
             Decimal("90.00"),   # 3: real_qty
             Decimal("100.00"),  # 4: must_qty
             8001,               # 5: aux_prop_id
-            '{"raw": "data"}',  # 6: raw_data
+            raw_data,           # 6: raw_data
             "2026-01-25 15:00:00",  # 7: synced_at
         )
 
@@ -729,6 +751,9 @@ class TestCacheReaderRowConversion:
         assert model.real_qty == Decimal("90.00")
         assert model.must_qty == Decimal("100.00")
         assert model.aux_prop_id == 8001
+        # material_name and specification extracted from raw_data JSON
+        assert model.material_name == "成品组装件"
+        assert model.specification == "标准型号B"
 
     def test_row_to_sales_delivery_with_nones(self):
         """Test _row_to_sales_delivery with None values."""
@@ -752,6 +777,9 @@ class TestCacheReaderRowConversion:
         assert model.real_qty == Decimal("0")
         assert model.must_qty == Decimal("0")
         assert model.aux_prop_id == 0
+        # No raw_data means defaults
+        assert model.material_name == ""
+        assert model.specification == ""
 
     def test_row_to_sales_order_happy_path(self):
         """Test _row_to_sales_order with all fields populated."""

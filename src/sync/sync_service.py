@@ -434,7 +434,7 @@ class SyncService:
                 o.mto_number, o.bill_no, o.workshop, o.material_code,
                 o.material_name, o.specification, o.aux_attributes,
                 getattr(o, 'aux_prop_id', 0) or 0,  # For variant-aware matching
-                float(o.qty),
+                str(o.qty),
                 getattr(o, 'status', ''),  # Denormalized
                 getattr(o, 'create_date', None),  # Denormalized
                 model_to_json(o),
@@ -485,7 +485,7 @@ class SyncService:
                 getattr(e, 'aux_attributes', ''),  # Denormalized
                 getattr(e, 'aux_prop_id', 0),  # Denormalized
                 e.material_type,
-                float(e.need_qty), float(e.picked_qty), float(e.no_picked_qty),
+                str(e.need_qty), str(e.picked_qty), str(e.no_picked_qty),
                 model_to_json(e),
             )
             for e in bom_list
@@ -626,7 +626,7 @@ class SyncService:
         rows = [
             (r.bill_no, r.mto_number, r.material_code, r.material_name,
              r.specification, r.aux_attributes, r.aux_prop_id,
-             float(r.order_qty), float(r.stock_in_qty), float(r.remain_stock_in_qty),
+             str(r.order_qty), str(r.stock_in_qty), str(r.remain_stock_in_qty),
              model_to_json(r))
             for r in records_list
         ]
@@ -635,7 +635,14 @@ class SyncService:
                 bill_no, mto_number, material_code, material_name, specification,
                 aux_attributes, aux_prop_id, order_qty, stock_in_qty, remain_stock_in_qty,
                 raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                material_name=excluded.material_name, specification=excluded.specification,
+                aux_attributes=excluded.aux_attributes,
+                order_qty=excluded.order_qty, stock_in_qty=excluded.stock_in_qty,
+                remain_stock_in_qty=excluded.remain_stock_in_qty,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 
@@ -653,7 +660,7 @@ class SyncService:
             )
         rows = [
             (r.bill_no, r.mto_number, r.material_code,
-             float(r.order_qty), float(r.stock_in_qty), float(r.no_stock_in_qty),
+             str(r.order_qty), str(r.stock_in_qty), str(r.no_stock_in_qty),
              getattr(r, 'aux_prop_id', 0) or 0,
              model_to_json(r))
             for r in records_list
@@ -662,7 +669,13 @@ class SyncService:
             f"""INSERT INTO {TABLE_SUBCONTRACTING_ORDERS} (
                 bill_no, mto_number, material_code, order_qty, stock_in_qty,
                 no_stock_in_qty, aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, material_code, aux_prop_id) DO UPDATE SET
+                mto_number=excluded.mto_number,
+                order_qty=excluded.order_qty, stock_in_qty=excluded.stock_in_qty,
+                no_stock_in_qty=excluded.no_stock_in_qty,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 
@@ -680,7 +693,7 @@ class SyncService:
             )
         rows = [
             (getattr(r, 'bill_no', '') or '',
-             r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+             r.mto_number, r.material_code, str(r.real_qty), str(r.must_qty),
              getattr(r, 'aux_prop_id', 0) or 0,
              model_to_json(r))
             for r in records_list
@@ -689,7 +702,11 @@ class SyncService:
             f"""INSERT INTO {TABLE_PRODUCTION_RECEIPTS} (
                 bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id,
                 raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                real_qty=excluded.real_qty, must_qty=excluded.must_qty,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 
@@ -707,7 +724,7 @@ class SyncService:
             )
         rows = [
             (getattr(r, 'bill_no', '') or '',
-             r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+             r.mto_number, r.material_code, str(r.real_qty), str(r.must_qty),
              r.bill_type_number,
              getattr(r, 'aux_prop_id', 0) or 0,
              model_to_json(r))
@@ -717,7 +734,11 @@ class SyncService:
             f"""INSERT INTO {TABLE_PURCHASE_RECEIPTS} (
                 bill_no, mto_number, material_code, real_qty, must_qty, bill_type_number,
                 aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, bill_type_number, aux_prop_id) DO UPDATE SET
+                real_qty=excluded.real_qty, must_qty=excluded.must_qty,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 
@@ -734,7 +755,7 @@ class SyncService:
                 mto_numbers,
             )
         rows = [
-            (r.mto_number, r.material_code, float(r.app_qty), float(r.actual_qty),
+            (r.mto_number, r.material_code, str(r.app_qty), str(r.actual_qty),
              r.ppbom_bill_no,
              getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
              model_to_json(r))
@@ -744,7 +765,11 @@ class SyncService:
             f"""INSERT INTO {TABLE_MATERIAL_PICKING} (
                 mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
                 aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(mto_number, material_code, ppbom_bill_no, aux_prop_id) DO UPDATE SET
+                app_qty=excluded.app_qty, actual_qty=excluded.actual_qty,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 
@@ -762,7 +787,7 @@ class SyncService:
             )
         rows = [
             (getattr(r, 'bill_no', '') or '',
-             r.mto_number, r.material_code, float(r.real_qty), float(r.must_qty),
+             r.mto_number, r.material_code, str(r.real_qty), str(r.must_qty),
              getattr(r, 'aux_prop_id', 0) or 0,
              model_to_json(r))
             for r in records_list
@@ -771,7 +796,11 @@ class SyncService:
             f"""INSERT INTO {TABLE_SALES_DELIVERY} (
                 bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id,
                 raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                real_qty=excluded.real_qty, must_qty=excluded.must_qty,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 
@@ -812,7 +841,7 @@ class SyncService:
         rows = [
             (r.bill_no, r.mto_number, r.material_code, r.material_name,
              r.specification, r.aux_attributes, r.aux_prop_id,
-             r.customer_name, r.delivery_date, float(r.qty),
+             r.customer_name, r.delivery_date, str(r.qty),
              getattr(r, "bom_short_name", "") or "",  # BOM简称
              model_to_json(r))
             for r in records_list
@@ -822,7 +851,14 @@ class SyncService:
                 bill_no, mto_number, material_code, material_name, specification,
                 aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
                 bom_short_name, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                material_name=excluded.material_name, specification=excluded.specification,
+                aux_attributes=excluded.aux_attributes,
+                customer_name=excluded.customer_name, delivery_date=excluded.delivery_date,
+                qty=excluded.qty, bom_short_name=excluded.bom_short_name,
+                raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
+            """,
             rows,
         )
 

@@ -416,14 +416,8 @@ class MTOQueryHandler:
             children.append(child)
 
         # --- BOM children: convert each BOMJoinedRow to ChildItem ---
-        prd_mo_qty_by_key: dict[tuple[str, int], Decimal] = {}
-        for po in prod_orders:
-            aux_prop_id = getattr(po, "aux_prop_id", 0) or 0
-            key = (po.material_code, aux_prop_id)
-            prd_mo_qty_by_key[key] = prd_mo_qty_by_key.get(key, ZERO) + getattr(po, "qty", ZERO)
-
         for row in bom_rows:
-            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key)
+            child = self._bom_row_to_child(row, aux_descriptions)
             children.append(child)
 
         # Build parent from first available sales order
@@ -506,12 +500,6 @@ class MTOQueryHandler:
 
         children = []
 
-        # PRD_MO qty lookup for demand quantities
-        prd_mo_qty_by_key: dict[tuple[str, int], Decimal] = {}
-        for po in prod_orders:
-            key = (po.material_code, getattr(po, "aux_prop_id", 0) or 0)
-            prd_mo_qty_by_key[key] = prd_mo_qty_by_key.get(key, ZERO) + getattr(po, "qty", ZERO)
-
         # --- Finished goods (07.xx) from SAL_SaleOrder ---
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
@@ -540,7 +528,7 @@ class MTOQueryHandler:
         )
 
         for row in bom_rows:
-            child = self._bom_row_to_child(row, aux_descriptions, prd_mo_qty_by_key)
+            child = self._bom_row_to_child(row, aux_descriptions)
             children.append(child)
 
         # Build parent from first available sales order
@@ -686,6 +674,15 @@ class MTOQueryHandler:
         # when aux_prop_id differs between sources (e.g., PRD_MO aux=0, receipt aux=5001)
         covered_codes: set[str] = {code for code, _aux in covered_keys}
 
+        # PRD_MO qty lookup for synthetic rows (items not in BOM need PRD_MO as demand source)
+        _mo_qty: dict[tuple[str, int], Decimal] = {}
+        for po in prod_orders:
+            k = (po.material_code, getattr(po, "aux_prop_id", 0) or 0)
+            _mo_qty[k] = _mo_qty.get(k, ZERO) + getattr(po, "qty", ZERO)
+
+        def _lookup_mo_qty(code: str, aux: int) -> Decimal:
+            return _mo_qty.get((code, aux)) or _mo_qty.get((code, 0), ZERO)
+
         # 2a: Items from PRD_INSTOCK not in PPBOM (skip 07.xx finished goods)
         receipt_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pr in prod_receipts:
@@ -706,7 +703,8 @@ class MTOQueryHandler:
                 specification=getattr(first, "specification", ""),
                 aux_attributes="",
                 material_type=m_type,
-                need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+                need_qty=_lookup_mo_qty(code, aux),
+                picked_qty=ZERO, no_picked_qty=ZERO,
             ))
             covered_keys.add((code, aux))
             covered_codes.add(code)
@@ -746,13 +744,15 @@ class MTOQueryHandler:
             if (code, aux) in covered_keys or code in covered_codes:
                 continue
             first = po_list[0]
+            # Use PRD_MO qty as need_qty for synthetic rows (no BOM entry)
+            mo_qty = sum(getattr(p, "qty", ZERO) for p in po_list)
             rows.append(_make_row(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
                 specification=getattr(first, "specification", ""),
                 aux_attributes=getattr(first, "aux_attributes", ""),
                 material_type=1,  # self-made (PRD_MO implies production)
-                need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+                need_qty=mo_qty, picked_qty=ZERO, no_picked_qty=ZERO,
             ))
             covered_keys.add((code, aux))
             covered_codes.add(code)
@@ -838,7 +838,6 @@ class MTOQueryHandler:
         self,
         row: BOMJoinedRow,
         aux_descriptions: dict,
-        prd_mo_qty_by_key: dict,
     ) -> ChildItem:
         """Convert a pre-joined BOM row into a ChildItem based on material_type.
 
@@ -856,15 +855,8 @@ class MTOQueryHandler:
         effective_type = row.material_type
 
         if effective_type == 1:  # 自制
-            # Use PRD_MO qty as demand if available, else BOM need_qty
-            key = (row.material_code, row.aux_prop_id)
-            _exact = prd_mo_qty_by_key.get(key)
-            _fallback = prd_mo_qty_by_key.get((row.material_code, 0))
-            demand_qty = (
-                _exact if _exact is not None else
-                _fallback if _fallback is not None else
-                row.need_qty
-            )
+            # Use BOM need_qty as demand — it's correctly scoped per production order.
+            # Previously used prd_mo_qty_by_key which cross-aggregated across MTO variants.
             return ChildItem(
                 material_code=row.material_code,
                 material_name=row.material_name,
@@ -872,7 +864,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SELF_MADE,
                 material_type_name="自制",
-                prod_instock_must_qty=demand_qty,
+                prod_instock_must_qty=row.need_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
             )
@@ -909,6 +901,10 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=effective_type,
                 material_type_name="未知",
+                # NOTE: Despite the field name, this is BOM need_qty (PPBOM.FMustQty),
+                # NOT receipt must_qty. BOM need_qty is correctly scoped per production
+                # order. Do NOT change this to use prod_receipt_must_qty or
+                # prd_mo_qty_by_key — those cross-aggregate across MTO variants.
                 prod_instock_must_qty=row.need_qty,
             )
 

@@ -167,7 +167,7 @@ async def export_mto_excel(
         if child.metrics and "fulfillment_rate" in child.metrics:
             fv = child.metrics["fulfillment_rate"].value
             if fv is not None:
-                rate = f"{int(fv * 100)}%"
+                rate = f"{round(fv * 100)}%"
         writer.writerow(
             [
                 idx,

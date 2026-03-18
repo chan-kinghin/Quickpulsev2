@@ -610,10 +610,23 @@ class CacheReader:
         4: stock_in_qty, 5: no_stock_in_qty, 6: aux_prop_id, 7: raw_data,
         8: synced_at
         """
+        # Extract material_name and specification from raw_data JSON
+        material_name = ""
+        specification = ""
+        if row[7]:
+            try:
+                raw_data = json.loads(row[7]) if isinstance(row[7], str) else row[7]
+                material_name = raw_data.get("material_name", "")
+                specification = raw_data.get("specification", "")
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass  # Use defaults
+
         return SubcontractingOrderModel(
             bill_no=row[0] or "",
             mto_number=row[1] or "",
             material_code=row[2] or "",
+            material_name=material_name,
+            specification=specification,
             order_qty=Decimal(str(row[3] or 0)),
             stock_in_qty=Decimal(str(row[4] or 0)),
             no_stock_in_qty=Decimal(str(row[5] or 0)),
@@ -659,10 +672,23 @@ class CacheReader:
         0: bill_no, 1: mto_number, 2: material_code, 3: real_qty, 4: must_qty,
         5: bill_type_number, 6: aux_prop_id, 7: raw_data, 8: synced_at
         """
+        # Extract material_name and specification from raw_data JSON
+        material_name = ""
+        specification = ""
+        if row[7]:
+            try:
+                raw_data = json.loads(row[7]) if isinstance(row[7], str) else row[7]
+                material_name = raw_data.get("material_name", "")
+                specification = raw_data.get("specification", "")
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass  # Use defaults
+
         return PurchaseReceiptModel(
             bill_no=row[0] or "",
             mto_number=row[1] or "",
             material_code=row[2] or "",
+            material_name=material_name,
+            specification=specification,
             real_qty=Decimal(str(row[3] or 0)),
             must_qty=Decimal(str(row[4] or 0)),
             bill_type_number=row[5] or "",
@@ -676,9 +702,22 @@ class CacheReader:
         0: mto_number, 1: material_code, 2: app_qty, 3: actual_qty,
         4: ppbom_bill_no, 5: aux_prop_id, 6: raw_data, 7: synced_at
         """
+        # Extract material_name and specification from raw_data JSON
+        material_name = ""
+        specification = ""
+        if row[6]:
+            try:
+                raw_data = json.loads(row[6]) if isinstance(row[6], str) else row[6]
+                material_name = raw_data.get("material_name", "")
+                specification = raw_data.get("specification", "")
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass  # Use defaults
+
         return MaterialPickingModel(
             mto_number=row[0] or "",
             material_code=row[1] or "",
+            material_name=material_name,
+            specification=specification,
             app_qty=Decimal(str(row[2] or 0)),
             actual_qty=Decimal(str(row[3] or 0)),
             ppbom_bill_no=row[4] or "",
@@ -692,10 +731,23 @@ class CacheReader:
         0: bill_no, 1: mto_number, 2: material_code, 3: real_qty, 4: must_qty,
         5: aux_prop_id, 6: raw_data, 7: synced_at
         """
+        # Extract material_name and specification from raw_data JSON
+        material_name = ""
+        specification = ""
+        if row[6]:
+            try:
+                raw_data = json.loads(row[6]) if isinstance(row[6], str) else row[6]
+                material_name = raw_data.get("material_name", "")
+                specification = raw_data.get("specification", "")
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass  # Use defaults
+
         return SalesDeliveryModel(
             bill_no=row[0] or "",
             mto_number=row[1] or "",
             material_code=row[2] or "",
+            material_name=material_name,
+            specification=specification,
             real_qty=Decimal(str(row[3] or 0)),
             must_qty=Decimal(str(row[4] or 0)),
             aux_prop_id=row[5] or 0,

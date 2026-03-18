@@ -802,7 +802,6 @@ class TestBomRowToChild:
         child = handler._bom_row_to_child(
             row=row,
             aux_descriptions={},
-            prd_mo_qty_by_key={},
         )
 
         assert child.material_type == MaterialType.SELF_MADE
@@ -842,7 +841,6 @@ class TestBomRowToChild:
         child = handler._bom_row_to_child(
             row=row,
             aux_descriptions={},
-            prd_mo_qty_by_key={},
         )
 
         assert child.material_type == MaterialType.PURCHASED
@@ -879,7 +877,6 @@ class TestBomRowToChild:
         child = handler._bom_row_to_child(
             row=row,
             aux_descriptions={},
-            prd_mo_qty_by_key={},
         )
 
         assert child.material_type == MaterialType.SELF_MADE
