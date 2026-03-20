@@ -31,17 +31,17 @@ function mtoSearch() {
             { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true },
             { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true },
             { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, materialTypeFilter: 'finished_goods' },
+            { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
             { key: 'material_type', label: '物料类型', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false },
             // 数量列：根据物料类型显示不同来源
-            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialTypeFilter: 'finished_goods' },
-            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialTypeFilter: 'self_made' },
-            { key: 'purchase_order_qty', label: '采购订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green', materialTypeFilter: 'purchased_or_subcontract' },
+            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
+            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
+            { key: 'purchase_order_qty', label: '采购/委外订单.数量', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
             // 领料/入库列
-            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialTypeFilter: 'non_finished_goods' },
-            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialTypeFilter: 'type_1' },
-            { key: 'purchase_stock_in_qty', label: '采购订单.累计入库数量', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', materialTypeFilter: 'purchased_or_subcontract' },
+            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
+            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
+            { key: 'purchase_stock_in_qty', label: '采购/委外.累计入库数量', width: 160, defaultWidth: 160, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
             // 语义层：完成率列（从 metrics 计算得出）
             { key: 'fulfillment_rate', label: '完成率', width: 100, defaultWidth: 100, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false, group: 'semantic' }
         ],
@@ -610,8 +610,24 @@ function mtoSearch() {
                 return;
             }
 
+            const input = this.mtoNumber.trim();
+
+            // Detect natural language queries (not MTO numbers)
+            // MTO pattern: 2+ uppercase letters followed by 5+ digits, optionally with suffix
+            const isMtoNumber = /^[A-Za-z]{2}\d{5,}/.test(input);
+            if (!isMtoNumber) {
+                // Route to chat panel with the NL query
+                if (!this.chatOpen) this.chatOpen = true;
+                this.chatMode = 'agent';
+                this.chatInput = input;
+                this.mtoNumber = '';
+                await this.$nextTick();
+                this.sendChat();
+                return;
+            }
+
             // Add to history
-            this.addToSearchHistory(this.mtoNumber.trim());
+            this.addToSearchHistory(input);
 
             this.clearMessages();
             this.parentItem = null;
@@ -651,7 +667,8 @@ function mtoSearch() {
                 this.fetchRelatedOrders();
             } catch (err) {
                 console.error('Search error:', err);
-                this.showError(err.message || '查询失败，请稍后重试');
+                const msg = typeof err.message === 'string' ? err.message : JSON.stringify(err.message);
+                this.showError(msg || '查询失败，请稍后重试');
             } finally {
                 this.loading = false;
             }
@@ -703,10 +720,10 @@ function mtoSearch() {
                             '物料类型': item.material_type,
                             '销售订单.数量': isFinished ? parseFloat(item.sales_order_qty) || 0 : '-',
                             '生产入库单.应收数量': isSelfMade ? parseFloat(item.prod_instock_must_qty) || 0 : '-',
-                            '采购订单.数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_order_qty) || 0 : '-',
+                            '采购/委外订单.数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_order_qty) || 0 : '-',
                             '生产领料单.实发数量': !isFinished ? parseFloat(item.pick_actual_qty) || 0 : '-',
                             '生产入库单.实收数量': typeCode === 1 ? parseFloat(item.prod_instock_real_qty) || 0 : '-',
-                            '采购订单.累计入库数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_stock_in_qty) || 0 : '-',
+                            '采购/委外.累计入库数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_stock_in_qty) || 0 : '-',
                             '完成率': rate !== null ? `${(rate * 100).toFixed(0)}%` : '-'
                         };
                     });
@@ -1130,7 +1147,7 @@ function mtoSearch() {
                 // 生产入库单.应收数量 (自制件, type=1 非成品)
                 prod_instock_must_qty: items.filter(i => i.material_type_code === 1 && !i.is_finished_goods)
                     .reduce((sum, i) => sum + parseFloat(i.prod_instock_must_qty || 0), 0),
-                // 采购订单.数量 (外购 type=2 / 委外 type=3)
+                // 采购/委外订单.数量 (外购 type=2 / 委外 type=3)
                 purchase_order_qty: items.filter(i => i.material_type_code === 2 || i.material_type_code === 3)
                     .reduce((sum, i) => sum + parseFloat(i.purchase_order_qty || 0), 0),
                 // 生产领料单.实发数量 (非成品)
@@ -1139,7 +1156,7 @@ function mtoSearch() {
                 // 生产入库单.实收数量 (type=1: 成品+自制件)
                 prod_instock_real_qty: items.filter(i => i.material_type_code === 1)
                     .reduce((sum, i) => sum + parseFloat(i.prod_instock_real_qty || 0), 0),
-                // 采购订单.累计入库数量 (外购 type=2 / 委外 type=3)
+                // 采购/委外.累计入库数量 (外购 type=2 / 委外 type=3)
                 purchase_stock_in_qty: items.filter(i => i.material_type_code === 2 || i.material_type_code === 3)
                     .reduce((sum, i) => sum + parseFloat(i.purchase_stock_in_qty || 0), 0)
             };
