@@ -49,6 +49,8 @@ RETRIEVAL_AGENT_PROMPT = """\
 - cached_purchase_receipts: mto_number, material_code, real_qty, must_qty, bill_type_number
 - cached_purchase_orders: mto_number, material_code, order_qty, stock_in_qty
 - cached_material_picking: mto_number, material_code, actual_qty, app_qty
+- cached_sales_orders: mto_number, bill_no, material_code, material_name, customer_name, delivery_date, qty, bom_short_name
+- cached_sales_delivery: mto_number, material_code, real_qty, must_qty
 
 ## 关联规则
 
@@ -58,6 +60,9 @@ RETRIEVAL_AGENT_PROMPT = """\
 - 物料编码前缀: 07.xx=成品, 05.xx=自制, 03.xx=外购
 - 入库完成率 = real_qty / need_qty
 - 超领 = picked_qty > need_qty
+- 按客户筛选: cached_sales_orders.customer_name LIKE '%客户名%'
+- 多客户筛选: (customer_name LIKE '%A%' OR customer_name LIKE '%B%')
+- 成品已入库: cached_production_receipts.real_qty > 0 且 material_code LIKE '07.%'
 """
 
 REASONING_AGENT_PROMPT = """\
@@ -122,6 +127,11 @@ actual_qty REAL, app_qty REAL
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
 real_qty REAL, must_qty REAL
 
+### cached_sales_orders（销售订单 — 客户/交期信息）
+mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
+specification TEXT, aux_attributes TEXT, aux_prop_id INTEGER,
+customer_name TEXT, delivery_date TEXT, qty REAL, bom_short_name TEXT
+
 ## SQL编写规则
 
 1. 只使用 SELECT 语句
@@ -143,4 +153,8 @@ real_qty REAL, must_qty REAL
 - 物料编码: 07.xx=成品, 05.xx=自制, 03.xx=外购
 - 入库完成率 = SUM(real_qty) / SUM(need_qty)
 - 超领 = picked_qty > need_qty（no_picked_qty 为负数）
+- 按客户查询时，用 cached_sales_orders.customer_name LIKE '%客户名%'
+- 多客户查询时，用 OR 连接: (customer_name LIKE '%客户A%' OR customer_name LIKE '%客户B%')
+- 成品入库记录在 cached_production_receipts（real_qty > 0 表示已入库）
+- 查询某客户的已入库成品：JOIN cached_sales_orders 和 cached_production_receipts，用 mto_number + material_code 关联
 """

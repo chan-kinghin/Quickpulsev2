@@ -210,12 +210,13 @@ class AgentLLMConfig(BaseSettings):
     timeout_seconds: int = Field(default=60, description="Request timeout")
 
     def resolve(self) -> "DeepSeekConfig":
-        """Resolve to a DeepSeekConfig, falling back to DEEPSEEK_* values."""
+        """Resolve to a DeepSeekConfig, falling back to Qwen then DeepSeek values."""
+        qwen = QwenConfig()
         ds = DeepSeekConfig()
         return DeepSeekConfig(
-            api_key=self.api_key or ds.api_key,
-            base_url=self.base_url or ds.base_url,
-            model=self.model or ds.model,
+            api_key=self.api_key or qwen.api_key or ds.api_key,
+            base_url=self.base_url or qwen.base_url or ds.base_url,
+            model=self.model or qwen.model or ds.model,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             timeout_seconds=self.timeout_seconds,
@@ -223,7 +224,7 @@ class AgentLLMConfig(BaseSettings):
 
     def is_available(self) -> bool:
         """Check if agent LLM is configured (either directly or via fallback)."""
-        return bool(self.api_key or DeepSeekConfig().api_key)
+        return bool(self.api_key or QwenConfig().api_key or DeepSeekConfig().api_key)
 
 
 class AutoSyncConfig(BaseSettings):

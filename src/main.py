@@ -149,18 +149,19 @@ async def lifespan(app: FastAPI):
             logger.warning("Startup cache warming failed: %s", exc)
 
     # Initialize LLM chat providers (optional — graceful degradation)
+    # Qwen registered first so it becomes the default provider
     chat_providers = {}
-    if config.deepseek.is_available():
-        chat_providers["deepseek"] = LLMClient(config.deepseek)
-        logger.info("DeepSeek chat enabled (model=%s)", config.deepseek.model)
     if config.qwen.is_available():
         chat_providers["qwen"] = LLMClient(config.qwen)
         logger.info("Qwen chat enabled (model=%s)", config.qwen.model)
+    if config.deepseek.is_available():
+        chat_providers["deepseek"] = LLMClient(config.deepseek)
+        logger.info("DeepSeek chat enabled (model=%s)", config.deepseek.model)
     if not chat_providers:
         logger.info("No LLM chat providers configured")
 
-    # Set active provider: first available, or None
-    active_provider = next(iter(chat_providers), None)
+    # Set active provider: Qwen preferred, then first available
+    active_provider = "qwen" if "qwen" in chat_providers else next(iter(chat_providers), None)
     chat_client = chat_providers.get(active_provider) if active_provider else None
 
     loop = asyncio.get_running_loop()
