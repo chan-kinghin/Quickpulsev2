@@ -378,10 +378,6 @@ class SyncService:
         if method:
             await method(records)
 
-    # _sync_orders and _sync_bom_for_orders removed — dead code (zero callers)
-    # Sync now goes through _sync_chunk → _upsert_* directly
-        return len(all_bom_entries)
-
     async def _fetch_bom_batch_with_retry(self, bill_nos: list[str]) -> list | None:
         """Fetch BOM entries for a batch of bill numbers with timeout and retries.
 
@@ -616,6 +612,12 @@ class SyncService:
         if not records:
             return
         records_list = list(records)
+        # Deduplicate by unique key to prevent UNIQUE constraint violations
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id)
+            deduped[key] = r
+        records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
