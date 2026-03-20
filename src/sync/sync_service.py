@@ -425,6 +425,14 @@ class SyncService:
         if not orders:
             return
 
+        # Deduplicate by unique key
+        orders_list = list(orders)
+        deduped: dict[tuple, object] = {}
+        for o in orders_list:
+            key = (o.bill_no, o.material_code, getattr(o, 'aux_prop_id', 0) or 0)
+            deduped[key] = o
+        orders_list = list(deduped.values())
+
         rows = [
             (
                 o.mto_number, o.bill_no, o.workshop, o.material_code,
@@ -435,7 +443,7 @@ class SyncService:
                 getattr(o, 'create_date', None),  # Denormalized
                 model_to_json(o),
             )
-            for o in orders
+            for o in orders_list
         ]
 
         await self.db.executemany_no_commit(
@@ -460,8 +468,13 @@ class SyncService:
         if not bom_entries:
             return
 
-        # Convert to list to allow multiple iterations
+        # Convert to list and deduplicate by unique key
         bom_list = list(bom_entries)
+        deduped: dict[tuple, object] = {}
+        for e in bom_list:
+            key = (e.mo_bill_no, e.material_code, getattr(e, 'aux_prop_id', 0) or 0)
+            deduped[key] = e
+        bom_list = list(deduped.values())
 
         # Delete existing entries for these MO bill numbers (BOM is replaced, not merged)
         mo_bill_nos = sorted({e.mo_bill_no for e in bom_list if e.mo_bill_no})
@@ -653,6 +666,11 @@ class SyncService:
         if not records:
             return
         records_list = list(records)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (r.bill_no, r.material_code, getattr(r, 'aux_prop_id', 0) or 0)
+            deduped[key] = r
+        records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
@@ -686,6 +704,11 @@ class SyncService:
         if not records:
             return
         records_list = list(records)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code, getattr(r, 'aux_prop_id', 0) or 0)
+            deduped[key] = r
+        records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
@@ -717,6 +740,11 @@ class SyncService:
         if not records:
             return
         records_list = list(records)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code, r.bill_type_number, getattr(r, 'aux_prop_id', 0) or 0)
+            deduped[key] = r
+        records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
@@ -749,6 +777,11 @@ class SyncService:
         if not records:
             return
         records_list = list(records)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (r.mto_number, r.material_code, r.ppbom_bill_no, getattr(r, 'aux_prop_id', 0) or 0)
+            deduped[key] = r
+        records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
@@ -780,6 +813,11 @@ class SyncService:
         if not records:
             return
         records_list = list(records)
+        deduped: dict[tuple, object] = {}
+        for r in records_list:
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code, getattr(r, 'aux_prop_id', 0) or 0)
+            deduped[key] = r
+        records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
         if mto_numbers:
             placeholders = ",".join(["?"] * len(mto_numbers))
