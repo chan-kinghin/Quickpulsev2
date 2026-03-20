@@ -12,9 +12,8 @@ COPY sdk/python_sdk_v8.2.0/kingdee.cdp.webapi.sdk-8.2.0-py3-none-any.whl /tmp/
 RUN pip install --no-cache-dir /tmp/kingdee.cdp.webapi.sdk-8.2.0-py3-none-any.whl
 
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir .
-
 COPY src/ ./src/
+RUN pip install --no-cache-dir .
 COPY config/ ./config/
 # NOTE: conf.ini is NOT copied - credentials must come from environment variables
 COPY sync_config.json ./
