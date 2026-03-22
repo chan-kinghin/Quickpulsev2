@@ -9,32 +9,7 @@
       "is_finished_goods": true,
       "source_form": "SAL_SaleOrder",
       "mto_field": "FMtoNo",
-      "columns": {
-        "required_qty": {
-          "source": "SAL_SaleOrder",
-          "field": "qty"
-        },
-        "picked_qty": {
-          "source": "SAL_OUTSTOCK",
-          "field": "real_qty",
-          "match_by": ["material_code", "aux_attributes"]
-        },
-        "unpicked_qty": {
-          "calculated": "required_qty - picked_qty"
-        },
-        "order_qty": {
-          "source": "SAL_SaleOrder",
-          "field": "qty"
-        },
-        "receipt_qty": {
-          "source": "PRD_INSTOCK",
-          "field": "real_qty",
-          "match_by": ["material_code", "aux_attributes"]
-        },
-        "unreceived_qty": {
-          "calculated": "order_qty - receipt_qty"
-        }
-      },
+      "columns": {},
       "item_fields": {
         "material_code": "FMaterialId.FNumber",
         "material_name": "FMaterialId.FName",
@@ -76,35 +51,7 @@
       "is_finished_goods": false,
       "source_form": "PRD_MO",
       "mto_field": "FMTONo",
-      "columns": {
-        "required_qty": {
-          "source": "PRD_MO",
-          "field": "qty"
-        },
-        "picked_qty": {
-          "source": "PRD_PickMtrl",
-          "field": "actual_qty",
-          "match_by": ["material_code"]
-        },
-        "unpicked_qty": {
-          "source": "PRD_PickMtrl",
-          "field": "app_qty",
-          "subtract": "actual_qty",
-          "match_by": ["material_code"]
-        },
-        "order_qty": {
-          "source": "PRD_MO",
-          "field": "qty"
-        },
-        "receipt_qty": {
-          "source": "PRD_INSTOCK",
-          "field": "real_qty",
-          "match_by": ["material_code"]
-        },
-        "unreceived_qty": {
-          "calculated": "order_qty - receipt_qty"
-        }
-      },
+      "columns": {},
       "item_fields": {
         "material_code": "FMaterialId.FNumber",
         "material_name": "FMaterialId.FName",
@@ -151,32 +98,7 @@
       "is_finished_goods": false,
       "source_form": "PUR_PurchaseOrder",
       "mto_field": "FMtoNo",
-      "columns": {
-        "required_qty": {
-          "source": "PUR_PurchaseOrder",
-          "field": "order_qty"
-        },
-        "picked_qty": {
-          "source": "PRD_PickMtrl",
-          "field": "actual_qty",
-          "match_by": ["material_code"]
-        },
-        "unpicked_qty": {
-          "calculated": "required_qty - picked_qty"
-        },
-        "order_qty": {
-          "source": "PUR_PurchaseOrder",
-          "field": "order_qty"
-        },
-        "receipt_qty": {
-          "source": "PUR_PurchaseOrder",
-          "field": "stock_in_qty"
-        },
-        "unreceived_qty": {
-          "source": "PUR_PurchaseOrder",
-          "field": "remain_stock_in_qty"
-        }
-      },
+      "columns": {},
       "item_fields": {
         "material_code": "FMaterialId.FNumber",
         "material_name": "FMaterialId.FName",

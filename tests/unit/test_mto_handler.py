@@ -244,7 +244,9 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "05.01.001"
         assert child.material_type_name == "自制"
-        assert child.prod_instock_must_qty == Decimal("50")
+        # prod_instock_must_qty comes from PRD_INSTOCK (not BOM need_qty)
+        # No production receipts → must_qty = 0
+        assert child.prod_instock_must_qty == Decimal("0")
         assert child.prod_instock_real_qty == Decimal("0")
         assert child.pick_actual_qty == Decimal("0")
 
@@ -368,13 +370,14 @@ class TestMTOQueryHandler:
         mock_cache.get_sales_orders.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_selfmade_uses_prd_mo_qty_not_receipt_sum(
+    async def test_selfmade_uses_receipt_must_qty(
         self, mock_readers, sample_selfmade_receipts_overlapping, sample_production_order_for_receipts
     ):
-        """Test that self-made 应收数量 uses PRD_MO.FQty, not sum of receipt FMustQty.
+        """Test that self-made 应收数量 uses PRD_INSTOCK.FMustQty sum.
 
-        Regression test: summing FMustQty across partial receipts gives inflated values
-        (e.g., 2219 instead of 1008) because each receipt carries full/remaining expected qty.
+        prod_instock_must_qty now correctly sources from PRD_INSTOCK (receipt table),
+        not from PPBOM.FMustQty or PRD_MO.FQty. The sum of receipt FMustQty across
+        partial receipts (1211 + 1008 = 2219) is the raw PRD_INSTOCK aggregation.
         """
         mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_order"].fetch_by_mto = AsyncMock(
@@ -398,8 +401,8 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "05.01.001"
         assert child.material_type_name == "自制"
-        # KEY ASSERTION: must use PRD_MO.FQty (1008), NOT receipt sum (1211 + 1008 = 2219)
-        assert child.prod_instock_must_qty == Decimal("1008")
+        # prod_instock_must_qty = sum of PRD_INSTOCK.FMustQty (1211 + 1008 = 2219)
+        assert child.prod_instock_must_qty == Decimal("2219")
         # Real qty should be correct sum (additive)
         assert child.prod_instock_real_qty == Decimal("1008")
 
@@ -409,7 +412,7 @@ class TestMTOQueryHandler:
 
         纸箱工段等 03.xx 包材如果有生产订单, 应按自制处理:
         - prod_instock_real_qty 来自 PRD_INSTOCK.FRealQty
-        - prod_instock_must_qty 来自 PRD_MO.FQty
+        - prod_instock_must_qty 来自 PRD_INSTOCK.FMustQty
         - material_type_name 显示 "自制"
         """
         prod_order_03 = ProductionOrderModel(
@@ -542,7 +545,8 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "03.06.002"
         assert child.material_type_name == "自制"
-        assert child.prod_instock_must_qty == Decimal("1000")
+        # No production receipts → prod_instock_must_qty = 0 (sourced from PRD_INSTOCK)
+        assert child.prod_instock_must_qty == Decimal("0")
         assert child.prod_instock_real_qty == Decimal("0")
 
     @pytest.mark.asyncio
@@ -625,7 +629,7 @@ class TestMTOQueryHandler:
 
         FMaterialType is the authoritative source from Kingdee PPBOM.
         A 03.xx item with material_type=1 should route as self-made,
-        with prod_instock_must_qty populated from the BOM need_qty.
+        with prod_instock_must_qty populated from PRD_INSTOCK.FMustQty.
         """
         bom_03_selfmade = ProductionBOMModel(
             mo_bill_no="MO600",
@@ -660,7 +664,8 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         child = [c for c in result.children if c.material_code == "03.01.010"][0]
         assert child.material_type_name == "自制"
-        assert child.prod_instock_must_qty == Decimal("200")
+        # No production receipts → prod_instock_must_qty = 0 (sourced from PRD_INSTOCK)
+        assert child.prod_instock_must_qty == Decimal("0")
         assert child.prod_instock_real_qty == Decimal("0")
 
     @pytest.mark.asyncio

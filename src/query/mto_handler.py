@@ -582,7 +582,7 @@ class MTOQueryHandler:
         sub_stock_in = _sum_by_material_and_aux(subcontracting_orders, "stock_in_qty")
         del_real = _sum_by_material_and_aux(sales_deliveries, "real_qty")
 
-        # Also aggregate by material_code only (for BOM aux=0 fallback)
+        # Aggregate by material_code for aux=0 only (fallback for unmatched aux)
         _by_code: dict[str, dict] = {}
         for label, aux_dict in [
             ("receipt_real", receipt_real), ("receipt_must", receipt_must),
@@ -591,22 +591,23 @@ class MTOQueryHandler:
             ("pur_real", pur_real), ("sub_order", sub_order),
             ("sub_stock_in", sub_stock_in), ("del_real", del_real),
         ]:
-            code_totals: dict[str, Decimal] = defaultdict(lambda: ZERO)
+            code_totals: dict[str, Decimal] = {}
             for (code, _aux), val in aux_dict.items():
-                code_totals[code] += val
+                if _aux == 0:
+                    code_totals[code] = code_totals.get(code, ZERO) + val
             _by_code[label] = code_totals
 
         def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
-            """Get value by (code, aux) with code-level fallback.
+            """Get value by (code, aux) with aux=0 fallback.
 
             Matches the SQL dual-JOIN COALESCE behavior:
             1. Try exact (code, aux) match
-            2. Fall back to code-level total (sum of ALL aux for this code)
+            2. Fall back to aux=0 entries only (not all aux variants)
             """
             exact = lookup.get((code, aux))
             if exact is not None:
                 return exact
-            # Always fall back to code-level total (matches SQL pr0 SUM behavior)
+            # Fall back to aux=0 entries only (matches tightened SQL pr0 behavior)
             code_total = _by_code.get(lookup_label, {}).get(code)
             if code_total is not None:
                 return code_total
@@ -809,16 +810,16 @@ class MTOQueryHandler:
         # 销售订单.数量
         sales_order_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
 
-        # 生产入库单.实收数量 — try exact (code, aux) first, then (code, 0) fallback
+        # 生产入库单.实收数量 — try exact (code, aux) first, then sum all aux variants
         # in case SAL_SaleOrder and PRD_INSTOCK have different aux_prop_id values
         key = (code, aux_prop_id)
         _exact = receipt_by_material.get(key)
-        _fallback = receipt_by_material.get((code, 0))
-        prod_instock_real_qty = (
-            _exact if _exact is not None else
-            _fallback if _fallback is not None else
-            ZERO
-        )
+        if _exact is not None:
+            prod_instock_real_qty = _exact
+        else:
+            # Fallback: sum all aux variants for this material code
+            _fallback_sum = sum(v for k, v in receipt_by_material.items() if k[0] == code)
+            prod_instock_real_qty = _fallback_sum if _fallback_sum else ZERO
 
         return ChildItem(
             material_code=code,
@@ -864,7 +865,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SELF_MADE,
                 material_type_name="自制",
-                prod_instock_must_qty=row.need_qty,
+                prod_instock_must_qty=row.prod_receipt_must_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
             )
@@ -876,9 +877,9 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.PURCHASED,
                 material_type_name="包材",
-                purchase_order_qty=row.purchase_order_qty if row.purchase_order_qty else row.need_qty,
+                purchase_order_qty=row.purchase_order_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
-                pick_actual_qty=row.pick_actual_qty if row.pick_actual_qty else row.picked_qty,
+                pick_actual_qty=row.pick_actual_qty,
             )
         elif effective_type == 3:  # 委外
             return ChildItem(
@@ -888,12 +889,12 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SUBCONTRACTED,
                 material_type_name="委外",
-                purchase_order_qty=row.subcontract_order_qty if row.subcontract_order_qty else row.need_qty,
+                purchase_order_qty=row.subcontract_order_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
             )
         else:
-            # Unknown type — still show it with BOM demand data
+            # Unknown type — still show it with receipt demand data
             return ChildItem(
                 material_code=row.material_code,
                 material_name=row.material_name,
@@ -901,11 +902,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=effective_type,
                 material_type_name="未知",
-                # NOTE: Despite the field name, this is BOM need_qty (PPBOM.FMustQty),
-                # NOT receipt must_qty. BOM need_qty is correctly scoped per production
-                # order. Do NOT change this to use prod_receipt_must_qty or
-                # prd_mo_qty_by_key — those cross-aggregate across MTO variants.
-                prod_instock_must_qty=row.need_qty,
+                prod_instock_must_qty=row.prod_receipt_must_qty,
             )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
