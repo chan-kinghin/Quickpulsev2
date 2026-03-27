@@ -597,20 +597,41 @@ class MTOQueryHandler:
                     code_totals[code] = code_totals.get(code, ZERO) + val
             _by_code[label] = code_totals
 
-        def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
-            """Get value by (code, aux) with aux=0 fallback.
+        # Aggregate by material_code across ALL aux variants (fallback for aux=0 BOM items)
+        _by_code_all: dict[str, dict[str, Decimal]] = {}
+        for label, aux_dict in [
+            ("receipt_real", receipt_real), ("receipt_must", receipt_must),
+            ("pick_actual", pick_actual_map), ("pick_app", pick_app_map),
+            ("po_order", po_order), ("po_stock_in", po_stock_in),
+            ("pur_real", pur_real), ("sub_order", sub_order),
+            ("sub_stock_in", sub_stock_in), ("del_real", del_real),
+        ]:
+            code_totals: dict[str, Decimal] = {}
+            for (code, _aux), val in aux_dict.items():
+                code_totals[code] = code_totals.get(code, ZERO) + val
+            _by_code_all[label] = code_totals
 
-            Matches the SQL dual-JOIN COALESCE behavior:
+        def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
+            """Get value by (code, aux) with bidirectional aux fallback.
+
+            Matches the SQL 3-tier COALESCE behavior:
             1. Try exact (code, aux) match
-            2. Fall back to aux=0 entries only (not all aux variants)
+            2. BOM has specific aux (aux != 0) → fall back to aux=0 entries
+            3. BOM has generic aux (aux == 0) → fall back to all-aux sum
             """
             exact = lookup.get((code, aux))
             if exact is not None:
                 return exact
-            # Fall back to aux=0 entries only (matches tightened SQL pr0 behavior)
-            code_total = _by_code.get(lookup_label, {}).get(code)
-            if code_total is not None:
-                return code_total
+            if aux != 0:
+                # Tier 2: BOM has specific aux, try receipts with aux=0
+                fallback = _by_code.get(lookup_label, {}).get(code)
+                if fallback is not None:
+                    return fallback
+            else:
+                # Tier 3: BOM has aux=0, sum all receipts for material
+                all_sum = _by_code_all.get(lookup_label, {}).get(code)
+                if all_sum is not None:
+                    return all_sum
             return ZERO
 
         def _make_row(code: str, aux: int, material_name: str, specification: str,

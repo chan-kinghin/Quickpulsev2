@@ -279,11 +279,11 @@ class CacheReader:
         Uses pre-aggregated subqueries to avoid the multiplicative join problem
         when multiple BOM rows share the same (material_code, aux_prop_id).
 
-        Each receipt/order table has TWO JOINs:
-        - Exact match on (material_code, aux_prop_id)
-        - Fallback match on (material_code) where aux_prop_id=0 only
-        COALESCE prefers the exact match; fallback only uses aux=0 entries
-        (Kingdee's "unspecified variant" marker) to avoid mixing different variants.
+        Each receipt/order table has THREE JOINs (3-tier aux_prop_id fallback):
+        - Tier 1: Exact match on (material_code, aux_prop_id)
+        - Tier 2: When BOM has specific aux (!=0), fallback to receipts with aux=0
+        - Tier 3: When BOM has generic aux (=0), sum ALL receipts for that material
+        COALESCE prefers exact match; Tier 2/3 are mutually exclusive by aux value.
         """
         pattern = f"{mto_number}%"
         rows = await self.db.execute_read(
@@ -317,16 +317,66 @@ class CacheReader:
                 ROUND(ba.need_qty, 2) as need_qty,
                 ROUND(ba.picked_qty, 2) as picked_qty,
                 ROUND(ba.no_picked_qty, 2) as no_picked_qty,
-                ROUND(COALESCE(pr.real_qty, CASE WHEN pr.material_code IS NULL THEN pr0.real_qty END, 0), 2) as prod_receipt_real_qty,
-                ROUND(COALESCE(pr.must_qty, CASE WHEN pr.material_code IS NULL THEN pr0.must_qty END, 0), 2) as prod_receipt_must_qty,
-                ROUND(COALESCE(pk.actual_qty, CASE WHEN pk.material_code IS NULL THEN pk0.actual_qty END, 0), 2) as pick_actual_qty,
-                ROUND(COALESCE(pk.app_qty, CASE WHEN pk.material_code IS NULL THEN pk0.app_qty END, 0), 2) as pick_app_qty,
-                ROUND(COALESCE(po.order_qty, CASE WHEN po.material_code IS NULL THEN po0.order_qty END, 0), 2) as purchase_order_qty,
-                ROUND(COALESCE(po.stock_in_qty, CASE WHEN po.material_code IS NULL THEN po0.stock_in_qty END, 0), 2) as purchase_stock_in_qty,
-                ROUND(COALESCE(pur.real_qty, CASE WHEN pur.material_code IS NULL THEN pur0.real_qty END, 0), 2) as purchase_receipt_real_qty,
-                ROUND(COALESCE(sub.order_qty, CASE WHEN sub.material_code IS NULL THEN sub0.order_qty END, 0), 2) as subcontract_order_qty,
-                ROUND(COALESCE(sub.stock_in_qty, CASE WHEN sub.material_code IS NULL THEN sub0.stock_in_qty END, 0), 2) as subcontract_stock_in_qty,
-                ROUND(COALESCE(sd.real_qty, CASE WHEN sd.material_code IS NULL THEN sd0.real_qty END, 0), 2) as delivery_real_qty,
+                ROUND(COALESCE(
+                    pr.real_qty,
+                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id != 0 THEN pr0.real_qty END,
+                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id = 0 THEN pr_all.real_qty END,
+                    0
+                ), 2) as prod_receipt_real_qty,
+                ROUND(COALESCE(
+                    pr.must_qty,
+                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id != 0 THEN pr0.must_qty END,
+                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id = 0 THEN pr_all.must_qty END,
+                    0
+                ), 2) as prod_receipt_must_qty,
+                ROUND(COALESCE(
+                    pk.actual_qty,
+                    CASE WHEN pk.material_code IS NULL AND br.aux_prop_id != 0 THEN pk0.actual_qty END,
+                    CASE WHEN pk.material_code IS NULL AND br.aux_prop_id = 0 THEN pk_all.actual_qty END,
+                    0
+                ), 2) as pick_actual_qty,
+                ROUND(COALESCE(
+                    pk.app_qty,
+                    CASE WHEN pk.material_code IS NULL AND br.aux_prop_id != 0 THEN pk0.app_qty END,
+                    CASE WHEN pk.material_code IS NULL AND br.aux_prop_id = 0 THEN pk_all.app_qty END,
+                    0
+                ), 2) as pick_app_qty,
+                ROUND(COALESCE(
+                    po.order_qty,
+                    CASE WHEN po.material_code IS NULL AND br.aux_prop_id != 0 THEN po0.order_qty END,
+                    CASE WHEN po.material_code IS NULL AND br.aux_prop_id = 0 THEN po_all.order_qty END,
+                    0
+                ), 2) as purchase_order_qty,
+                ROUND(COALESCE(
+                    po.stock_in_qty,
+                    CASE WHEN po.material_code IS NULL AND br.aux_prop_id != 0 THEN po0.stock_in_qty END,
+                    CASE WHEN po.material_code IS NULL AND br.aux_prop_id = 0 THEN po_all.stock_in_qty END,
+                    0
+                ), 2) as purchase_stock_in_qty,
+                ROUND(COALESCE(
+                    pur.real_qty,
+                    CASE WHEN pur.material_code IS NULL AND br.aux_prop_id != 0 THEN pur0.real_qty END,
+                    CASE WHEN pur.material_code IS NULL AND br.aux_prop_id = 0 THEN pur_all.real_qty END,
+                    0
+                ), 2) as purchase_receipt_real_qty,
+                ROUND(COALESCE(
+                    sub.order_qty,
+                    CASE WHEN sub.material_code IS NULL AND br.aux_prop_id != 0 THEN sub0.order_qty END,
+                    CASE WHEN sub.material_code IS NULL AND br.aux_prop_id = 0 THEN sub_all.order_qty END,
+                    0
+                ), 2) as subcontract_order_qty,
+                ROUND(COALESCE(
+                    sub.stock_in_qty,
+                    CASE WHEN sub.material_code IS NULL AND br.aux_prop_id != 0 THEN sub0.stock_in_qty END,
+                    CASE WHEN sub.material_code IS NULL AND br.aux_prop_id = 0 THEN sub_all.stock_in_qty END,
+                    0
+                ), 2) as subcontract_stock_in_qty,
+                ROUND(COALESCE(
+                    sd.real_qty,
+                    CASE WHEN sd.material_code IS NULL AND br.aux_prop_id != 0 THEN sd0.real_qty END,
+                    CASE WHEN sd.material_code IS NULL AND br.aux_prop_id = 0 THEN sd_all.real_qty END,
+                    0
+                ), 2) as delivery_real_qty,
                 ba.synced_at
             FROM bom_repr br
             JOIN bom_agg ba ON br.material_code = ba.material_code
@@ -347,6 +397,12 @@ class CacheReader:
                 WHERE mto_number LIKE ? AND aux_prop_id = 0
                 GROUP BY material_code
             ) pr0 ON br.material_code = pr0.material_code
+            LEFT JOIN (
+                SELECT material_code,
+                       SUM(real_qty) as real_qty, SUM(must_qty) as must_qty
+                FROM cached_production_receipts WHERE mto_number LIKE ?
+                GROUP BY material_code
+            ) pr_all ON br.material_code = pr_all.material_code
 
             /* --- Material picking (PRD_PickMtrl) --- */
             LEFT JOIN (
@@ -363,6 +419,12 @@ class CacheReader:
                 WHERE mto_number LIKE ? AND aux_prop_id = 0
                 GROUP BY material_code
             ) pk0 ON br.material_code = pk0.material_code
+            LEFT JOIN (
+                SELECT material_code,
+                       SUM(actual_qty) as actual_qty, SUM(app_qty) as app_qty
+                FROM cached_material_picking WHERE mto_number LIKE ?
+                GROUP BY material_code
+            ) pk_all ON br.material_code = pk_all.material_code
 
             /* --- Purchase orders (PUR_PurchaseOrder) --- */
             LEFT JOIN (
@@ -379,6 +441,12 @@ class CacheReader:
                 WHERE mto_number LIKE ? AND aux_prop_id = 0
                 GROUP BY material_code
             ) po0 ON br.material_code = po0.material_code
+            LEFT JOIN (
+                SELECT material_code,
+                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
+                FROM cached_purchase_orders WHERE mto_number LIKE ?
+                GROUP BY material_code
+            ) po_all ON br.material_code = po_all.material_code
 
             /* --- Purchase receipts (STK_InStock) --- */
             LEFT JOIN (
@@ -395,6 +463,12 @@ class CacheReader:
                 WHERE mto_number LIKE ? AND aux_prop_id = 0
                 GROUP BY material_code
             ) pur0 ON br.material_code = pur0.material_code
+            LEFT JOIN (
+                SELECT material_code,
+                       SUM(real_qty) as real_qty
+                FROM cached_purchase_receipts WHERE mto_number LIKE ?
+                GROUP BY material_code
+            ) pur_all ON br.material_code = pur_all.material_code
 
             /* --- Subcontracting orders (SUB_POORDER) --- */
             LEFT JOIN (
@@ -411,6 +485,12 @@ class CacheReader:
                 WHERE mto_number LIKE ? AND aux_prop_id = 0
                 GROUP BY material_code
             ) sub0 ON br.material_code = sub0.material_code
+            LEFT JOIN (
+                SELECT material_code,
+                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
+                FROM cached_subcontracting_orders WHERE mto_number LIKE ?
+                GROUP BY material_code
+            ) sub_all ON br.material_code = sub_all.material_code
 
             /* --- Sales delivery (SAL_OUTSTOCK) --- */
             LEFT JOIN (
@@ -427,10 +507,16 @@ class CacheReader:
                 WHERE mto_number LIKE ? AND aux_prop_id = 0
                 GROUP BY material_code
             ) sd0 ON br.material_code = sd0.material_code
+            LEFT JOIN (
+                SELECT material_code,
+                       SUM(real_qty) as real_qty
+                FROM cached_sales_delivery WHERE mto_number LIKE ?
+                GROUP BY material_code
+            ) sd_all ON br.material_code = sd_all.material_code
 
             ORDER BY br.material_code
             """,
-            [pattern] * 14,
+            [pattern] * 20,
         )
 
         if not rows:
