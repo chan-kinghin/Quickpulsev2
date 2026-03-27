@@ -43,7 +43,7 @@ def test_column_visibility_toggle_hides_header(serve_frontend, base_url: str, pa
     expect(page.get_by_role("columnheader", name="规格型号")).to_be_visible()
 
     # Open column settings and hide "规格型号"
-    page.get_by_role("button", name="列设置").click()
+    page.locator("button[aria-label='Column settings']").click()
     page.locator(".column-settings .column-settings-item:has-text('规格型号') input").click()
     # Close menu
     page.keyboard.press("Escape")

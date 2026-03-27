@@ -22,8 +22,9 @@ def test_sync_force_and_days_back_payload(serve_frontend, base_url: str, page: P
     expect(page.get_by_role("heading", name="同步管理")).to_be_visible()
 
     # Set daysBack to 7 and enable force
-    page.locator("input[type='number']").fill("7")
-    page.get_by_label("强制刷新").check()
+    # Use first spinbutton (手动同步 section) — sync page has 4 number inputs
+    page.get_by_role("spinbutton").first.fill("7")
+    page.locator("#force-sync").check()
     page.get_by_role("button", name="开始同步").click()
 
     assert captured["payload"] is not None

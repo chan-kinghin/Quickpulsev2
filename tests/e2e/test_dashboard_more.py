@@ -46,8 +46,12 @@ def test_search_history_interactions(serve_frontend, base_url: str, page: Page):
     page.keyboard.press("Enter")
     expect(page.get_by_text("成功查询到 2 条BOM组件记录")).to_be_visible()
 
-    # Focus input to show history and verify both entries
-    page.locator("#mto-search").focus()
+    # Clear input, blur, then re-focus to trigger @focus handler
+    # (history dropdown only shows when input is empty/short AND on focus event)
+    page.locator("#mto-search").fill("")
+    page.locator("#mto-search").blur()
+    page.wait_for_timeout(300)
+    page.locator("#mto-search").click()
     dropdown = page.locator(".search-history")
     expect(dropdown).to_be_visible()
     expect(dropdown.get_by_text("AK0000002", exact=True)).to_be_visible()
@@ -58,13 +62,18 @@ def test_search_history_interactions(serve_frontend, base_url: str, page: Page):
     expect(page.get_by_text("成功查询到 1 条BOM组件记录")).to_be_visible()
 
     # Clear history and ensure dropdown no longer appears on re-focus
-    page.locator("#mto-search").focus()
+    page.locator("#mto-search").fill("")
+    page.locator("#mto-search").blur()
+    page.wait_for_timeout(300)
+    page.locator("#mto-search").click()
     dropdown = page.locator(".search-history")
     expect(dropdown).to_be_visible()
     dropdown.get_by_role("button", name="清除").click()
-    # blur + refocus to re-evaluate
-    page.keyboard.press("Escape")
-    page.locator("#mto-search").focus()
+    # blur + refocus to re-evaluate — history was cleared so nothing should show
+    page.wait_for_timeout(300)
+    page.locator("#mto-search").blur()
+    page.wait_for_timeout(300)
+    page.locator("#mto-search").click()
     expect(page.get_by_text("最近搜索")).not_to_be_visible()
 
 
@@ -74,11 +83,11 @@ def test_sorting_by_material_code(serve_frontend, base_url: str, page: Page):
     page.route("**/api/auth/verify", lambda r: r.fulfill(status=200, json={"ok": True}))
     # Provide 3 rows for sort checks
     page.route(
-        "**/api/mto/AKSORT",
+        "**/api/mto/AK99999",
         lambda r: r.fulfill(
             status=200,
             json={
-                "parent_item": {"mto_number": "AKSORT"},
+                "parent_item": {"mto_number": "AK99999"},
                 "child_items": [
                     {"material_code": "07-P001", "material_name": "A", "material_type": "成品"},
                     {"material_code": "03-C002", "material_name": "B", "material_type": "包材"},
@@ -88,10 +97,10 @@ def test_sorting_by_material_code(serve_frontend, base_url: str, page: Page):
             },
         ),
     )
-    page.route("**/api/mto/AKSORT/related-orders", lambda r: r.fulfill(status=200, json={"orders": {}, "documents": {}}))
+    page.route("**/api/mto/AK99999/related-orders", lambda r: r.fulfill(status=200, json={"orders": {}, "documents": {}}))
 
     page.goto(f"{base_url}/dashboard.html")
-    page.locator("#mto-search").fill("AKSORT")
+    page.locator("#mto-search").fill("AK99999")
     page.keyboard.press("Enter")
     # Wait for table and click "物料编码" header to sort asc
     expect(page.locator("tbody tr").first).to_be_visible()
@@ -113,12 +122,12 @@ def test_query_param_prefill_triggers_search(serve_frontend, base_url: str, page
     page.add_init_script("localStorage.setItem('token','testtoken')")
     page.route("**/api/auth/verify", lambda r: r.fulfill(status=200, json={"ok": True}))
     page.route(
-        "**/api/mto/PARAM123",
-        lambda r: r.fulfill(status=200, json={"parent_item": {"mto_number": "PARAM123"}, "child_items": [{"material_code": "07-P001"}], "data_source": "live"}),
+        "**/api/mto/AK12345",
+        lambda r: r.fulfill(status=200, json={"parent_item": {"mto_number": "AK12345"}, "child_items": [{"material_code": "07-P001"}], "data_source": "live"}),
     )
-    page.route("**/api/mto/PARAM123/related-orders", lambda r: r.fulfill(status=200, json={"orders": {}, "documents": {}}))
+    page.route("**/api/mto/AK12345/related-orders", lambda r: r.fulfill(status=200, json={"orders": {}, "documents": {}}))
 
-    page.goto(f"{base_url}/dashboard.html?mto=PARAM123")
+    page.goto(f"{base_url}/dashboard.html?mto=AK12345")
     expect(page.get_by_text("成功查询到 1 条BOM组件记录")).to_be_visible()
 
 
