@@ -48,6 +48,7 @@ def _detect_fast_path(question: str) -> Optional[str]:
             "cached_production_receipts", "cached_purchase_receipts",
             "cached_purchase_orders", "cached_material_picking",
             "cached_sales_delivery",
+            "cached_subcontracting_orders",
         ]
         for tn in table_names:
             if tn in q:

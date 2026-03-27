@@ -48,7 +48,8 @@ RETRIEVAL_AGENT_PROMPT = """\
 - cached_production_receipts: mto_number, material_code, real_qty, must_qty
 - cached_purchase_receipts: mto_number, material_code, real_qty, must_qty, bill_type_number
 - cached_purchase_orders: mto_number, material_code, order_qty, stock_in_qty
-- cached_material_picking: mto_number, material_code, actual_qty, app_qty
+- cached_material_picking: mto_number, material_code, actual_qty, app_qty, ppbom_bill_no
+- cached_subcontracting_orders: mto_number, material_code, order_qty, stock_in_qty, no_stock_in_qty
 - cached_sales_orders: mto_number, bill_no, material_code, material_name, customer_name, delivery_date, qty, bom_short_name
 - cached_sales_delivery: mto_number, material_code, real_qty, must_qty
 
@@ -63,6 +64,15 @@ RETRIEVAL_AGENT_PROMPT = """\
 - 按客户筛选: cached_sales_orders.customer_name LIKE '%客户名%'
 - 多客户筛选: (customer_name LIKE '%A%' OR customer_name LIKE '%B%')
 - 成品已入库: cached_production_receipts.real_qty > 0 且 material_code LIKE '07.%'
+
+## 表用途语义映射（按业务场景选表）
+
+- 成品出库/发货 → cached_sales_delivery（real_qty = 已出库数量）
+- 领料/发料 → cached_material_picking（actual_qty = 已领料数量）
+- 成品入库/生产入库 → cached_production_receipts（real_qty = 已入库数量）
+- 采购入库 → cached_purchase_receipts（bill_type_number='RKD01_SYS'）
+- 委外入库 → cached_purchase_receipts（bill_type_number='RKD02_SYS'）
+- 委外订单 → cached_subcontracting_orders（order_qty = 委外订单数量, no_stock_in_qty = 未入库数量）
 """
 
 REASONING_AGENT_PROMPT = """\
@@ -121,7 +131,11 @@ order_qty REAL, stock_in_qty REAL, remain_stock_in_qty REAL
 
 ### cached_material_picking（领料记录）
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
-actual_qty REAL, app_qty REAL
+actual_qty REAL, app_qty REAL, ppbom_bill_no TEXT
+
+### cached_subcontracting_orders（委外订单）
+mto_number TEXT, bill_no TEXT, material_code TEXT,
+order_qty REAL, stock_in_qty REAL, no_stock_in_qty REAL
 
 ### cached_sales_delivery（销售出库）
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
@@ -147,14 +161,37 @@ customer_name TEXT, delivery_date TEXT, qty REAL, bom_short_name TEXT
 2. 简洁明了，重点突出异常项
 3. 基于查询结果数据回答，不要编造数据
 
+## 空结果处理
+
+如果SQL查询返回0行：
+1. 检查表选择是否正确（参考下方语义映射）
+2. 检查WHERE条件是否过严（如 material_code 精确匹配 vs LIKE）
+3. 最多重试1次换表查询，然后据实回答
+
 ## 领域知识
 
 - material_type: 1=自制, 2=外购, 3=委外
 - 物料编码: 07.xx=成品, 05.xx=自制, 03.xx=外购
 - 入库完成率 = SUM(real_qty) / SUM(need_qty)
 - 超领 = picked_qty > need_qty（no_picked_qty 为负数）
+- need_qty（BOM需求数量）≠ must_qty（入库单应收数量）：计算完成率用 need_qty，不用 must_qty
 - 按客户查询时，用 cached_sales_orders.customer_name LIKE '%客户名%'
 - 多客户查询时，用 OR 连接: (customer_name LIKE '%客户A%' OR customer_name LIKE '%客户B%')
 - 成品入库记录在 cached_production_receipts（real_qty > 0 表示已入库）
 - 查询某客户的已入库成品：JOIN cached_sales_orders 和 cached_production_receipts，用 mto_number + material_code 关联
+- 成品完成率 = SUM(cached_production_receipts.real_qty) / SUM(cached_sales_orders.qty)（分母用销售订单数量）
+- 自制件完成率 = SUM(cached_production_receipts.real_qty) / SUM(cached_production_bom.need_qty)（分母用BOM需求数量）
+- 外购件完成率 = SUM(cached_purchase_receipts.real_qty) / SUM(cached_production_bom.need_qty)
+
+## 表用途语义映射（按业务场景选表，严格遵守）
+
+- **成品出库/发货/销售出库** → cached_sales_delivery.real_qty（SAL_OUTSTOCK 销售出库单）
+- **领料/发料/生产领料** → cached_material_picking.actual_qty（PRD_PickMtrl 生产领料单）
+- ⚠️ **成品(07.xx)没有领料数据** — cached_material_picking 只适用于自制件和外购件，不适用于成品
+- **成品入库/生产入库** → cached_production_receipts.real_qty（PRD_INSTOCK 生产入库单）
+- **采购入库** → cached_purchase_receipts.real_qty WHERE bill_type_number='RKD01_SYS'
+- **委外入库** → cached_purchase_receipts.real_qty WHERE bill_type_number='RKD02_SYS'
+- **委外订单/委外数量** → cached_subcontracting_orders.order_qty（SUB_SUBREQORDER 委外订单）
+- **采购订单数量** → cached_purchase_orders.order_qty
+- **销售订单/客户/交期** → cached_sales_orders
 """
