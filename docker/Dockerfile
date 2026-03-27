@@ -11,9 +11,12 @@ RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/source
 COPY sdk/python_sdk_v8.2.0/kingdee.cdp.webapi.sdk-8.2.0-py3-none-any.whl /tmp/
 RUN pip install --no-cache-dir /tmp/kingdee.cdp.webapi.sdk-8.2.0-py3-none-any.whl
 
+# Install Python deps first (cached layer — only rebuilds when pyproject.toml changes)
 COPY pyproject.toml ./
-COPY src/ ./src/
 RUN pip install --no-cache-dir .
+
+# Copy source code AFTER pip install so code changes don't invalidate dep cache
+COPY src/ ./src/
 COPY config/ ./config/
 # NOTE: conf.ini is NOT copied - credentials must come from environment variables
 COPY sync_config.json ./
