@@ -244,9 +244,8 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "05.01.001"
         assert child.material_type_name == "自制"
-        # prod_instock_must_qty comes from PRD_INSTOCK (not BOM need_qty)
-        # No production receipts → must_qty = 0
-        assert child.prod_instock_must_qty == Decimal("0")
+        # prod_instock_must_qty comes from BOM need_qty (PRD_MO.FQty = 50)
+        assert child.prod_instock_must_qty == Decimal("50")
         assert child.prod_instock_real_qty == Decimal("0")
         assert child.pick_actual_qty == Decimal("0")
 
@@ -370,14 +369,15 @@ class TestMTOQueryHandler:
         mock_cache.get_sales_orders.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_selfmade_uses_receipt_must_qty(
+    async def test_selfmade_uses_bom_need_qty_not_receipt_sum(
         self, mock_readers, sample_selfmade_receipts_overlapping, sample_production_order_for_receipts
     ):
-        """Test that self-made 应收数量 uses PRD_INSTOCK.FMustQty sum.
+        """Test that self-made 应收数量 uses BOM need_qty, not summed receipt FMustQty.
 
-        prod_instock_must_qty now correctly sources from PRD_INSTOCK (receipt table),
-        not from PPBOM.FMustQty or PRD_MO.FQty. The sum of receipt FMustQty across
-        partial receipts (1211 + 1008 = 2219) is the raw PRD_INSTOCK aggregation.
+        PRD_INSTOCK.FMustQty per receipt carries the full/remaining expected qty —
+        these overlap and are NOT additive. Summing them produces inflated values
+        (e.g., 1211 + 1008 = 2219 instead of actual demand 1008).
+        Correct source: PPBOM.FMustQty or PRD_MO.FQty.
         """
         mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
         mock_readers["production_order"].fetch_by_mto = AsyncMock(
@@ -401,10 +401,51 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "05.01.001"
         assert child.material_type_name == "自制"
-        # prod_instock_must_qty = sum of PRD_INSTOCK.FMustQty (1211 + 1008 = 2219)
-        assert child.prod_instock_must_qty == Decimal("2219")
+        # prod_instock_must_qty = PRD_MO.FQty (BOM demand), NOT sum of receipt FMustQty
+        assert child.prod_instock_must_qty == Decimal("1008")
         # Real qty should be correct sum (additive)
         assert child.prod_instock_real_qty == Decimal("1008")
+
+    @pytest.mark.asyncio
+    async def test_regression_must_qty_never_from_receipt_sum(
+        self, mock_readers, sample_selfmade_receipts_overlapping, sample_production_order_for_receipts
+    ):
+        """REGRESSION GUARD (bug-patterns.md #10): prod_instock_must_qty must NEVER
+        equal the sum of PRD_INSTOCK.FMustQty (1211 + 1008 = 2219).
+
+        Receipt FMustQty values overlap across batches — they are NOT additive.
+        If this test fails, someone changed the data source back to
+        row.prod_receipt_must_qty. Revert that change.
+
+        History: fixed b8e6fc7, regressed 265303a, re-fixed 2026-03-30.
+        """
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[sample_production_order_for_receipts]
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(
+            return_value=sample_selfmade_receipts_overlapping
+        )
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={2001: "镜圈镜带实色红潘通230C"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("AS2511034", use_cache=False)
+
+        child = result.children[0]
+        inflated_sum = Decimal("2219")  # 1211 + 1008 — the WRONG value
+        assert child.prod_instock_must_qty != inflated_sum, (
+            "prod_instock_must_qty equals summed receipt FMustQty (2219). "
+            "This is a known regression — receipt FMustQty values overlap across "
+            "batches and must NOT be summed. Use row.need_qty instead. "
+            "See bug-patterns.md #10."
+        )
+        assert child.prod_instock_must_qty == Decimal("1008")  # PRD_MO.FQty
 
     @pytest.mark.asyncio
     async def test_03_with_prd_mo_routes_as_selfmade(self, mock_readers):
@@ -545,8 +586,8 @@ class TestMTOQueryHandler:
         child = result.children[0]
         assert child.material_code == "03.06.002"
         assert child.material_type_name == "自制"
-        # No production receipts → prod_instock_must_qty = 0 (sourced from PRD_INSTOCK)
-        assert child.prod_instock_must_qty == Decimal("0")
+        # prod_instock_must_qty = PRD_MO.FQty (demand), even without receipts
+        assert child.prod_instock_must_qty == Decimal("1000")
         assert child.prod_instock_real_qty == Decimal("0")
 
     @pytest.mark.asyncio
@@ -664,8 +705,8 @@ class TestMTOQueryHandler:
         assert len(result.children) >= 1
         child = [c for c in result.children if c.material_code == "03.01.010"][0]
         assert child.material_type_name == "自制"
-        # No production receipts → prod_instock_must_qty = 0 (sourced from PRD_INSTOCK)
-        assert child.prod_instock_must_qty == Decimal("0")
+        # prod_instock_must_qty = PPBOM.need_qty (demand), even without receipts
+        assert child.prod_instock_must_qty == Decimal("200")
         assert child.prod_instock_real_qty == Decimal("0")
 
     @pytest.mark.asyncio

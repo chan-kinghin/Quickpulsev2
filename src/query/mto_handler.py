@@ -886,7 +886,11 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SELF_MADE,
                 material_type_name="自制",
-                prod_instock_must_qty=row.prod_receipt_must_qty,
+                # REGRESSION GUARD (bug-patterns.md #10): MUST use row.need_qty here.
+                # Do NOT change to row.prod_receipt_must_qty — receipt FMustQty values
+                # overlap across batches and are NOT additive. Summing them inflates
+                # the demand figure. Already regressed once (265303a), fixed twice.
+                prod_instock_must_qty=row.need_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
             )
@@ -915,7 +919,7 @@ class MTOQueryHandler:
                 pick_actual_qty=row.pick_actual_qty,
             )
         else:
-            # Unknown type — still show it with receipt demand data
+            # Unknown type — still show it with BOM demand data
             return ChildItem(
                 material_code=row.material_code,
                 material_name=row.material_name,
@@ -923,7 +927,8 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=effective_type,
                 material_type_name="未知",
-                prod_instock_must_qty=row.prod_receipt_must_qty,
+                # REGRESSION GUARD (bug-patterns.md #10): same as self-made above
+                prod_instock_must_qty=row.need_qty,
             )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:
