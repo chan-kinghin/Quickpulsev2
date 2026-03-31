@@ -147,10 +147,9 @@ class TestMtoLookupTool:
     @pytest.mark.asyncio
     async def test_valid_mto_returns_json(self, mto_tool, mock_handler):
         mock_parent = MagicMock()
-        mock_parent.bill_no = "MO0001"
-        mock_parent.material_code = "P001"
-        mock_parent.material_name = "Product A"
-        mock_parent.qty = 100
+        mock_parent.mto_number = "AK2510034"
+        mock_parent.customer_name = "Test Customer"
+        mock_parent.delivery_date = "2026-04-01"
 
         mock_result = MagicMock()
         mock_result.parent = mock_parent
@@ -162,7 +161,8 @@ class TestMtoLookupTool:
         data = json.loads(result)
 
         assert data["mto_number"] == "AK2510034"
-        assert data["parent_item"]["bill_no"] == "MO0001"
+        assert data["parent_item"]["mto_number"] == "AK2510034"
+        assert data["parent_item"]["customer_name"] == "Test Customer"
         assert data["child_count"] == 0
 
     @pytest.mark.asyncio
@@ -185,10 +185,9 @@ class TestMtoLookupTool:
     @pytest.mark.asyncio
     async def test_children_with_metrics(self, mto_tool, mock_handler):
         mock_parent = MagicMock()
-        mock_parent.bill_no = "MO0001"
-        mock_parent.material_code = "P001"
-        mock_parent.material_name = "Product A"
-        mock_parent.qty = 100
+        mock_parent.mto_number = "AK2510034"
+        mock_parent.customer_name = "Test Customer"
+        mock_parent.delivery_date = "2026-04-01"
 
         mock_metric = MagicMock()
         mock_metric.value = 0.85

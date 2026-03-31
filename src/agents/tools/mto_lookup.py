@@ -53,10 +53,9 @@ def create_mto_lookup_tool(mto_handler) -> ToolDefinition:
         if result.parent:
             pi = result.parent
             summary["parent_item"] = {
-                "bill_no": pi.bill_no,
-                "material_code": pi.material_code,
-                "material_name": pi.material_name,
-                "qty": float(pi.qty) if pi.qty else 0,
+                "mto_number": pi.mto_number,
+                "customer_name": pi.customer_name,
+                "delivery_date": pi.delivery_date,
             }
 
         if result.children:
