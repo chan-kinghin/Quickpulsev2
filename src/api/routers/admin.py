@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
-from src.utils.geoip import lookup_ip_display
+from src.utils.geoip import batch_lookup_ip_displays
 
 _geoip_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="geoip")
 
@@ -117,11 +117,12 @@ async def usage_by_ip(
         [time_param, limit],
     )
 
+    # Batch lookup all IPs in one HTTP call instead of 50 sequential calls
+    ip_list = [row[0] for row in rows]
     loop = asyncio.get_running_loop()
-    locations = await asyncio.gather(*(
-        loop.run_in_executor(_geoip_executor, lookup_ip_display, row[0])
-        for row in rows
-    ))
+    locations = await loop.run_in_executor(
+        _geoip_executor, batch_lookup_ip_displays, ip_list
+    )
 
     return [
         {
@@ -129,9 +130,9 @@ async def usage_by_ip(
             "request_count": row[1],
             "last_seen": row[2],
             "top_endpoint": row[3],
-            "location": loc,
+            "location": locations.get(row[0], "未知"),
         }
-        for row, loc in zip(rows, locations)
+        for row in rows
     ]
 
 
