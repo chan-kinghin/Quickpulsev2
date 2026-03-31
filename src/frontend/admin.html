@@ -11,7 +11,7 @@
 
     <div x-data="authGuard()" x-init="init()" x-cloak>
         <template x-if="authenticated">
-            <div x-data="adminPanel()" x-init="init()" @destroy.window="destroy()">
+            <div x-data="adminPanel()" @destroy.window="destroy()">
 
                 <!-- Header -->
                 <header class="bg-slate-900 border-b border-slate-800 px-6 py-4">

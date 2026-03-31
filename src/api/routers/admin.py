@@ -25,12 +25,31 @@ async def usage_summary(
 
     rows = await db.execute_read(
         """
+        WITH filtered AS (
+            SELECT ip_address, path, response_time_ms
+            FROM access_logs
+            WHERE timestamp >= datetime('now', ?, 'localtime')
+        ),
+        top_ep AS (
+            SELECT path, COUNT(*) AS cnt
+            FROM filtered
+            GROUP BY path
+            ORDER BY cnt DESC
+            LIMIT 1
+        ),
+        top_ip AS (
+            SELECT ip_address, COUNT(*) AS cnt
+            FROM filtered
+            GROUP BY ip_address
+            ORDER BY cnt DESC
+            LIMIT 1
+        )
         SELECT
-            COUNT(*) AS total_requests,
-            COUNT(DISTINCT ip_address) AS unique_ips,
-            AVG(response_time_ms) AS avg_response_time_ms
-        FROM access_logs
-        WHERE timestamp >= datetime('now', ?, 'localtime')
+            (SELECT COUNT(*) FROM filtered) AS total_requests,
+            (SELECT COUNT(DISTINCT ip_address) FROM filtered) AS unique_ips,
+            (SELECT AVG(response_time_ms) FROM filtered) AS avg_response_time_ms,
+            (SELECT path FROM top_ep) AS top_endpoint,
+            (SELECT ip_address FROM top_ip) AS top_ip
         """,
         [time_param],
     )
@@ -39,35 +58,9 @@ async def usage_summary(
     total_requests = row[0] if row else 0
     unique_ips = row[1] if row else 0
     avg_response_time_ms = round(row[2], 2) if row and row[2] is not None else 0.0
-
-    # Find top endpoint
-    top_rows = await db.execute_read(
-        """
-        SELECT path, COUNT(*) AS cnt
-        FROM access_logs
-        WHERE timestamp >= datetime('now', ?, 'localtime')
-        GROUP BY path
-        ORDER BY cnt DESC
-        LIMIT 1
-        """,
-        [time_param],
-    )
-    top_endpoint = top_rows[0][0] if top_rows else None
-
-    # Find top IP to derive top location
-    top_ip_rows = await db.execute_read(
-        """
-        SELECT ip_address, COUNT(*) AS cnt
-        FROM access_logs
-        WHERE timestamp >= datetime('now', ?, 'localtime')
-        GROUP BY ip_address
-        ORDER BY cnt DESC
-        LIMIT 1
-        """,
-        [time_param],
-    )
+    top_endpoint = row[3] if row else None
     top_location = (
-        lookup_ip_display(top_ip_rows[0][0]) if top_ip_rows else "未知"
+        lookup_ip_display(row[4]) if row and row[4] else "未知"
     )
 
     return {
@@ -93,26 +86,31 @@ async def usage_by_ip(
 
     rows = await db.execute_read(
         """
+        WITH per_ip_path AS (
+            SELECT ip_address, path, COUNT(*) AS cnt,
+                   MAX(timestamp) AS max_ts
+            FROM access_logs
+            WHERE timestamp >= datetime('now', ?, 'localtime')
+            GROUP BY ip_address, path
+        ),
+        ranked AS (
+            SELECT ip_address, path, cnt, max_ts,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ip_address ORDER BY cnt DESC
+                   ) AS rn
+            FROM per_ip_path
+        )
         SELECT
             ip_address,
-            COUNT(*) AS request_count,
-            MAX(timestamp) AS last_seen,
-            (
-                SELECT path
-                FROM access_logs AS sub
-                WHERE sub.ip_address = main.ip_address
-                  AND sub.timestamp >= datetime('now', ?, 'localtime')
-                GROUP BY path
-                ORDER BY COUNT(*) DESC
-                LIMIT 1
-            ) AS top_endpoint
-        FROM access_logs AS main
-        WHERE timestamp >= datetime('now', ?, 'localtime')
+            SUM(cnt) AS request_count,
+            MAX(max_ts) AS last_seen,
+            MIN(CASE WHEN rn = 1 THEN path END) AS top_endpoint
+        FROM ranked
         GROUP BY ip_address
         ORDER BY request_count DESC
         LIMIT ?
         """,
-        [time_param, time_param, limit],
+        [time_param, limit],
     )
 
     return [
