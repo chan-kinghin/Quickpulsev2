@@ -38,6 +38,12 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("AUTH_TOKEN_EXPIRE_MINUTES", "1440"))
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "quickpulse")
 
+if AUTH_PASSWORD == "quickpulse":
+    logger.warning(
+        "AUTH_PASSWORD is using the default value 'quickpulse'. "
+        "Set AUTH_PASSWORD environment variable to a strong password in production."
+    )
+
 
 class Token(BaseModel):
     access_token: str

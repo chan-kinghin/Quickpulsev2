@@ -6,6 +6,7 @@ agent-callable tool.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict
 
@@ -16,6 +17,8 @@ from src.database.connection import Database
 from src.exceptions import ChatSQLError
 
 logger = logging.getLogger(__name__)
+
+_CHAT_SQL_TIMEOUT = 5.0  # seconds
 
 
 def create_sql_query_tool(db: Database) -> ToolDefinition:
@@ -36,9 +39,15 @@ def create_sql_query_tool(db: Database) -> ToolDefinition:
         except ChatSQLError as exc:
             return f"SQL验证失败: {exc}"
 
-        # Execute
+        # Execute (with timeout to prevent expensive queries)
         try:
-            rows, columns = await db.execute_read_with_columns(safe_sql)
+            rows, columns = await asyncio.wait_for(
+                db.execute_read_with_columns(safe_sql),
+                timeout=_CHAT_SQL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Agent SQL query timed out after %.0fs: %s", _CHAT_SQL_TIMEOUT, safe_sql)
+            return f"SQL查询超时（{_CHAT_SQL_TIMEOUT:.0f}秒），请简化查询条件"
         except Exception as exc:
             return f"SQL执行失败: {exc}"
 

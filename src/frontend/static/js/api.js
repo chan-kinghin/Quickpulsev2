@@ -131,11 +131,15 @@ const api = {
 
         const data = await response.json();
         this.setToken(data.access_token);
+        // Also set cookie so server-side route guards can verify auth
+        document.cookie = `access_token=${data.access_token}; path=/; SameSite=Strict`;
         return data;
     },
 
     logout() {
         this.clearToken();
+        // Clear the auth cookie
+        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
         window.location.href = '/';
     }
 };

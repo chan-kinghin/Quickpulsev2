@@ -1,5 +1,6 @@
 """Chat endpoints — SSE streaming for multi-provider LLM integration."""
 
+import asyncio
 import json
 import logging
 import re
@@ -186,10 +187,19 @@ async def _analytics_stream(client, body: ChatRequest, request: Request):
 
     yield _sse_event({"type": "sql", "query": safe_sql})
 
-    # Step 3: Execute SQL
+    # Step 3: Execute SQL (with 5-second timeout to prevent expensive queries)
     db = request.app.state.db
+    _CHAT_SQL_TIMEOUT = 5.0  # seconds
     try:
-        rows, column_names = await db.execute_read_with_columns(safe_sql)
+        rows, column_names = await asyncio.wait_for(
+            db.execute_read_with_columns(safe_sql),
+            timeout=_CHAT_SQL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Chat SQL query timed out after %.0fs: %s", _CHAT_SQL_TIMEOUT, safe_sql)
+        yield _sse_event({"type": "error", "message": "查询超时，请简化查询条件后重试"})
+        yield _sse_event({"type": "done"})
+        return
     except Exception as exc:
         logger.warning("SQL execution failed: %s", exc, exc_info=True)
         yield _sse_event({"type": "error", "message": "SQL执行失败，请检查查询条件后重试"})

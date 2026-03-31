@@ -12,7 +12,7 @@ setup_logging(log_level="INFO")
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -213,12 +213,39 @@ if cors_origins:
 
 
 @app.middleware("http")
+async def enforce_https(request: Request, call_next):
+    """Redirect HTTP to HTTPS in production (behind nginx SSL termination)."""
+    debug_mode = os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+    if (
+        not debug_mode
+        and request.headers.get("x-forwarded-proto") == "http"
+        and request.url.path not in ("/health",)
+    ):
+        url = request.url.replace(scheme="https")
+        return RedirectResponse(url=str(url), status_code=301)
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = (
+        "max-age=31536000; includeSubDomains"
+    )
+    # CSP: allow self + inline styles/scripts (Alpine.js, Tailwind)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
     return response
 
 
@@ -297,7 +324,27 @@ async def sync_page():
 
 
 @app.get("/admin.html")
-async def admin_page():
+async def admin_page(request: Request):
+    """Serve admin page only if the user has a valid auth token.
+
+    Checks for token in the access_token cookie (set by frontend on login).
+    Falls back to serving the page if no cookie — the client-side authGuard
+    will redirect unauthenticated users.
+    """
+    from jose import JWTError, jwt as jose_jwt
+    from src.api.routers.auth import SECRET_KEY, ALGORITHM
+
+    token = request.cookies.get("access_token")
+    if token:
+        try:
+            payload = jose_jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if payload.get("sub") is None:
+                return RedirectResponse(url="/", status_code=302)
+        except JWTError:
+            return RedirectResponse(url="/", status_code=302)
+    else:
+        # No cookie — redirect to login; client-side guard is a backup
+        return RedirectResponse(url="/", status_code=302)
     return FileResponse("src/frontend/admin.html")
 
 
