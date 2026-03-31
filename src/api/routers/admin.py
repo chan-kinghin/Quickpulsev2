@@ -1,12 +1,16 @@
 """Admin API endpoints for usage analytics."""
 
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
 from src.utils.geoip import lookup_ip_display
+
+_geoip_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="geoip")
 
 logger = logging.getLogger(__name__)
 
@@ -113,15 +117,21 @@ async def usage_by_ip(
         [time_param, limit],
     )
 
+    loop = asyncio.get_running_loop()
+    locations = await asyncio.gather(*(
+        loop.run_in_executor(_geoip_executor, lookup_ip_display, row[0])
+        for row in rows
+    ))
+
     return [
         {
             "ip_address": row[0],
             "request_count": row[1],
             "last_seen": row[2],
             "top_endpoint": row[3],
-            "location": lookup_ip_display(row[0]),
+            "location": loc,
         }
-        for row in rows
+        for row, loc in zip(rows, locations)
     ]
 
 
