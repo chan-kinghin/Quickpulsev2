@@ -406,7 +406,9 @@ class TestGetMtoBomJoined:
         assert row.aux_prop_id == aux_id
         assert row.need_qty == Decimal("200")
         assert row.prod_receipt_real_qty == Decimal("10")
-        assert row.prod_receipt_must_qty == Decimal("20")
+        # prod_receipt_must_qty now sources from BOM need_qty (not receipt sum)
+        # to prevent inflation bug (bug-patterns.md #10, commit c7df68c)
+        assert row.prod_receipt_must_qty == Decimal("200")
         assert row.pick_actual_qty == Decimal("45")
         assert row.pick_app_qty == Decimal("50")
         assert row.purchase_order_qty == Decimal("200")

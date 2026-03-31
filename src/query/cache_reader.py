@@ -323,12 +323,9 @@ class CacheReader:
                     CASE WHEN pr.material_code IS NULL AND br.aux_prop_id = 0 THEN pr_all.real_qty END,
                     0
                 ), 2) as prod_receipt_real_qty,
-                ROUND(COALESCE(
-                    pr.must_qty,
-                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id != 0 THEN pr0.must_qty END,
-                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id = 0 THEN pr_all.must_qty END,
-                    0
-                ), 2) as prod_receipt_must_qty,
+                -- Use BOM need_qty (PPBOM.FMustQty) instead of receipt SUM(must_qty)
+                -- which inflates across multiple receipt batches (see commit c7df68c)
+                ROUND(COALESCE(ba.need_qty, 0), 2) as prod_receipt_must_qty,
                 ROUND(COALESCE(
                     pk.actual_qty,
                     CASE WHEN pk.material_code IS NULL AND br.aux_prop_id != 0 THEN pk0.actual_qty END,
@@ -588,15 +585,32 @@ class CacheReader:
         return CacheResult(data=data, synced_at=oldest_sync, is_fresh=is_fresh)
 
     async def check_freshness(self, mto_number: str) -> tuple[bool, Optional[datetime]]:
-        """Quick check if MTO data exists and is fresh without loading full data (prefix match)."""
-        rows = await self.db.execute_read(
-            """
-            SELECT MAX(synced_at) as latest_sync
-            FROM cached_production_orders
-            WHERE mto_number LIKE ?
-            """,
-            [f"{mto_number}%"],
-        )
+        """Quick check if MTO data exists and is fresh without loading full data (prefix match).
+
+        Checks the OLDEST synced_at across all 9 cache tables to give
+        accurate staleness — the freshness is only as good as the most
+        outdated table.
+        """
+        tables = [
+            "cached_production_orders",
+            "cached_production_bom",
+            "cached_purchase_orders",
+            "cached_subcontracting_orders",
+            "cached_production_receipts",
+            "cached_purchase_receipts",
+            "cached_material_picking",
+            "cached_sales_delivery",
+            "cached_sales_orders",
+        ]
+        # UNION the per-table MAX(synced_at), then take the MIN (oldest).
+        union_parts = [
+            f"SELECT MAX(synced_at) AS latest FROM {t} WHERE mto_number LIKE ?"
+            for t in tables
+        ]
+        query = f"SELECT MIN(latest) FROM ({' UNION ALL '.join(union_parts)})"
+        params = [f"{mto_number}%"] * len(tables)
+
+        rows = await self.db.execute_read(query, params)
 
         if not rows or not rows[0][0]:
             return False, None
