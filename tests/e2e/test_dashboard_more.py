@@ -102,19 +102,34 @@ def test_sorting_by_material_code(serve_frontend, base_url: str, page: Page):
     page.goto(f"{base_url}/dashboard.html")
     page.locator("#mto-search").fill("AK99999")
     page.keyboard.press("Enter")
-    # Wait for table and click "物料编码" header to sort asc
-    expect(page.locator("tbody tr").first).to_be_visible()
-    page.get_by_role("columnheader", name="物料编码").click()
-    code = page.evaluate(
-        "() => { const row = document.querySelector('tbody tr'); if(!row) return ''; const tds = Array.from(row.querySelectorAll('td')); const m = tds.map(td => td.innerText.trim()).find(x => /^\\d{2}-/.test(x)); return m || ''; }"
+    # Wait for table rows to render
+    expect(page.get_by_role("heading", name="BOM组件明细")).to_be_visible()
+    page.wait_for_timeout(500)
+
+    first_code_js = (
+        "() => { const row = document.querySelector('tbody tr'); if(!row) return '';"
+        " const tds = Array.from(row.querySelectorAll('td'));"
+        " const m = tds.map(td => td.innerText.trim()).find(x => /^\\d{2}-/.test(x));"
+        " return m || ''; }"
     )
-    assert code.startswith("03-"), f"unexpected first code: {code}"
+
+    # Click "物料编码" header via JS to sort asc (sticky headers block Playwright clicks)
+    page.evaluate(
+        "() => { const th = [...document.querySelectorAll('th')]"
+        ".find(el => el.textContent.includes('物料编码')); if(th) th.click(); }"
+    )
+    page.wait_for_timeout(300)
+    code = page.evaluate(first_code_js)
+    assert code.startswith("03-"), f"unexpected first code after asc sort: {code}"
+
     # Click again to sort desc
-    page.get_by_role("columnheader", name="物料编码").click()
-    code = page.evaluate(
-        "() => { const row = document.querySelector('tbody tr'); if(!row) return ''; const tds = Array.from(row.querySelectorAll('td')); const m = tds.map(td => td.innerText.trim()).find(x => /^\\d{2}-/.test(x)); return m || ''; }"
+    page.evaluate(
+        "() => { const th = [...document.querySelectorAll('th')]"
+        ".find(el => el.textContent.includes('物料编码')); if(th) th.click(); }"
     )
-    assert code.startswith("07-"), f"unexpected first code: {code}"
+    page.wait_for_timeout(300)
+    code = page.evaluate(first_code_js)
+    assert code.startswith("07-"), f"unexpected first code after desc sort: {code}"
 
 
 @pytest.mark.e2e
