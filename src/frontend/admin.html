@@ -135,7 +135,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <template x-for="row in byIp" :key="row.ip_address">
+                                        <template x-for="(row, idx) in byIp" :key="row.ip_address + '-' + idx">
                                             <tr class="border-t border-slate-800 hover:bg-slate-800/50">
                                                 <td class="py-2.5 pr-4 font-mono text-slate-300" x-text="row.ip_address"></td>
                                                 <td class="py-2.5 pr-4 text-sm text-slate-400" x-text="row.location || '--'"></td>
@@ -156,7 +156,7 @@
                                 <p class="text-sm text-slate-500">该时间段暂无数据</p>
                             </div>
                             <div x-show="timeline.length > 0" class="space-y-1.5">
-                                <template x-for="t in timeline.slice(-24)" :key="t.bucket_start">
+                                <template x-for="(t, idx) in timeline.slice(-24)" :key="t.bucket_start + '-' + idx">
                                     <div class="flex items-center gap-3 text-xs">
                                         <span class="w-20 text-slate-500 text-right shrink-0 font-mono" x-text="formatBucket(t.bucket_start)"></span>
                                         <div class="flex-1 bg-slate-800 rounded-r h-6 overflow-hidden">
@@ -176,15 +176,15 @@
                         <div class="flex items-center justify-between mb-4">
                             <h2 class="text-lg font-semibold text-slate-50">最近请求</h2>
                             <p class="text-sm text-slate-500"
-                               x-text="recent.total > 0 ? ('显示 ' + (recentPage * pageSize + 1) + '-' + Math.min((recentPage + 1) * pageSize, recent.total) + ' / 共 ' + recent.total + ' 条') : ''">
+                               x-text="recent && recent.total > 0 ? ('显示 ' + (recentPage * pageSize + 1) + '-' + Math.min((recentPage + 1) * pageSize, recent.total) + ' / 共 ' + recent.total + ' 条') : ''">
                             </p>
                         </div>
 
-                        <div x-show="recent.items.length === 0" class="text-center py-8">
+                        <div x-show="!recent || !recent.items || recent.items.length === 0" class="text-center py-8">
                             <p class="text-sm text-slate-500">暂无请求记录</p>
                         </div>
 
-                        <div x-show="recent.items.length > 0" class="overflow-x-auto">
+                        <div x-show="recent && recent.items && recent.items.length > 0" class="overflow-x-auto">
                             <table class="w-full text-sm">
                                 <thead>
                                     <tr class="text-left text-slate-500 text-xs border-b border-slate-800">
@@ -198,7 +198,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <template x-for="req in recent.items" :key="req.timestamp + req.path">
+                                    <template x-for="(req, idx) in (recent ? recent.items : [])" :key="req.timestamp + req.path + req.ip_address + idx">
                                         <tr class="border-t border-slate-800 hover:bg-slate-800/50">
                                             <td class="py-2.5 pr-4 text-slate-400 font-mono text-xs" x-text="formatTime(req.timestamp)"></td>
                                             <td class="py-2.5 pr-4 text-slate-300 font-mono" x-text="req.ip_address"></td>
@@ -218,7 +218,7 @@
                         </div>
 
                         <!-- Pagination -->
-                        <div x-show="recent.total > pageSize" class="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
+                        <div x-show="recent && recent.total > pageSize" class="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
                             <button @click="prevPage()" :disabled="recentPage === 0"
                                     class="px-4 py-2 bg-slate-800 text-slate-400 rounded text-sm font-medium transition hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">
                                 上一页
