@@ -182,7 +182,7 @@ class MetricEngine:
         status = self._rate_to_status(float(rate), metric_def.thresholds)
 
         return MetricValue(
-            value=rate,
+            value=rate.normalize(),
             label=metric_def.label,
             format=metric_def.format,
             status=status,
@@ -228,7 +228,7 @@ class MetricEngine:
         status = "warning" if over > ZERO else None
 
         return MetricValue(
-            value=over if over > ZERO else ZERO,
+            value=(over if over > ZERO else ZERO).normalize(),
             label=metric_def.label,
             format=metric_def.format,
             status=status,

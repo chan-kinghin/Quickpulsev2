@@ -12,7 +12,7 @@ setup_logging(log_level="INFO")
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 from src.api.middleware.access_log import setup_access_logging
 from src.api.middleware.rate_limit import setup_rate_limiting
 from src.exceptions import KingdeeConnectionError, QuickPulseError
+from src.logging_config import set_request_id
 
 # Map HTTP status codes to machine-readable error codes for consistent API responses.
 _STATUS_ERROR_CODES = {
@@ -197,7 +198,14 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="QuickPulse V2", lifespan=lifespan)
+_is_production = os.getenv("ENV", "").lower() == "production" or not os.getenv("DEBUG", "")
+app = FastAPI(
+    title="QuickPulse V2",
+    lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+)
 setup_rate_limiting(app)
 
 cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
@@ -233,9 +241,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = (
-        "max-age=31536000; includeSubDomains"
-    )
+    # HSTS handled by nginx — no duplicate header needed
     # CSP: allow self + inline styles/scripts (Alpine.js, Tailwind)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -246,6 +252,16 @@ async def add_security_headers(request: Request, call_next):
         "connect-src 'self'; "
         "frame-ancestors 'none'"
     )
+    return response
+
+
+@app.middleware("http")
+async def inject_request_id(request: Request, call_next):
+    """Generate a correlation ID for each request and store it in context."""
+    rid = request.headers.get("x-request-id") or None
+    rid = set_request_id(rid)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
     return response
 
 
@@ -348,14 +364,29 @@ async def admin_page(request: Request):
     return FileResponse("src/frontend/admin.html")
 
 
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    return PlainTextResponse("User-agent: *\nDisallow: /api/\n")
+
+
 @app.get("/health")
 async def health():
+    components = {}
+
+    # Check SQLite DB connectivity
     try:
         db = app.state.db
         await db.execute_read("SELECT 1")
-        return {"status": "healthy", "database": "connected"}
+        components["database"] = "ok"
     except Exception as e:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "unhealthy", "database": str(e)},
-        )
+        components["database"] = f"error: {e}"
+
+    overall = "healthy" if all(v == "ok" for v in components.values()) else "unhealthy"
+    payload = {"status": overall, "components": components}
+
+    # Backward compatibility: include top-level database field
+    payload["database"] = "connected" if components["database"] == "ok" else components["database"]
+
+    if overall != "healthy":
+        return JSONResponse(status_code=503, content=payload)
+    return payload

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from src.api.middleware.rate_limit import limiter
 from src.api.routers.auth import get_current_user
-from src.utils.geoip import batch_lookup_ip_displays
+from src.utils.geoip import batch_lookup_ip_displays, lookup_ip_display
 
 _geoip_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="geoip")
 
