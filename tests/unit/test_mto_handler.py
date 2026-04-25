@@ -1959,3 +1959,194 @@ class TestBuildBomJoinedRowsFromLive:
         # source-table inference: pick with no other source → conservative default self-made
         assert row.material_type == 1
         assert row.pick_actual_qty == Decimal("80")
+
+
+class TestLiveMatchQualityParity:
+    """Stage 4 of PLAN_aux_match_visibility: live-path match_quality_breakdown
+    must mirror the same tier semantics as the cache SQL CASE expressions.
+    """
+
+    def _make_handler(self, mock_readers):
+        return MTOQueryHandler(
+            production_order_reader=mock_readers["production_order"],
+            production_bom_reader=mock_readers["production_bom"],
+            production_receipt_reader=mock_readers["production_receipt"],
+            purchase_order_reader=mock_readers["purchase_order"],
+            purchase_receipt_reader=mock_readers["purchase_receipt"],
+            subcontracting_order_reader=mock_readers["subcontracting_order"],
+            material_picking_reader=mock_readers["material_picking"],
+            sales_delivery_reader=mock_readers["sales_delivery"],
+            sales_order_reader=mock_readers["sales_order"],
+        )
+
+    def test_live_emits_exact_when_aux_matches(self, mock_readers):
+        bom = ProductionBOMModel(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="05.01.001", material_name="自制件",
+            specification="", aux_prop_id=5001, material_type=1,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK001", mto_number="AS001", material_code="05.01.001",
+            real_qty=Decimal("80"), must_qty=Decimal("100"), aux_prop_id=5001,
+        )
+        rows = self._make_handler(mock_readers)._build_bom_joined_rows_from_live(
+            production_bom=[bom], prod_orders=[], prod_receipts=[receipt],
+            material_picks=[], purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        assert rows[0].match_quality_breakdown["prod_receipt"] == "exact"
+
+    def test_live_emits_aux_zero_fallback_when_bom_aux_unmatched(self, mock_readers):
+        bom = ProductionBOMModel(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="05.01.001", material_name="自制件",
+            specification="", aux_prop_id=5001, material_type=1,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+        )
+        receipt = ProductionReceiptModel(
+            bill_no="RK001", mto_number="AS001", material_code="05.01.001",
+            real_qty=Decimal("80"), must_qty=Decimal("100"), aux_prop_id=0,
+        )
+        rows = self._make_handler(mock_readers)._build_bom_joined_rows_from_live(
+            production_bom=[bom], prod_orders=[], prod_receipts=[receipt],
+            material_picks=[], purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        assert rows[0].match_quality_breakdown["prod_receipt"] == "aux_zero_fallback"
+        assert rows[0].prod_receipt_real_qty == Decimal("80")  # tier-2 fallback resolved
+
+    def test_live_emits_all_aux_rollup_when_bom_is_generic(self, mock_readers):
+        bom = ProductionBOMModel(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="05.01.001", material_name="自制件",
+            specification="", aux_prop_id=0, material_type=1,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+        )
+        receipts = [
+            ProductionReceiptModel(
+                bill_no="RK001", mto_number="AS001", material_code="05.01.001",
+                real_qty=Decimal("30"), must_qty=Decimal("30"), aux_prop_id=5001,
+            ),
+            ProductionReceiptModel(
+                bill_no="RK002", mto_number="AS001", material_code="05.01.001",
+                real_qty=Decimal("20"), must_qty=Decimal("20"), aux_prop_id=5002,
+            ),
+        ]
+        rows = self._make_handler(mock_readers)._build_bom_joined_rows_from_live(
+            production_bom=[bom], prod_orders=[], prod_receipts=receipts,
+            material_picks=[], purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        assert rows[0].match_quality_breakdown["prod_receipt"] == "all_aux_rollup"
+        assert rows[0].prod_receipt_real_qty == Decimal("50")  # 30 + 20 summed
+
+    def test_live_emits_no_match_when_no_receipts_anywhere(self, mock_readers):
+        bom = ProductionBOMModel(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="05.01.001", material_name="自制件",
+            specification="", aux_prop_id=5001, material_type=1,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+        )
+        rows = self._make_handler(mock_readers)._build_bom_joined_rows_from_live(
+            production_bom=[bom], prod_orders=[], prod_receipts=[],
+            material_picks=[], purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        for source in (
+            "prod_receipt", "pick", "purchase_order", "purchase_receipt",
+            "subcontract", "delivery",
+        ):
+            assert rows[0].match_quality_breakdown[source] == "no_match"
+
+
+class TestStrictAuxFilter:
+    """Stage 6 of PLAN_aux_match_visibility: strict mode zeros out non-exact qtys."""
+
+    def test_filter_passes_through_exact_rows_unchanged(self):
+        from src.query.cache_reader import BOMJoinedRow
+
+        row = BOMJoinedRow(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="C001", material_name="", specification="",
+            aux_attributes="", aux_prop_id=5001, material_type=1,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+            prod_receipt_real_qty=Decimal("80"), prod_receipt_must_qty=Decimal("100"),
+            pick_actual_qty=Decimal("70"), pick_app_qty=Decimal("75"),
+            purchase_order_qty=Decimal("0"), purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"), subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            match_quality_breakdown={
+                "prod_receipt": "exact", "pick": "exact",
+                "purchase_order": "no_match", "purchase_receipt": "no_match",
+                "subcontract": "no_match", "delivery": "no_match",
+            },
+        )
+        out = MTOQueryHandler._apply_strict_aux_filter([row])
+        assert len(out) == 1
+        # Exact rows pass through with original qtys.
+        assert out[0].prod_receipt_real_qty == Decimal("80")
+        assert out[0].pick_actual_qty == Decimal("70")
+
+    def test_filter_zeros_aux_zero_fallback_and_marks_no_match(self):
+        from src.query.cache_reader import BOMJoinedRow
+
+        row = BOMJoinedRow(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="C001", material_name="", specification="",
+            aux_attributes="", aux_prop_id=5001, material_type=1,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+            prod_receipt_real_qty=Decimal("80"),  # came from aux=0 fallback
+            prod_receipt_must_qty=Decimal("100"),
+            pick_actual_qty=Decimal("0"), pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"), purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"), subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            match_quality_breakdown={
+                "prod_receipt": "aux_zero_fallback",
+                "pick": "no_match", "purchase_order": "no_match",
+                "purchase_receipt": "no_match", "subcontract": "no_match",
+                "delivery": "no_match",
+            },
+        )
+        out = MTOQueryHandler._apply_strict_aux_filter([row])
+        assert len(out) == 1
+        # qty zeroed out — strict mode exposes the data quality issue.
+        assert out[0].prod_receipt_real_qty == Decimal("0")
+        # match_quality flipped to no_match so the UI badge disappears for this source.
+        assert out[0].match_quality_breakdown["prod_receipt"] == "no_match"
+        # need_qty / BOM-sourced fields unchanged.
+        assert out[0].need_qty == Decimal("100")
+
+    def test_filter_zeros_all_aux_rollup(self):
+        from src.query.cache_reader import BOMJoinedRow
+
+        row = BOMJoinedRow(
+            mo_bill_no="MO001", mto_number="AS001",
+            material_code="C001", material_name="", specification="",
+            aux_attributes="", aux_prop_id=0, material_type=2,
+            need_qty=Decimal("100"), picked_qty=Decimal("0"), no_picked_qty=Decimal("100"),
+            prod_receipt_real_qty=Decimal("0"), prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"), pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("200"),  # came from all-aux rollup
+            purchase_stock_in_qty=Decimal("150"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"), subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            match_quality_breakdown={
+                "prod_receipt": "no_match", "pick": "no_match",
+                "purchase_order": "all_aux_rollup",
+                "purchase_receipt": "no_match", "subcontract": "no_match",
+                "delivery": "no_match",
+            },
+        )
+        out = MTOQueryHandler._apply_strict_aux_filter([row])
+        assert out[0].purchase_order_qty == Decimal("0")
+        assert out[0].purchase_stock_in_qty == Decimal("0")
+        assert out[0].match_quality_breakdown["purchase_order"] == "no_match"

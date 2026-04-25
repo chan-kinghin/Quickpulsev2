@@ -120,7 +120,13 @@ class TestRowToBomJoined:
             40.0,            # 18: subcontract_order_qty
             35.0,            # 19: subcontract_stock_in_qty
             90.0,            # 20: delivery_real_qty
-            "2026-01-15 12:00:00",  # 21: synced_at
+            "exact",         # 21: prod_receipt_match_quality
+            "exact",         # 22: pick_match_quality
+            "exact",         # 23: purchase_order_match_quality
+            "exact",         # 24: purchase_receipt_match_quality
+            "exact",         # 25: subcontract_match_quality
+            "exact",         # 26: delivery_match_quality
+            "2026-01-15 12:00:00",  # 27: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -147,6 +153,11 @@ class TestRowToBomJoined:
         assert result.subcontract_order_qty == Decimal("40.0")
         assert result.subcontract_stock_in_qty == Decimal("35.0")
         assert result.delivery_real_qty == Decimal("90.0")
+        assert result.match_quality_breakdown == {
+            "prod_receipt": "exact", "pick": "exact",
+            "purchase_order": "exact", "purchase_receipt": "exact",
+            "subcontract": "exact", "delivery": "exact",
+        }
 
     def test_with_null_values(self):
         """Test _row_to_bom_joined with None/null values from COALESCE fallback."""
@@ -175,7 +186,13 @@ class TestRowToBomJoined:
             0,           # 18: subcontract_order_qty
             0,           # 19: subcontract_stock_in_qty
             0,           # 20: delivery_real_qty
-            None,        # 21: synced_at
+            "no_match",  # 21: prod_receipt_match_quality
+            "no_match",  # 22: pick_match_quality
+            "no_match",  # 23: purchase_order_match_quality
+            "no_match",  # 24: purchase_receipt_match_quality
+            "no_match",  # 25: subcontract_match_quality
+            "no_match",  # 26: delivery_match_quality
+            None,        # 27: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -191,6 +208,9 @@ class TestRowToBomJoined:
         assert result.prod_receipt_real_qty == Decimal("0")
         assert result.purchase_order_qty == Decimal("0")
         assert result.delivery_real_qty == Decimal("0")
+        # No receipts → all sources flag no_match (data state, not a fallback hit).
+        assert result.match_quality_breakdown["prod_receipt"] == "no_match"
+        assert result.match_quality_breakdown["delivery"] == "no_match"
 
     def test_with_chinese_data(self):
         """Test _row_to_bom_joined with Chinese material names."""
@@ -219,7 +239,13 @@ class TestRowToBomJoined:
             Decimal("0"),      # 18: subcontract_order_qty
             Decimal("0"),      # 19: subcontract_stock_in_qty
             Decimal("300"),    # 20: delivery_real_qty
-            "2026-01-15 10:00:00",  # 21: synced_at
+            "exact",           # 21: prod_receipt_match_quality
+            "exact",           # 22: pick_match_quality
+            "no_match",        # 23: purchase_order_match_quality
+            "no_match",        # 24: purchase_receipt_match_quality
+            "no_match",        # 25: subcontract_match_quality
+            "exact",           # 26: delivery_match_quality
+            "2026-01-15 10:00:00",  # 27: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -230,6 +256,8 @@ class TestRowToBomJoined:
         assert result.need_qty == Decimal("500")
         assert result.prod_receipt_real_qty == Decimal("350")
         assert result.delivery_real_qty == Decimal("300")
+        assert result.match_quality_breakdown["prod_receipt"] == "exact"
+        assert result.match_quality_breakdown["purchase_order"] == "no_match"
 
 
 class TestGetMtoBomJoined:
@@ -519,3 +547,118 @@ class TestGetMtoBomJoined:
         assert row.prod_receipt_real_qty == Decimal("25")
         # BOM need_qty is grouped: 50 + 50 is ambiguous, but it doesn't matter
         # because the GROUP BY aggregates BOM rows. What matters is receipt accuracy.
+
+
+class TestMatchQualityFromSQL:
+    """Stage 3 of PLAN_aux_match_visibility: verify SQL CASE expressions emit the
+    correct match_quality label for each fallback tier, and that the label
+    propagates into BOMJoinedRow.match_quality_breakdown unchanged.
+    """
+
+    @pytest.mark.asyncio
+    async def test_exact_match_when_bom_and_receipt_share_aux(self, test_database):
+        mto, mat_code, aux_id = "AK2510034", "C001", 5001
+        await test_database.execute_write(
+            """INSERT INTO cached_production_bom
+               (mo_bill_no, mto_number, material_code, material_name, specification,
+                aux_attributes, aux_prop_id, material_type, need_qty, picked_qty,
+                no_picked_qty, synced_at)
+               VALUES (?, ?, ?, '', '', '', ?, 1, 100, 0, 100, CURRENT_TIMESTAMP)""",
+            ["MO0001", mto, mat_code, aux_id],
+        )
+        await test_database.execute_write(
+            """INSERT INTO cached_production_receipts
+               (bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id, synced_at)
+               VALUES (?, ?, ?, 80, 100, ?, CURRENT_TIMESTAMP)""",
+            ["RK001", mto, mat_code, aux_id],
+        )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        assert result.data[0].match_quality_breakdown["prod_receipt"] == "exact"
+
+    @pytest.mark.asyncio
+    async def test_aux_zero_fallback_when_bom_has_aux_but_receipt_does_not(
+        self, test_database
+    ):
+        mto, mat_code = "AK2510034", "C001"
+        # BOM specifies a variant aux, but the receipt was recorded against generic aux=0.
+        await test_database.execute_write(
+            """INSERT INTO cached_production_bom
+               (mo_bill_no, mto_number, material_code, material_name, specification,
+                aux_attributes, aux_prop_id, material_type, need_qty, picked_qty,
+                no_picked_qty, synced_at)
+               VALUES (?, ?, ?, '', '', '', 5001, 1, 100, 0, 100, CURRENT_TIMESTAMP)""",
+            ["MO0001", mto, mat_code],
+        )
+        await test_database.execute_write(
+            """INSERT INTO cached_production_receipts
+               (bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id, synced_at)
+               VALUES (?, ?, ?, 50, 100, 0, CURRENT_TIMESTAMP)""",
+            ["RK001", mto, mat_code],
+        )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        assert result.data[0].match_quality_breakdown["prod_receipt"] == "aux_zero_fallback"
+        # Quantity should still resolve via the fallback (existing COALESCE behavior).
+        assert result.data[0].prod_receipt_real_qty == Decimal("50")
+
+    @pytest.mark.asyncio
+    async def test_all_aux_rollup_when_bom_is_generic_and_receipts_are_variants(
+        self, test_database
+    ):
+        mto, mat_code = "AK2510034", "C001"
+        # BOM is generic (aux=0) but receipts are recorded against specific variants.
+        # Tier-3 sums all variant receipts up to the BOM row.
+        await test_database.execute_write(
+            """INSERT INTO cached_production_bom
+               (mo_bill_no, mto_number, material_code, material_name, specification,
+                aux_attributes, aux_prop_id, material_type, need_qty, picked_qty,
+                no_picked_qty, synced_at)
+               VALUES (?, ?, ?, '', '', '', 0, 1, 100, 0, 100, CURRENT_TIMESTAMP)""",
+            ["MO0001", mto, mat_code],
+        )
+        for bill, qty, aux in [("RK001", 30, 5001), ("RK002", 20, 5002)]:
+            await test_database.execute_write(
+                """INSERT INTO cached_production_receipts
+                   (bill_no, mto_number, material_code, real_qty, must_qty,
+                    aux_prop_id, synced_at)
+                   VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                [bill, mto, mat_code, qty, qty, aux],
+            )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        assert result.data[0].match_quality_breakdown["prod_receipt"] == "all_aux_rollup"
+        # Both variants summed: 30 + 20 = 50.
+        assert result.data[0].prod_receipt_real_qty == Decimal("50")
+
+    @pytest.mark.asyncio
+    async def test_no_match_when_bom_has_no_receipts(self, test_database):
+        mto, mat_code = "AK2510034", "C001"
+        await test_database.execute_write(
+            """INSERT INTO cached_production_bom
+               (mo_bill_no, mto_number, material_code, material_name, specification,
+                aux_attributes, aux_prop_id, material_type, need_qty, picked_qty,
+                no_picked_qty, synced_at)
+               VALUES (?, ?, ?, '', '', '', 5001, 1, 100, 0, 100, CURRENT_TIMESTAMP)""",
+            ["MO0001", mto, mat_code],
+        )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        # All sources should report no_match — there are no receipts/picks/orders at all.
+        for source in (
+            "prod_receipt", "pick", "purchase_order", "purchase_receipt",
+            "subcontract", "delivery",
+        ):
+            assert result.data[0].match_quality_breakdown[source] == "no_match"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict, defaultdict
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import IntEnum
@@ -149,7 +150,11 @@ class MTOQueryHandler:
         return None, None
 
     async def get_status(
-        self, mto_number: str, use_cache: bool = True, source: Optional[str] = None
+        self,
+        mto_number: str,
+        use_cache: bool = True,
+        source: Optional[str] = None,
+        strict_aux: bool = False,
     ) -> MTOStatusResponse:
         """Get MTO status with three-tier cache strategy.
 
@@ -157,6 +162,11 @@ class MTOQueryHandler:
             mto_number: The MTO number to query
             use_cache: If True, try caches before live API (default: True)
             source: Force data source - 'cache' or 'live'. Overrides use_cache.
+            strict_aux: If True, disable the 3-tier aux fallback. Rows where
+                receipts/picks/orders did not match the BOM aux exactly are
+                returned with qty=0 and match_quality=no_match instead of
+                being estimated. Bypasses L1 memory cache to avoid mixing
+                strict/non-strict results.
 
         Returns:
             MTOStatusResponse with data_source metadata
@@ -170,12 +180,12 @@ class MTOQueryHandler:
         if source == "cache":
             if self._cache_reader is None:
                 raise ValueError("Cache not available")
-            result = await self._try_cache(mto_number)
+            result = await self._try_cache(mto_number, strict_aux=strict_aux)
             if result is None:
                 raise ValueError(f"No cached data found for MTO {mto_number}")
             return result
         elif source == "live":
-            return await self._fetch_live(mto_number)
+            return await self._fetch_live(mto_number, strict_aux=strict_aux)
         # else: source is None → existing behavior using use_cache flag
 
         # Track query frequency for smart cache warming (bounded)
@@ -184,8 +194,10 @@ class MTOQueryHandler:
         if len(self._query_counter) > self._query_counter_max:
             self._query_counter.popitem(last=False)
 
-        # L1: Check in-memory cache first (sub-10ms response)
-        if use_cache and self._memory_cache is not None:
+        # L1: Check in-memory cache first (sub-10ms response).
+        # Skip when strict_aux=True so the cached non-strict result isn't
+        # served — the L1 cache is keyed by mto_number alone.
+        if use_cache and not strict_aux and self._memory_cache is not None:
             async with self._cache_lock:
                 if mto_number in self._memory_cache:
                     self._memory_hits += 1
@@ -196,7 +208,7 @@ class MTOQueryHandler:
         # L2: Try SQLite cache if enabled and cache reader available
         result = None
         if use_cache and self._cache_reader:
-            result = await self._try_cache(mto_number)
+            result = await self._try_cache(mto_number, strict_aux=strict_aux)
             if result and result.children:
                 self._sqlite_hits += 1
                 logger.debug("L2 SQLite cache hit for MTO %s", mto_number)
@@ -212,14 +224,52 @@ class MTOQueryHandler:
 
         # L3: Fallback to live Kingdee API
         if not result:
-            result = await self._fetch_live(mto_number)
+            result = await self._fetch_live(mto_number, strict_aux=strict_aux)
 
-        # Populate L1 cache with result
-        if use_cache and self._memory_cache is not None and result:
+        # Populate L1 cache with result — only for non-strict queries.
+        if use_cache and not strict_aux and self._memory_cache is not None and result:
             async with self._cache_lock:
                 self._memory_cache[mto_number] = result
 
         return result
+
+    @staticmethod
+    def _apply_strict_aux_filter(rows: list) -> list:
+        """Stage 6: zero out qtys that came from a non-exact aux fallback.
+
+        For each BOMJoinedRow, look at match_quality_breakdown. If a source
+        used Tier 2 (aux_zero_fallback) or Tier 3 (all_aux_rollup), zero the
+        corresponding qty fields and rewrite the breakdown entry to no_match.
+        Tier 1 (exact) and existing no_match rows pass through unchanged.
+
+        This makes data-quality issues visible to power users without
+        forcing it on the default view.
+        """
+        SOURCE_TO_FIELDS = {
+            "prod_receipt": ("prod_receipt_real_qty",),
+            "pick": ("pick_actual_qty", "pick_app_qty"),
+            "purchase_order": ("purchase_order_qty", "purchase_stock_in_qty"),
+            "purchase_receipt": ("purchase_receipt_real_qty",),
+            "subcontract": ("subcontract_order_qty", "subcontract_stock_in_qty"),
+            "delivery": ("delivery_real_qty",),
+        }
+        NON_EXACT = ("aux_zero_fallback", "all_aux_rollup")
+
+        out = []
+        for row in rows:
+            breakdown = dict(row.match_quality_breakdown or {})
+            zero_fields: dict[str, Decimal] = {}
+            mutated = False
+            for source, fields in SOURCE_TO_FIELDS.items():
+                if breakdown.get(source) in NON_EXACT:
+                    breakdown[source] = "no_match"
+                    for f in fields:
+                        zero_fields[f] = ZERO
+                    mutated = True
+            if mutated:
+                row = replace(row, match_quality_breakdown=breakdown, **zero_fields)
+            out.append(row)
+        return out
 
     async def get_related_orders(self, mto_number: str) -> MTORelatedOrdersResponse:
         """Get all order/document bill numbers related to an MTO number."""
@@ -309,7 +359,9 @@ class MTOQueryHandler:
             data_source="live",
         )
 
-    async def _try_cache(self, mto_number: str) -> Optional[MTOStatusResponse]:
+    async def _try_cache(
+        self, mto_number: str, strict_aux: bool = False
+    ) -> Optional[MTOStatusResponse]:
         """Attempt to build response from cache using BOM-first architecture.
 
         Uses a single SQL JOIN query (get_mto_bom_joined) to fetch all BOM children
@@ -356,6 +408,9 @@ class MTOQueryHandler:
         prod_orders = prod_orders_result.data or []
         bom_rows = bom_joined_result.data or []
 
+        if strict_aux:
+            bom_rows = self._apply_strict_aux_filter(bom_rows)
+
         # Collect aux_prop_ids for description lookup
         aux_prop_ids = set()
         for so in sales_orders:
@@ -391,15 +446,6 @@ class MTOQueryHandler:
             key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
             delivered_by_material[key] = delivered_by_material.get(key, ZERO) + r.real_qty
 
-        pick_request: dict[str, Decimal] = {}
-        pick_actual: dict[tuple[str, int], Decimal] = {}
-        for r in material_picks_07:
-            if r.app_qty:
-                pick_request[r.material_code] = pick_request.get(r.material_code, ZERO) + r.app_qty
-            if r.actual_qty:
-                key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
-                pick_actual[key] = pick_actual.get(key, ZERO) + r.actual_qty
-
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
             class_id, _ = self._get_material_class(so.material_code)
@@ -411,7 +457,7 @@ class MTOQueryHandler:
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
-                pick_request, pick_actual, aux_descriptions
+                aux_descriptions
             )
             children.append(child)
 
@@ -427,9 +473,9 @@ class MTOQueryHandler:
         cache_age = None
         for result in [sales_orders_result, prod_orders_result, bom_joined_result]:
             if result.synced_at:
-                now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                now_local = datetime.now()
                 synced = result.synced_at if result.synced_at.tzinfo is None else result.synced_at.replace(tzinfo=None)
-                cache_age = int((now_utc - synced).total_seconds())
+                cache_age = int((now_local - synced).total_seconds())
                 break
 
         result = MTOStatusResponse(
@@ -446,7 +492,9 @@ class MTOQueryHandler:
 
         return result
 
-    async def _fetch_live(self, mto_number: str) -> MTOStatusResponse:
+    async def _fetch_live(
+        self, mto_number: str, strict_aux: bool = False
+    ) -> MTOStatusResponse:
         """Fetch data from live Kingdee API using BOM-first architecture.
 
         Uses the same _bom_row_to_child method as the cache path for consistent
@@ -503,8 +551,6 @@ class MTOQueryHandler:
         # --- Finished goods (07.xx) from SAL_SaleOrder ---
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
-        pick_request = _sum_by_material(material_picks, "app_qty")
-        pick_actual = _sum_by_material_and_aux(material_picks, "actual_qty")
 
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
@@ -516,7 +562,7 @@ class MTOQueryHandler:
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
-                pick_request, pick_actual, aux_descriptions
+                aux_descriptions
             )
             children.append(child)
 
@@ -526,6 +572,9 @@ class MTOQueryHandler:
             purchase_orders, purchase_receipts, subcontracting_orders,
             sales_deliveries,
         )
+
+        if strict_aux:
+            bom_rows = self._apply_strict_aux_filter(bom_rows)
 
         for row in bom_rows:
             child = self._bom_row_to_child(row, aux_descriptions)
@@ -634,6 +683,22 @@ class MTOQueryHandler:
                     return all_sum
             return ZERO
 
+        def _get_quality(lookup: dict, lookup_label: str, code: str, aux: int) -> str:
+            """Return the match_quality tier label, mirroring _get's branching exactly.
+
+            Stage 4 of PLAN_aux_match_visibility — keeps live path shape-compatible
+            with the cache SQL CASE expressions in get_mto_bom_joined.
+            """
+            if (code, aux) in lookup:
+                return "exact"
+            if aux != 0:
+                if code in _by_code.get(lookup_label, {}):
+                    return "aux_zero_fallback"
+            else:
+                if code in _by_code_all.get(lookup_label, {}):
+                    return "all_aux_rollup"
+            return "no_match"
+
         def _make_row(code: str, aux: int, material_name: str, specification: str,
                       aux_attributes: str, material_type: int, need_qty: Decimal,
                       picked_qty: Decimal, no_picked_qty: Decimal,
@@ -660,6 +725,18 @@ class MTOQueryHandler:
                 subcontract_order_qty=_get(sub_order, "sub_order", code, aux),
                 subcontract_stock_in_qty=_get(sub_stock_in, "sub_stock_in", code, aux),
                 delivery_real_qty=_get(del_real, "del_real", code, aux),
+                match_quality_breakdown={
+                    # Use the receipt_real lookup as the canonical signal for
+                    # prod_receipt — receipt_must is BOM-sourced now (see
+                    # bug-patterns.md #10) so tracking its tier separately would
+                    # be misleading.
+                    "prod_receipt": _get_quality(receipt_real, "receipt_real", code, aux),
+                    "pick": _get_quality(pick_actual_map, "pick_actual", code, aux),
+                    "purchase_order": _get_quality(po_order, "po_order", code, aux),
+                    "purchase_receipt": _get_quality(pur_real, "pur_real", code, aux),
+                    "subcontract": _get_quality(sub_order, "sub_order", code, aux),
+                    "delivery": _get_quality(del_real, "del_real", code, aux),
+                },
             )
 
         # --- Step 1: Build rows from PPBOM (primary source) ---
@@ -811,8 +888,6 @@ class MTOQueryHandler:
         sales_orders: list,
         receipt_by_material: dict[tuple[str, int], Decimal],
         delivered_by_material: dict[tuple[str, int], Decimal],
-        pick_request: dict[tuple[str, int], Decimal],
-        pick_actual: dict[tuple[str, int], Decimal],
         aux_descriptions: dict[int, str],
     ) -> ChildItem:
         """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
@@ -876,6 +951,9 @@ class MTOQueryHandler:
         # Trust FMaterialType from Kingdee PPBOM directly
         effective_type = row.material_type
 
+        # Aux match quality flows through unchanged from the cache JOIN (or live builder).
+        match_quality = dict(row.match_quality_breakdown or {})
+
         if effective_type == 1:  # 自制
             # Use BOM need_qty as demand — it's correctly scoped per production order.
             # Previously used prd_mo_qty_by_key which cross-aggregated across MTO variants.
@@ -893,6 +971,7 @@ class MTOQueryHandler:
                 prod_instock_must_qty=row.need_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                match_quality_breakdown=match_quality,
             )
         elif effective_type == 2:  # 外购/包材
             return ChildItem(
@@ -905,6 +984,7 @@ class MTOQueryHandler:
                 purchase_order_qty=row.purchase_order_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                match_quality_breakdown=match_quality,
             )
         elif effective_type == 3:  # 委外
             return ChildItem(
@@ -917,6 +997,7 @@ class MTOQueryHandler:
                 purchase_order_qty=row.subcontract_order_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                match_quality_breakdown=match_quality,
             )
         else:
             # Unknown type — still show it with BOM demand data
@@ -929,6 +1010,7 @@ class MTOQueryHandler:
                 material_type_name="未知",
                 # REGRESSION GUARD (bug-patterns.md #10): same as self-made above
                 prod_instock_must_qty=row.need_qty,
+                match_quality_breakdown=match_quality,
             )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:

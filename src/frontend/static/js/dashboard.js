@@ -7,6 +7,7 @@ function mtoSearch() {
         dataSource: null,      // 'cache' or 'live'
         cacheAgeSeconds: null, // age in seconds when from cache
         loading: false,
+        searchPerformed: false,
         error: '',
         successMessage: '',
         relatedOrders: null,
@@ -671,6 +672,7 @@ function mtoSearch() {
                 this.showError(msg || '查询失败，请稍后重试');
             } finally {
                 this.loading = false;
+                this.searchPerformed = true;
             }
         },
 
@@ -855,6 +857,34 @@ function mtoSearch() {
             };
 
             return badges[type] || 'bg-slate-800 text-slate-400 border border-slate-700';
+        },
+
+        // Returns a tooltip string when any source for this row was resolved via an
+        // aux-property fallback (the SQL/live 3-tier match logic). Empty string ⇒
+        // no badge shown. Used by the ⚠ marker next to material_code.
+        getAuxFallbackTooltip(item) {
+            const breakdown = item && item.match_quality_breakdown;
+            if (!breakdown) return '';
+            const sourceLabels = {
+                prod_receipt: '生产入库',
+                pick: '生产领料',
+                purchase_order: '采购订单',
+                purchase_receipt: '采购入库',
+                subcontract: '委外订单',
+                delivery: '销售出库',
+            };
+            const tierLabels = {
+                aux_zero_fallback: '辅助属性=0回落',
+                all_aux_rollup: '汇总所有辅助属性变体',
+            };
+            const lines = [];
+            for (const [source, tier] of Object.entries(breakdown)) {
+                if (tier in tierLabels) {
+                    lines.push(`${sourceLabels[source] || source}: ${tierLabels[tier]}`);
+                }
+            }
+            if (lines.length === 0) return '';
+            return '⚠ 数量按辅助属性回落估算：\n' + lines.join('\n');
         },
 
         hasRelatedOrders() {
@@ -1105,15 +1135,35 @@ function mtoSearch() {
                 }
             } catch (err) {
                 if (err.name === 'AbortError') return;
-                // Show error in the assistant message
+                // Show error in the assistant message with retry option
                 if (this.chatMessages[assistantIdx]) {
                     this.chatMessages[assistantIdx].content = '⚠️ 请求失败: ' + err.message;
+                    this.chatMessages[assistantIdx].hasError = true;
                 }
             } finally {
                 this.chatLoading = false;
                 this._chatAbort = null;
                 this._scrollChat();
             }
+        },
+
+        retryLastChat() {
+            // Find last user message and re-send it
+            const lastUserMsg = [...this.chatMessages].reverse().find(m => m.role === 'user');
+            if (!lastUserMsg) return;
+
+            // Remove the failed assistant message
+            const lastIdx = this.chatMessages.length - 1;
+            if (this.chatMessages[lastIdx]?.hasError) {
+                this.chatMessages.pop();
+            }
+
+            // Re-send the last user message
+            this.chatInput = lastUserMsg.content;
+            // Remove the last user message so sendChat re-adds it
+            const userIdx = this.chatMessages.lastIndexOf(lastUserMsg);
+            if (userIdx >= 0) this.chatMessages.splice(userIdx, 1);
+            this.sendChat();
         },
 
         _scrollChat() {

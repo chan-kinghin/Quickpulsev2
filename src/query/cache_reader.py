@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -61,6 +61,9 @@ class BOMJoinedRow:
     subcontract_stock_in_qty: Decimal
     # Aggregated from sales delivery (SAL_OUTSTOCK)
     delivery_real_qty: Decimal
+    # Per-source aux match quality: {source: 'exact'|'aux_zero_fallback'|'all_aux_rollup'|'no_match'}
+    # Empty dict when not populated (live path until Stage 4, cache path until Stage 3).
+    match_quality_breakdown: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -288,22 +291,29 @@ class CacheReader:
         pattern = f"{mto_number}%"
         rows = await self.db.execute_read(
             """
-            WITH bom_ranked AS (
-                SELECT *, ROW_NUMBER() OVER (
-                    PARTITION BY material_code, aux_prop_id
-                    ORDER BY synced_at DESC, id DESC
-                ) AS rn
+            WITH matching_mtos AS (
+                SELECT DISTINCT mto_number
                 FROM cached_production_bom
-                WHERE mto_number LIKE ? AND material_code NOT LIKE '07.%'
+                WHERE mto_number LIKE ?
+            ),
+            bom_ranked AS (
+                SELECT b.*, ROW_NUMBER() OVER (
+                    PARTITION BY b.material_code, b.aux_prop_id
+                    ORDER BY b.synced_at DESC, b.id DESC
+                ) AS rn
+                FROM cached_production_bom b
+                JOIN matching_mtos m ON b.mto_number = m.mto_number
+                WHERE b.material_code NOT LIKE '07.%'
             ),
             bom_repr AS (SELECT * FROM bom_ranked WHERE rn = 1),
             bom_agg AS (
-                SELECT material_code, aux_prop_id,
-                       SUM(need_qty) as need_qty, SUM(picked_qty) as picked_qty,
-                       SUM(no_picked_qty) as no_picked_qty, MAX(synced_at) as synced_at
-                FROM cached_production_bom
-                WHERE mto_number LIKE ? AND material_code NOT LIKE '07.%'
-                GROUP BY material_code, aux_prop_id
+                SELECT b.material_code, b.aux_prop_id,
+                       SUM(b.need_qty) as need_qty, SUM(b.picked_qty) as picked_qty,
+                       SUM(b.no_picked_qty) as no_picked_qty, MAX(b.synced_at) as synced_at
+                FROM cached_production_bom b
+                JOIN matching_mtos m ON b.mto_number = m.mto_number
+                WHERE b.material_code NOT LIKE '07.%'
+                GROUP BY b.material_code, b.aux_prop_id
             )
             SELECT
                 br.mo_bill_no,
@@ -374,6 +384,44 @@ class CacheReader:
                     CASE WHEN sd.material_code IS NULL AND br.aux_prop_id = 0 THEN sd_all.real_qty END,
                     0
                 ), 2) as delivery_real_qty,
+                /* match_quality labels per source — telemetry only (Stage 1 of PLAN_aux_match_visibility).
+                   Mirrors the COALESCE tier ordering above so each label = which tier produced the qty. */
+                CASE
+                    WHEN pr.material_code IS NOT NULL THEN 'exact'
+                    WHEN br.aux_prop_id != 0 AND pr0.material_code IS NOT NULL THEN 'aux_zero_fallback'
+                    WHEN br.aux_prop_id = 0 AND pr_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    ELSE 'no_match'
+                END as prod_receipt_match_quality,
+                CASE
+                    WHEN pk.material_code IS NOT NULL THEN 'exact'
+                    WHEN br.aux_prop_id != 0 AND pk0.material_code IS NOT NULL THEN 'aux_zero_fallback'
+                    WHEN br.aux_prop_id = 0 AND pk_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    ELSE 'no_match'
+                END as pick_match_quality,
+                CASE
+                    WHEN po.material_code IS NOT NULL THEN 'exact'
+                    WHEN br.aux_prop_id != 0 AND po0.material_code IS NOT NULL THEN 'aux_zero_fallback'
+                    WHEN br.aux_prop_id = 0 AND po_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    ELSE 'no_match'
+                END as purchase_order_match_quality,
+                CASE
+                    WHEN pur.material_code IS NOT NULL THEN 'exact'
+                    WHEN br.aux_prop_id != 0 AND pur0.material_code IS NOT NULL THEN 'aux_zero_fallback'
+                    WHEN br.aux_prop_id = 0 AND pur_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    ELSE 'no_match'
+                END as purchase_receipt_match_quality,
+                CASE
+                    WHEN sub.material_code IS NOT NULL THEN 'exact'
+                    WHEN br.aux_prop_id != 0 AND sub0.material_code IS NOT NULL THEN 'aux_zero_fallback'
+                    WHEN br.aux_prop_id = 0 AND sub_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    ELSE 'no_match'
+                END as subcontract_match_quality,
+                CASE
+                    WHEN sd.material_code IS NOT NULL THEN 'exact'
+                    WHEN br.aux_prop_id != 0 AND sd0.material_code IS NOT NULL THEN 'aux_zero_fallback'
+                    WHEN br.aux_prop_id = 0 AND sd_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    ELSE 'no_match'
+                END as delivery_match_quality,
                 ba.synced_at
             FROM bom_repr br
             JOIN bom_agg ba ON br.material_code = ba.material_code
@@ -381,151 +429,208 @@ class CacheReader:
 
             /* --- Production receipts (PRD_INSTOCK) --- */
             LEFT JOIN (
-                SELECT material_code, aux_prop_id,
-                       SUM(real_qty) as real_qty, SUM(must_qty) as must_qty
-                FROM cached_production_receipts WHERE mto_number LIKE ?
-                GROUP BY material_code, aux_prop_id
+                SELECT r.material_code, r.aux_prop_id,
+                       SUM(r.real_qty) as real_qty, SUM(r.must_qty) as must_qty
+                FROM cached_production_receipts r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code, r.aux_prop_id
             ) pr ON br.material_code = pr.material_code
                  AND br.aux_prop_id = pr.aux_prop_id
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(real_qty) as real_qty, SUM(must_qty) as must_qty
-                FROM cached_production_receipts
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.real_qty) as real_qty, SUM(r.must_qty) as must_qty
+                FROM cached_production_receipts r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                WHERE r.aux_prop_id = 0
+                GROUP BY r.material_code
             ) pr0 ON br.material_code = pr0.material_code
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(real_qty) as real_qty, SUM(must_qty) as must_qty
-                FROM cached_production_receipts WHERE mto_number LIKE ?
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.real_qty) as real_qty, SUM(r.must_qty) as must_qty
+                FROM cached_production_receipts r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code
             ) pr_all ON br.material_code = pr_all.material_code
 
             /* --- Material picking (PRD_PickMtrl) --- */
             LEFT JOIN (
-                SELECT material_code, aux_prop_id,
-                       SUM(actual_qty) as actual_qty, SUM(app_qty) as app_qty
-                FROM cached_material_picking WHERE mto_number LIKE ?
-                GROUP BY material_code, aux_prop_id
+                SELECT r.material_code, r.aux_prop_id,
+                       SUM(r.actual_qty) as actual_qty, SUM(r.app_qty) as app_qty
+                FROM cached_material_picking r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code, r.aux_prop_id
             ) pk ON br.material_code = pk.material_code
                  AND br.aux_prop_id = pk.aux_prop_id
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(actual_qty) as actual_qty, SUM(app_qty) as app_qty
-                FROM cached_material_picking
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.actual_qty) as actual_qty, SUM(r.app_qty) as app_qty
+                FROM cached_material_picking r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                WHERE r.aux_prop_id = 0
+                GROUP BY r.material_code
             ) pk0 ON br.material_code = pk0.material_code
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(actual_qty) as actual_qty, SUM(app_qty) as app_qty
-                FROM cached_material_picking WHERE mto_number LIKE ?
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.actual_qty) as actual_qty, SUM(r.app_qty) as app_qty
+                FROM cached_material_picking r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code
             ) pk_all ON br.material_code = pk_all.material_code
 
             /* --- Purchase orders (PUR_PurchaseOrder) --- */
             LEFT JOIN (
-                SELECT material_code, aux_prop_id,
-                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
-                FROM cached_purchase_orders WHERE mto_number LIKE ?
-                GROUP BY material_code, aux_prop_id
+                SELECT r.material_code, r.aux_prop_id,
+                       SUM(r.order_qty) as order_qty, SUM(r.stock_in_qty) as stock_in_qty
+                FROM cached_purchase_orders r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code, r.aux_prop_id
             ) po ON br.material_code = po.material_code
                  AND br.aux_prop_id = po.aux_prop_id
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
-                FROM cached_purchase_orders
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.order_qty) as order_qty, SUM(r.stock_in_qty) as stock_in_qty
+                FROM cached_purchase_orders r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                WHERE r.aux_prop_id = 0
+                GROUP BY r.material_code
             ) po0 ON br.material_code = po0.material_code
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
-                FROM cached_purchase_orders WHERE mto_number LIKE ?
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.order_qty) as order_qty, SUM(r.stock_in_qty) as stock_in_qty
+                FROM cached_purchase_orders r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code
             ) po_all ON br.material_code = po_all.material_code
 
             /* --- Purchase receipts (STK_InStock) --- */
             LEFT JOIN (
-                SELECT material_code, aux_prop_id,
-                       SUM(real_qty) as real_qty
-                FROM cached_purchase_receipts WHERE mto_number LIKE ?
-                GROUP BY material_code, aux_prop_id
+                SELECT r.material_code, r.aux_prop_id,
+                       SUM(r.real_qty) as real_qty
+                FROM cached_purchase_receipts r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code, r.aux_prop_id
             ) pur ON br.material_code = pur.material_code
                   AND br.aux_prop_id = pur.aux_prop_id
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(real_qty) as real_qty
-                FROM cached_purchase_receipts
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.real_qty) as real_qty
+                FROM cached_purchase_receipts r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                WHERE r.aux_prop_id = 0
+                GROUP BY r.material_code
             ) pur0 ON br.material_code = pur0.material_code
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(real_qty) as real_qty
-                FROM cached_purchase_receipts WHERE mto_number LIKE ?
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.real_qty) as real_qty
+                FROM cached_purchase_receipts r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code
             ) pur_all ON br.material_code = pur_all.material_code
 
             /* --- Subcontracting orders (SUB_POORDER) --- */
             LEFT JOIN (
-                SELECT material_code, aux_prop_id,
-                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
-                FROM cached_subcontracting_orders WHERE mto_number LIKE ?
-                GROUP BY material_code, aux_prop_id
+                SELECT r.material_code, r.aux_prop_id,
+                       SUM(r.order_qty) as order_qty, SUM(r.stock_in_qty) as stock_in_qty
+                FROM cached_subcontracting_orders r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code, r.aux_prop_id
             ) sub ON br.material_code = sub.material_code
                   AND br.aux_prop_id = sub.aux_prop_id
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
-                FROM cached_subcontracting_orders
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.order_qty) as order_qty, SUM(r.stock_in_qty) as stock_in_qty
+                FROM cached_subcontracting_orders r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                WHERE r.aux_prop_id = 0
+                GROUP BY r.material_code
             ) sub0 ON br.material_code = sub0.material_code
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(order_qty) as order_qty, SUM(stock_in_qty) as stock_in_qty
-                FROM cached_subcontracting_orders WHERE mto_number LIKE ?
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.order_qty) as order_qty, SUM(r.stock_in_qty) as stock_in_qty
+                FROM cached_subcontracting_orders r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code
             ) sub_all ON br.material_code = sub_all.material_code
 
             /* --- Sales delivery (SAL_OUTSTOCK) --- */
             LEFT JOIN (
-                SELECT material_code, aux_prop_id,
-                       SUM(real_qty) as real_qty
-                FROM cached_sales_delivery WHERE mto_number LIKE ?
-                GROUP BY material_code, aux_prop_id
+                SELECT r.material_code, r.aux_prop_id,
+                       SUM(r.real_qty) as real_qty
+                FROM cached_sales_delivery r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code, r.aux_prop_id
             ) sd ON br.material_code = sd.material_code
                  AND br.aux_prop_id = sd.aux_prop_id
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(real_qty) as real_qty
-                FROM cached_sales_delivery
-                WHERE mto_number LIKE ? AND aux_prop_id = 0
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.real_qty) as real_qty
+                FROM cached_sales_delivery r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                WHERE r.aux_prop_id = 0
+                GROUP BY r.material_code
             ) sd0 ON br.material_code = sd0.material_code
             LEFT JOIN (
-                SELECT material_code,
-                       SUM(real_qty) as real_qty
-                FROM cached_sales_delivery WHERE mto_number LIKE ?
-                GROUP BY material_code
+                SELECT r.material_code,
+                       SUM(r.real_qty) as real_qty
+                FROM cached_sales_delivery r
+                JOIN matching_mtos m ON r.mto_number = m.mto_number
+                GROUP BY r.material_code
             ) sd_all ON br.material_code = sd_all.material_code
 
             ORDER BY br.material_code
             """,
-            [pattern] * 20,
+            [pattern],
         )
 
         if not rows:
             return CacheResult(data=[], synced_at=None, is_fresh=False)
 
-        # synced_at is the last column (index 21)
-        synced_times = [self._parse_timestamp(row[21]) for row in rows if row[21]]
+        # synced_at is the last column (index 27 — after 6 telemetry CASE columns at 21-26)
+        synced_times = [self._parse_timestamp(row[27]) for row in rows if row[27]]
         oldest_sync = min(synced_times) if synced_times else None
         is_fresh = self._is_fresh(oldest_sync) if oldest_sync else False
 
+        self._log_fallback_telemetry(mto_number, rows)
+
         data = [self._row_to_bom_joined(row) for row in rows]
         return CacheResult(data=data, synced_at=oldest_sync, is_fresh=is_fresh)
+
+    @staticmethod
+    def _log_fallback_telemetry(mto_number: str, rows: list) -> None:
+        """Emit one structured log per MTO query summarising aux fallback usage.
+
+        Stage 1 of PLAN_aux_match_visibility (2026-04-25). Aggregates the per-source
+        match_quality labels at columns 21..26 into counts so Loki can chart fallback
+        rates. Read-only — does not affect the returned BOMJoinedRow data.
+        """
+        sources = (
+            ("prod_receipt", 21),
+            ("pick", 22),
+            ("purchase_order", 23),
+            ("purchase_receipt", 24),
+            ("subcontract", 25),
+            ("delivery", 26),
+        )
+        breakdown: dict[str, dict[str, int]] = {}
+        non_exact_total = 0
+        for label, idx in sources:
+            counts: dict[str, int] = {}
+            for row in rows:
+                tier = row[idx] or "no_match"
+                counts[tier] = counts.get(tier, 0) + 1
+                if tier not in ("exact", "no_match"):
+                    non_exact_total += 1
+            breakdown[label] = counts
+
+        # Use INFO so it lands in Loki without extra config; one line per MTO query.
+        # Embed JSON in message because JSONFormatter doesn't propagate `extra` fields.
+        logger.info(
+            "mto_fallback_telemetry mto=%s bom_rows=%d non_exact_hits=%d breakdown=%s",
+            mto_number,
+            len(rows),
+            non_exact_total,
+            json.dumps(breakdown, ensure_ascii=False),
+        )
 
     def _row_to_bom_joined(self, row: tuple) -> BOMJoinedRow:
         """Convert joined query row to BOMJoinedRow.
@@ -540,7 +645,13 @@ class CacheReader:
         17: purchase_receipt_real_qty,
         18: subcontract_order_qty, 19: subcontract_stock_in_qty,
         20: delivery_real_qty,
-        21: synced_at (accessed in get_mto_bom_joined for freshness check)
+        21: prod_receipt_match_quality, 22: pick_match_quality,
+        23: purchase_order_match_quality, 24: purchase_receipt_match_quality,
+        25: subcontract_match_quality, 26: delivery_match_quality,
+        27: synced_at (accessed in get_mto_bom_joined for freshness check)
+
+        Columns 21-26 are Stage 1 telemetry — consumed by _log_fallback_telemetry,
+        not yet propagated to BOMJoinedRow (Stage 3 of PLAN_aux_match_visibility).
         """
         return BOMJoinedRow(
             mo_bill_no=row[0] or "",
@@ -564,6 +675,14 @@ class CacheReader:
             subcontract_order_qty=Decimal(str(row[18] or 0)),
             subcontract_stock_in_qty=Decimal(str(row[19] or 0)),
             delivery_real_qty=Decimal(str(row[20] or 0)),
+            match_quality_breakdown={
+                "prod_receipt": row[21] or "no_match",
+                "pick": row[22] or "no_match",
+                "purchase_order": row[23] or "no_match",
+                "purchase_receipt": row[24] or "no_match",
+                "subcontract": row[25] or "no_match",
+                "delivery": row[26] or "no_match",
+            },
         )
 
     def _build_cache_result(

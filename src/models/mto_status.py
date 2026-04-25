@@ -66,6 +66,15 @@ class ChildItem(BaseModel):
         description="Computed business metrics from the semantic layer",
     )
 
+    # Aux property match quality per source — populated by cache & live paths.
+    # Keys: prod_receipt, pick, purchase_order, purchase_receipt, subcontract, delivery.
+    # Values: 'exact' | 'aux_zero_fallback' | 'all_aux_rollup' | 'no_match'.
+    # Empty dict when telemetry is not yet wired for the originating row.
+    match_quality_breakdown: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-source aux match quality (exact / aux_zero_fallback / all_aux_rollup / no_match)",
+    )
+
 
 class MTOStatusResponse(BaseModel):
     """Complete MTO status response."""

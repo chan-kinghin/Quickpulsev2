@@ -2,7 +2,7 @@
 
 import csv
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 from io import StringIO
 from urllib.parse import quote
 
@@ -24,7 +24,11 @@ async def get_mto_status(
     request: Request,
     mto_number: str = Path(..., min_length=2, max_length=50, pattern=r"^[A-Za-z0-9\-]+$"),
     use_cache: bool = Query(True, description="Use cached data if available and fresh"),
-    source: Optional[str] = Query(None, description="Force data source: 'cache' or 'live'. Overrides use_cache."),
+    source: Optional[Literal["cache", "live"]] = Query(None, description="Force data source: 'cache' or 'live'. Overrides use_cache."),
+    strict_aux: bool = Query(
+        False,
+        description="Disable the 3-tier aux fallback. Rows whose receipts/picks/orders did not match the BOM aux exactly are returned with qty=0 and match_quality=no_match. Power-user mode for surfacing data-quality issues.",
+    ),
     current_user: str = Depends(get_current_user),
 ):
     """Get MTO status with optional cache-first strategy.
@@ -33,10 +37,13 @@ async def get_mto_status(
     - use_cache=false: Always fetch real-time data from Kingdee API
     - source=cache: Force cache-only (errors if no cached data)
     - source=live: Force live Kingdee API
+    - strict_aux=true: Disable aux fallback estimation (see param description)
     """
     handler = request.app.state.mto_handler
     try:
-        return await handler.get_status(mto_number, use_cache=use_cache, source=source)
+        return await handler.get_status(
+            mto_number, use_cache=use_cache, source=source, strict_aux=strict_aux
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KingdeeConnectionError as exc:
@@ -125,7 +132,7 @@ async def search_mto(
 async def export_mto_excel(
     request: Request,
     mto_number: str = Path(..., min_length=2, max_length=50, pattern=r"^[A-Za-z0-9\-]+$"),
-    use_cache: bool = Query(False, description="Use cached data (default: false for exports)"),
+    use_cache: bool = Query(True, description="Use cached data (default: true, uses fresh cache if available)"),
     current_user: str = Depends(get_current_user),
 ):
     """Export MTO status to CSV. Uses live data by default for accuracy."""

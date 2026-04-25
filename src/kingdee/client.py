@@ -376,6 +376,11 @@ class KingdeeClient:
             Dict mapping aux_prop_id to description string.
             For purchased items: FF100001 (specification description)
             For self-made items: FF100002.FName (color name)
+
+        Failure mode: if the underlying query raises or returns a non-list
+        response, this function logs a WARNING and returns {}. Callers
+        already tolerate missing entries (default to ""), but the warning
+        makes the silent degradation visible in Loki.
         """
         if not aux_prop_ids:
             return {}
@@ -390,11 +395,22 @@ class KingdeeClient:
         filter_string = f"FID IN ({in_clause})"
 
         # Query both FF100001 (spec) and FF100002.FName (color)
-        records = await self.query_all(
-            form_id="BD_FLEXSITEMDETAILV",
-            field_keys=["FID", "FF100001", "FF100002.FName"],
-            filter_string=filter_string,
-        )
+        try:
+            records = await self.query_all(
+                form_id="BD_FLEXSITEMDETAILV",
+                field_keys=["FID", "FF100001", "FF100002.FName"],
+                filter_string=filter_string,
+            )
+        except Exception:
+            sample = valid_ids[:5]
+            logger.warning(
+                "aux_lookup_failed: requested=%d sample_ids=%s — returning empty dict; "
+                "aux descriptions will be blank for this query",
+                len(valid_ids),
+                sample,
+                exc_info=True,
+            )
+            return {}
 
         result: dict[int, str] = {}
         for record in records:
@@ -416,5 +432,18 @@ class KingdeeClient:
             if description:
                 result[int(fid)] = description
 
-        logger.info("Looked up %d aux properties, found %d descriptions", len(valid_ids), len(result))
+        # Escalate to WARNING when the resolution rate is poor (>50% missing) —
+        # indicates the response was successful but data was unexpectedly sparse.
+        missing_count = len(valid_ids) - len(result)
+        if missing_count > 0 and missing_count > len(valid_ids) // 2:
+            logger.warning(
+                "aux_lookup_sparse: requested=%d found=%d missing=%d — "
+                "more than half of aux IDs returned no description",
+                len(valid_ids), len(result), missing_count,
+            )
+        else:
+            logger.info(
+                "Looked up %d aux properties, found %d descriptions",
+                len(valid_ids), len(result),
+            )
         return result

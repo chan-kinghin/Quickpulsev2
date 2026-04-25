@@ -648,7 +648,7 @@ class TestCacheReaderRowConversion:
         assert model.specification == ""
 
     def test_row_to_purchase_receipt_subcontracting_type(self):
-        """Test _row_to_purchase_receipt with RKD02_SYS (subcontracting receipt)."""
+        """Test _row_to_purchase_receipt with RKD03_SYS (subcontracting receipt)."""
         mock_db = MagicMock()
         reader = CacheReader(mock_db, ttl_minutes=60)
 
@@ -658,7 +658,7 @@ class TestCacheReaderRowConversion:
             "05.02.001",        # 2: material_code
             Decimal("100.00"),  # 3: real_qty
             Decimal("100.00"),  # 4: must_qty
-            "RKD02_SYS",        # 5: bill_type_number (subcontracting)
+            "RKD03_SYS",        # 5: bill_type_number (subcontracting)
             6001,               # 6: aux_prop_id
             None,               # 7: raw_data
             "2026-01-20 16:00:00",  # 8: synced_at
@@ -666,7 +666,7 @@ class TestCacheReaderRowConversion:
 
         model = reader._row_to_purchase_receipt(row)
 
-        assert model.bill_type_number == "RKD02_SYS"
+        assert model.bill_type_number == "RKD03_SYS"
         assert model.real_qty == Decimal("100.00")
 
     def test_row_to_material_picking_happy_path(self):
@@ -848,3 +848,93 @@ class TestCacheReaderRowConversion:
         assert model.delivery_date is None
         assert model.qty == Decimal("0")
         assert model.bom_short_name == ""
+
+
+class TestFallbackTelemetry:
+    """Stage 1 of PLAN_aux_match_visibility: verify fallback tier counts are logged.
+
+    The cache reader's BOM JOIN computes match_quality labels per source via SQL CASE.
+    `_log_fallback_telemetry` aggregates them and emits one structured log per MTO query
+    so Loki can chart the fallback rate before any code change ships.
+    """
+
+    @staticmethod
+    def _row(quality_per_source: tuple[str, ...]) -> tuple:
+        """Build a minimal 28-column BOM JOIN row with given match_quality labels.
+
+        Columns 0-20 are placeholders (not consulted by the telemetry path);
+        columns 21-26 are the per-source labels; column 27 is synced_at.
+        """
+        assert len(quality_per_source) == 6, "must provide 6 source labels"
+        return (
+            "MO001", "AK001", "M001", "name", "spec", "", 0, 1,  # 0-7
+            Decimal("0"), Decimal("0"), Decimal("0"),             # 8-10 qtys
+            Decimal("0"), Decimal("0"),                           # 11-12 prod_receipt
+            Decimal("0"), Decimal("0"),                           # 13-14 pick
+            Decimal("0"), Decimal("0"),                           # 15-16 purchase_order
+            Decimal("0"),                                         # 17 purchase_receipt
+            Decimal("0"), Decimal("0"),                           # 18-19 subcontract
+            Decimal("0"),                                         # 20 delivery
+            *quality_per_source,                                  # 21-26 match_quality
+            "2026-04-25 12:00:00",                                # 27 synced_at
+        )
+
+    def test_telemetry_logs_all_exact_when_perfectly_matched(self, caplog):
+        rows = [
+            self._row(("exact", "exact", "exact", "exact", "exact", "exact")),
+            self._row(("exact", "exact", "exact", "exact", "exact", "exact")),
+        ]
+        with caplog.at_level("INFO", logger="src.query.cache_reader"):
+            CacheReader._log_fallback_telemetry("AK2510034", rows)
+
+        record = next(r for r in caplog.records if "mto_fallback_telemetry" in r.message)
+        assert "non_exact_hits=0" in record.message
+        assert '"exact": 2' in record.message  # each source shows 2 exact matches
+
+    def test_telemetry_counts_aux_zero_fallback(self, caplog):
+        rows = [
+            self._row(("aux_zero_fallback", "exact", "exact", "exact", "exact", "exact")),
+            self._row(("exact", "aux_zero_fallback", "exact", "exact", "exact", "exact")),
+        ]
+        with caplog.at_level("INFO", logger="src.query.cache_reader"):
+            CacheReader._log_fallback_telemetry("AK2510034", rows)
+
+        record = next(r for r in caplog.records if "mto_fallback_telemetry" in r.message)
+        assert "non_exact_hits=2" in record.message
+        assert '"aux_zero_fallback": 1' in record.message
+
+    def test_telemetry_counts_all_aux_rollup(self, caplog):
+        rows = [
+            self._row(("all_aux_rollup", "all_aux_rollup", "exact", "exact", "exact", "exact")),
+        ]
+        with caplog.at_level("INFO", logger="src.query.cache_reader"):
+            CacheReader._log_fallback_telemetry("AK2510034", rows)
+
+        record = next(r for r in caplog.records if "mto_fallback_telemetry" in r.message)
+        assert "non_exact_hits=2" in record.message
+        assert '"all_aux_rollup": 1' in record.message
+
+    def test_telemetry_no_match_does_not_inflate_non_exact_hits(self, caplog):
+        # `no_match` means the row genuinely has no receipt anywhere — that's a data
+        # state, not a fallback. The telemetry counter should not flag it as a fallback.
+        rows = [
+            self._row(("no_match", "no_match", "no_match", "no_match", "no_match", "no_match")),
+        ]
+        with caplog.at_level("INFO", logger="src.query.cache_reader"):
+            CacheReader._log_fallback_telemetry("AK2510034", rows)
+
+        record = next(r for r in caplog.records if "mto_fallback_telemetry" in r.message)
+        assert "non_exact_hits=0" in record.message
+
+    def test_telemetry_includes_mto_number_and_row_count(self, caplog):
+        rows = [
+            self._row(("exact",) * 6),
+            self._row(("exact",) * 6),
+            self._row(("exact",) * 6),
+        ]
+        with caplog.at_level("INFO", logger="src.query.cache_reader"):
+            CacheReader._log_fallback_telemetry("AK9999999", rows)
+
+        record = next(r for r in caplog.records if "mto_fallback_telemetry" in r.message)
+        assert "mto=AK9999999" in record.message
+        assert "bom_rows=3" in record.message
