@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.exceptions import SyncError
-from src.readers.models import SubcontractingOrderModel
+from src.readers.models import ProductionOrderModel, SubcontractingOrderModel
 from src.sync.sync_service import SyncResult, SyncService, date_chunks, model_to_json
 
 
@@ -260,6 +260,132 @@ class TestSyncService:
         # In-memory dedup retains the LAST record per (bill_no, mto_number,
         # material_code, aux_prop_id), so qty=780 wins.
         assert float(rows[0][0]) == 780.0
+
+    @pytest.mark.asyncio
+    async def test_production_orders_upsert_preserves_distinct_mtos(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Bug 7 / bug-patterns.md #5 (Wave 4A) regression guard.
+
+        Two production orders sharing (bill_no, material_code, aux_prop_id)
+        but belonging to DIFFERENT MTOs of the same customer must both
+        persist through the upsert. This was the contamination shape that
+        produced DS256203S's 18 ghost 07.xx rows on prod 2026-04-26 (07.01.06,
+        07.01.07, 07.01.78, 07.01.80=941, 07.02.022, etc.): a production
+        order legitimately spans multiple MTOs of customer 瑞弧WeaArCo
+        (DS256203S / DS242022S-A2 / WS2510003), and the old upsert silently
+        rewrote the first row's mto_number to the second's, then the next
+        sync's DELETE-by-mto removed the survivor. Mirror of the Wave 2
+        subcontract test above.
+        """
+        service = self.create_service(mock_readers, test_database, mock_sync_progress)
+
+        # Same production-order bill_no, same material, same aux —
+        # different MTOs. Both rows must coexist after the upsert.
+        records = [
+            ProductionOrderModel(
+                bill_no="PRDMO_SHARED_001",
+                mto_number="DS242022S-A2",
+                workshop="生产车间",
+                material_code="07.01.80",
+                material_name="样品A",
+                specification="规格A",
+                aux_attributes="",
+                aux_prop_id=0,
+                qty=Decimal("100"),
+                status="B",
+                create_date="2026-01-01",
+            ),
+            ProductionOrderModel(
+                bill_no="PRDMO_SHARED_001",
+                mto_number="DS256203S",
+                workshop="生产车间",
+                material_code="07.01.80",
+                material_name="样品A",
+                specification="规格A",
+                aux_attributes="",
+                aux_prop_id=0,
+                qty=Decimal("941"),
+                status="B",
+                create_date="2026-01-02",
+            ),
+        ]
+
+        await service._upsert_production_orders(records)
+        await test_database._connection.commit()
+
+        async with test_database._connection.execute(
+            "SELECT mto_number, qty FROM cached_production_orders "
+            "WHERE bill_no = ? AND material_code = ? ORDER BY mto_number",
+            ("PRDMO_SHARED_001", "07.01.80"),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        assert len(rows) == 2, (
+            f"Expected 2 rows (one per MTO); got {len(rows)}. "
+            "If 1 row, the contamination bug is back: the upsert collapsed two "
+            "distinct MTOs into one because mto_number is missing from the "
+            "UNIQUE / ON CONFLICT key set. See bug-patterns.md #5 (Wave 4A) "
+            "and DS256203S 07.01.80=941 ghost row from 2026-04-26."
+        )
+        mtos = {r[0] for r in rows}
+        assert mtos == {"DS242022S-A2", "DS256203S"}
+        # And the qty for each MTO must match what was inserted (no overwrite).
+        qty_by_mto = {r[0]: float(r[1]) for r in rows}
+        assert qty_by_mto["DS242022S-A2"] == 100.0
+        assert qty_by_mto["DS256203S"] == 941.0
+
+    @pytest.mark.asyncio
+    async def test_production_orders_upsert_dedups_within_same_mto(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Idempotent within an MTO: two records with identical UNIQUE key
+        for the same MTO collapse to one, with the later qty winning."""
+        service = self.create_service(mock_readers, test_database, mock_sync_progress)
+
+        records = [
+            ProductionOrderModel(
+                bill_no="PRDMO_DUP",
+                mto_number="DS256203S",
+                workshop="生产车间",
+                material_code="07.01.80",
+                material_name="样品A",
+                specification="规格A",
+                aux_attributes="",
+                aux_prop_id=0,
+                qty=Decimal("100"),
+                status="B",
+                create_date="2026-01-01",
+            ),
+            ProductionOrderModel(
+                bill_no="PRDMO_DUP",
+                mto_number="DS256203S",
+                workshop="生产车间",
+                material_code="07.01.80",
+                material_name="样品A",
+                specification="规格A",
+                aux_attributes="",
+                aux_prop_id=0,
+                qty=Decimal("941"),
+                status="B",
+                create_date="2026-01-02",
+            ),
+        ]
+
+        await service._upsert_production_orders(records)
+        await test_database._connection.commit()
+
+        async with test_database._connection.execute(
+            "SELECT qty FROM cached_production_orders "
+            "WHERE bill_no = ? AND mto_number = ?",
+            ("PRDMO_DUP", "DS256203S"),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        assert len(rows) == 1
+        # In-memory dedup retains the LAST record per (bill_no, mto_number,
+        # material_code, aux_prop_id), so qty=941 wins.
+        assert float(rows[0][0]) == 941.0
 
     # Tests for _sync_orders, _sync_orders_with_data, _sync_bom_for_orders_empty
     # removed — those methods were dead code and have been deleted

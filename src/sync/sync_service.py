@@ -421,15 +421,27 @@ class SyncService:
                 await self.db.execute_write_no_commit(f"DELETE FROM {table}")
 
     async def _upsert_production_orders(self, orders: Iterable) -> None:
-        """Upsert production orders (uses no-commit for transaction support)."""
+        """Upsert production orders (uses no-commit for transaction support).
+
+        bug-patterns.md #5 (Wave 4A / Bug 7, fixed 2026-04-26): the UNIQUE
+        constraint and ON CONFLICT clause both include mto_number. A
+        production-order bill_no can legitimately appear under multiple MTOs
+        of the same customer (e.g. 瑞弧WeaArCo MTO chain DS256203S /
+        DS242022S-A2 / WS2510003); without mto_number in the conflict key,
+        the upsert silently migrated rows between MTOs and produced "ghost"
+        07.xx data on lookup. Mirror of the Wave 2 fix (commit cc9ab22) for
+        cached_subcontracting_orders.
+        """
         if not orders:
             return
 
-        # Deduplicate by unique key
+        # Deduplicate by unique key (must match the table's UNIQUE constraint
+        # incl. mto_number — see bug-patterns.md #5).
         orders_list = list(orders)
         deduped: dict[tuple, object] = {}
         for o in orders_list:
-            key = (o.bill_no, o.material_code, getattr(o, 'aux_prop_id', 0) or 0)
+            key = (o.bill_no, o.mto_number, o.material_code,
+                   getattr(o, 'aux_prop_id', 0) or 0)
             deduped[key] = o
         orders_list = list(deduped.values())
 
@@ -453,8 +465,8 @@ class SyncService:
                 specification, aux_attributes, aux_prop_id, qty, status, create_date, raw_data, synced_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, material_code, aux_prop_id) DO UPDATE SET
-                mto_number=excluded.mto_number, workshop=excluded.workshop,
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                workshop=excluded.workshop,
                 material_name=excluded.material_name,
                 specification=excluded.specification, aux_attributes=excluded.aux_attributes,
                 qty=excluded.qty, status=excluded.status, create_date=excluded.create_date,

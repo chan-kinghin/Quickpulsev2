@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS cached_production_orders (
     create_date TEXT,  -- Denormalized from raw_data for faster access
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, material_code, aux_prop_id)  -- Allow multiple materials per order
+    -- bug-patterns.md #5 (Wave 4A, Bug 7, 2026-04-26): mto_number MUST be in
+    -- the UNIQUE key. A production-order bill_no can legitimately appear
+    -- under multiple MTOs of the same customer; without mto_number here the
+    -- upsert silently migrates rows between MTOs (DS256203S contamination).
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_po_mto ON cached_production_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_po_synced ON cached_production_orders(synced_at);

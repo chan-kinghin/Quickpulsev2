@@ -155,3 +155,21 @@ def test_subcontract_orders_unique_includes_mto_number():
         "same customer that share a supplier subcontract bill_no — produces "
         "the ghost-row pattern from Bug 7 (DS256203S / 07.25.80)."
     )
+
+
+def test_production_orders_unique_includes_mto_number():
+    """Bug 7 / Wave 4A / 2026-04-26 regression guard. Mirror of the
+    subcontract guard above — same Pattern 5 shape, different table.
+    DS256203S returned 18 ghost 07.xx rows (07.01.80=941 etc.) because the
+    pre-fix UNIQUE on cached_production_orders excluded mto_number."""
+    schema = _parse_schema_uniques()
+    po = schema.get("cached_production_orders")
+    assert po, "cached_production_orders missing from schema.sql"
+    has_mto_in_unique = any("mto_number" in u for u in po)
+    assert has_mto_in_unique, (
+        "cached_production_orders UNIQUE must include mto_number. "
+        "Without it, the upsert silently migrates rows between MTOs of the "
+        "same customer that share a production-order bill_no — produces "
+        "the ghost-row pattern from Bug 7 (DS256203S 07.xx contamination, "
+        "瑞弧WeaArCo customer cluster). See migration 010."
+    )

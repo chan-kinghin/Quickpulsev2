@@ -210,6 +210,45 @@ async def test_bug7_DS256203S_no_07_25_80_ghost(real_handler):
         )
 
 
+@pytest.mark.asyncio
+async def test_bug7_production_orders_DS256203S_no_07_01_80_ghost(real_handler):
+    """DS256203S must NOT have any child_item for material 07.01.80 (Wave 4A).
+
+    Pre-fix DS256203S returned 18 ghost 07.xx rows (07.01.06, 07.01.07,
+    07.01.78, 07.01.80=941, 07.02.022, 07.02.121, 07.04.078,
+    07.05.16.01..06, 07.08.001..003, 07.23.007, 07.23.034, 07.25.84,
+    07.33.010, 07.37.001) because cached_production_orders UNIQUE
+    excluded mto_number — sibling MTOs (DS242022S-A2 / WS2510003) of
+    customer 瑞弧WeaArCo migrated their PRD_MO rows under DS256203S
+    on each sync.
+
+    07.01.80=941 is the most-cited example from the prod investigation;
+    pinning that single code is the canonical fingerprint of the bug.
+
+    Migration 010 + the upsert fix in _upsert_production_orders close
+    the schema/upsert side; the architectural alignment test
+    (test_production_orders_unique_includes_mto_number) and the upsert
+    regression (test_production_orders_upsert_preserves_distinct_mtos)
+    cover those layers. This test verifies the user-visible artifact end
+    to end — if it regresses, the upsert is back to silently rewriting
+    mto_number on conflict. See bug-patterns.md #5 (Wave 4A)."""
+    for source in ("live",):
+        response = await real_handler.get_status(
+            "DS256203S", use_cache=False, source=source
+        )
+        ghosts = _rows_for_code(response.children, "07.01.80")
+        assert not ghosts, (
+            f"DS256203S source={source}: 07.01.80 ghost row reappeared "
+            f"({len(ghosts)} row(s)). Pre-Wave-4A this happened because "
+            f"cached_production_orders UNIQUE excluded mto_number, so a "
+            f"sibling MTO's PRD_MO row migrated under DS256203S "
+            f"(prod 2026-04-26 saw qty=941 for this code). Migration 010 "
+            f"fixed the schema; if this regresses, the upsert is back to "
+            f"setting mto_number=excluded.mto_number on conflict — see "
+            f"bug-patterns.md #5 and the Wave 4A commit."
+        )
+
+
 # ============================================================================
 # Match-quality observability pin — commit 8e0f644
 #
