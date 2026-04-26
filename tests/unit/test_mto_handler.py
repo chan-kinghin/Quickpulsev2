@@ -676,6 +676,151 @@ class TestMTOQueryHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_bom_aux_zero_rolls_up_prd_mo_across_all_aux(self, mock_readers):
+        """Tier-3 fallback: PPBOM has aux=0 (generic), PRD_MO is at one or more
+        specific aux values. _lookup_mo_qty must roll up ALL PRD_MO rows for
+        the material code, NOT just _mo_qty[(code, 0)].
+
+        Real-data scenario from AS2603009 / 05.07.02.01 鞋撑:
+        - PPBOM: 1 line, aux=0, FMustQty=1,130,160 (50× inflated by upstream)
+        - PRD_MO: 1 row, aux=105814, FQty=1,662
+        - Old _lookup_mo_qty(code, 0): exact miss + (code, 0) miss → ZERO
+          → falls through to MAX(b.need_qty) = 1,130,160 (still inflated)
+        - Fixed: Tier-3 sums PRD_MO across all aux → 1,662
+
+        This test uses TWO PRD_MO rows at different specific aux to also
+        catch the case where production was split across variants and the
+        team's total target is the sum (e.g., 1000 + 662 = 1662).
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "AS2603009"
+        # PPBOM: aux=0, generic line carrying inflated demand from upstream
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO260400029",
+                mto_number=mto,
+                material_code="05.07.02.01",
+                material_name="鞋撑",
+                specification="",
+                aux_prop_id=0,
+                material_type=1,
+                need_qty=Decimal("1130160"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("1130160"),
+            ),
+        ]
+        # PRD_MO: two rows at SPECIFIC aux (none at 0).
+        # Total target = 1000 + 662 = 1662.
+        prod_orders = [
+            ProductionOrderModel(
+                bill_no="MO_A",
+                mto_number=mto,
+                workshop="鞋撑工段",
+                material_code="05.07.02.01",
+                material_name="鞋撑",
+                specification="",
+                aux_prop_id=105814,
+                qty=Decimal("1000"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+            ProductionOrderModel(
+                bill_no="MO_B",
+                mto_number=mto,
+                workshop="鞋撑工段",
+                material_code="05.07.02.01",
+                material_name="鞋撑",
+                specification="",
+                aux_prop_id=105815,
+                qty=Decimal("662"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+        ]
+
+        handler = self.create_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=prod_orders,
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "05.07.02.01"
+        # Tier-3: sum PRD_MO across all aux when PPBOM aux=0 → 1000 + 662 = 1662
+        assert row.need_qty == Decimal("1662"), (
+            f"Expected Tier-3 PRD_MO all-aux rollup = 1662, got {row.need_qty}. "
+            "Old behavior would return MAX(b.need_qty) = 1,130,160 (inflated). "
+            "See bug-patterns.md #10 — Tier-3 fallback must mirror the "
+            "all_aux_rollup tier already present in the receipt-side _get()."
+        )
+        # And specifically NOT the inflated upstream BOM value:
+        assert row.need_qty != Decimal("1130160"), (
+            "need_qty fell through to MAX(b.need_qty) — Tier-3 PRD_MO rollup "
+            "is missing or returning ZERO. This is the AS2603009/AS2602037 "
+            "real-data regression. Inspect _lookup_mo_qty's Tier-3 branch."
+        )
+
+    @pytest.mark.asyncio
+    async def test_bom_aux_zero_single_specific_prd_mo(self, mock_readers):
+        """Tier-3 simpler case: PPBOM aux=0, single PRD_MO at non-zero aux.
+        Real-data scenario AS2602037 / 05.06.02.21 水阀 (KD truth = 20,130,
+        post-fix-without-Tier-3 = 120,780, ratio 6×)."""
+        from src.readers.models import ProductionBOMModel
+
+        mto = "AS2602037"
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO260202221",
+                mto_number=mto,
+                material_code="05.06.02.21",
+                material_name="水阀",
+                specification="",
+                aux_prop_id=0,
+                material_type=1,
+                need_qty=Decimal("120780"),  # 6× inflated upstream
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("120780"),
+            ),
+        ]
+        prod_orders = [
+            ProductionOrderModel(
+                bill_no="MO_TARGET",
+                mto_number=mto,
+                workshop="组装工段",
+                material_code="05.06.02.21",
+                material_name="水阀",
+                specification="",
+                aux_prop_id=107962,  # specific aux, not 0
+                qty=Decimal("20130"),
+                status="已审核",
+                create_date="2026-03-15",
+            ),
+        ]
+
+        handler = self.create_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=prod_orders,
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        assert rows[0].need_qty == Decimal("20130"), (
+            f"Expected Tier-3 PRD_MO rollup = 20130, got {rows[0].need_qty}. "
+            "AS2602037 / 05.06.02.21 regression — see bug-patterns.md #10."
+        )
+
+    @pytest.mark.asyncio
     async def test_03_with_prd_mo_routes_as_selfmade(self, mock_readers):
         """03.xx material with PRD_MO (工段) routes through self-made path.
 

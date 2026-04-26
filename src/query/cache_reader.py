@@ -317,8 +317,12 @@ class CacheReader:
                 JOIN matching_mtos m ON po.mto_number = m.mto_number
                 GROUP BY po.material_code, po.aux_prop_id
             ),
-            -- Same, rolled up across all aux variants (Tier-2 fallback when PPBOM
-            -- has aux≠0 but PRD_MO recorded aux=0, or vice versa).
+            -- Same, rolled up across ALL aux variants. Serves as both:
+            --   Tier-2: PPBOM has aux≠0 but PRD_MO recorded at aux=0
+            --   Tier-3: PPBOM has aux=0 (generic) but PRD_MO at one or more
+            --           specific aux values (real case: AS2603009 / 05.07.02.01
+            --           — PPBOM aux=0, PRD_MO aux=105814).
+            -- Symmetric to the receipt-side `pr_all` rollup CTE.
             prd_mo_agg_all AS (
                 SELECT po.material_code,
                        SUM(po.qty) as mo_qty

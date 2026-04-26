@@ -747,8 +747,40 @@ class MTOQueryHandler:
             k = (po.material_code, getattr(po, "aux_prop_id", 0) or 0)
             _mo_qty[k] = _mo_qty.get(k, ZERO) + getattr(po, "qty", ZERO)
 
+        # Pre-compute Tier-3 rollup: total PRD_MO.FQty across ALL aux variants
+        # for each material_code. Used when PPBOM has aux=0 (generic) but
+        # PRD_MO carries specific aux (e.g., AS2603009 / 05.07.02.01: PPBOM
+        # aux=0, PRD_MO aux=105814 → exact and aux=0 lookups both miss; need
+        # to roll up PRD_MO across all aux). Symmetric to the
+        # `all_aux_rollup` tier in receipt-side _get().
+        _mo_qty_by_code: dict[str, Decimal] = {}
+        for (c, _), v in _mo_qty.items():
+            _mo_qty_by_code[c] = _mo_qty_by_code.get(c, ZERO) + v
+
         def _lookup_mo_qty(code: str, aux: int) -> Decimal:
-            return _mo_qty.get((code, aux)) or _mo_qty.get((code, 0), ZERO)
+            """Resolve PRD_MO.FQty for (code, aux) with 3-tier aux fallback.
+
+            Tier 1: exact (code, aux) match.
+            Tier 2: BOM has specific aux, PRD_MO recorded at aux=0.
+            Tier 3: BOM has generic aux=0, PRD_MO at one or more specific aux
+                    values → sum across all PRD_MO rows for this material.
+                    (Mirrors the receipt-side `all_aux_rollup` in _get.)
+
+            Returns ZERO when no PRD_MO row exists for the material at all —
+            caller falls back to MAX(b.need_qty) per Pattern 10 fix.
+            """
+            # Tier 1: exact (code, aux)
+            exact = _mo_qty.get((code, aux))
+            if exact is not None and exact > 0:
+                return exact
+            # Tier 2: BOM specific aux → PRD_MO at aux=0
+            if aux != 0:
+                v = _mo_qty.get((code, 0))
+                if v is not None and v > 0:
+                    return v
+                return ZERO
+            # Tier 3: BOM aux=0 → roll up ALL PRD_MO rows for this material
+            return _mo_qty_by_code.get(code, ZERO)
 
         # --- Step 1: Build rows from PPBOM (primary source) ---
         bom_groups: dict[tuple[str, int], list] = defaultdict(list)

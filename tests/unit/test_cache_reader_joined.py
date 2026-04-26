@@ -721,6 +721,69 @@ class TestSelfMadeBomRollupRegression:
             f"got {row.need_qty}"
         )
 
+    @pytest.mark.asyncio
+    async def test_bom_aux_zero_rolls_up_prd_mo_across_all_specific_aux(
+        self, test_database
+    ):
+        """Tier-3 (cache path): PPBOM aux=0 (generic), PRD_MO at non-zero aux.
+        prd_mo_agg_all (keyed by material_code only) sums across all PRD_MO
+        rows for that material → must override the inflated PPBOM need_qty.
+
+        Real-data scenario from AS2603009 / 05.07.02.01 鞋撑 (truth=1,662):
+        - PPBOM: aux=0, FMustQty=1,130,160 (50× inflated upstream)
+        - PRD_MO: aux=105814, FQty=1,662
+        - Old fix (without Tier-3 in live, but cache already had this via
+          prd_mo_agg_all): would still pass for cache, here we lock that
+          behavior in.
+
+        We use TWO PRD_MO rows at different non-zero aux (1000 + 662 = 1662)
+        to assert SUM, not MAX, across the rollup.
+        """
+        mto = "AS2603009"
+        mat_code = "05.07.02.01"
+
+        # PPBOM: aux=0 generic, carrying inflated upstream demand
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_bom
+            (mo_bill_no, mto_number, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, material_type,
+             need_qty, picked_qty, no_picked_qty, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            ["MO260400029", mto, mat_code, "鞋撑", "", "", 0, 1, 1130160, 0, 1130160],
+        )
+        # Two PRD_MO rows, both at specific (non-zero) aux. Total = 1662.
+        for bill_no, aux, qty in [
+            ("MO_A", 105814, 1000),
+            ("MO_B", 105815, 662),
+        ]:
+            await test_database.execute_write(
+                """
+                INSERT INTO cached_production_orders
+                (mto_number, bill_no, workshop, material_code, material_name,
+                 specification, aux_attributes, aux_prop_id, qty, status,
+                 create_date, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [mto, bill_no, "鞋撑工段", mat_code, "鞋撑", "", "",
+                 aux, qty, "已审核", "2026-04-01"],
+            )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        assert row.material_code == mat_code
+        # prd_mo_agg_all sums across all aux → 1000 + 662 = 1662 (NOT 1,130,160).
+        assert row.need_qty == Decimal("1662"), (
+            f"Expected Tier-3 PRD_MO all-aux SUM = 1662, got {row.need_qty}. "
+            "If the result is 1130160, the COALESCE in bom_agg is missing the "
+            "prd_mo_agg_all fallback or its SQL ordering is wrong. See "
+            "bug-patterns.md #10 (Tier-3 BOM-rollup variant)."
+        )
+
 
 class TestMatchQualityFromSQL:
     """Stage 3 of PLAN_aux_match_visibility: verify SQL CASE expressions emit the
