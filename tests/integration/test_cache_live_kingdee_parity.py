@@ -263,3 +263,39 @@ def test_match_quality_breakdown_present_on_cache_path():
         f"the columns aren't reaching _bom_row_to_child. See commit 8e0f644 "
         f"and bug-patterns.md #1."
     )
+
+
+def test_dk251003s_header_mto_07xx_rows_are_legitimate_not_ghosts():
+    """Wave 5C — DK251003S includes 07.02.142 / 07.02.145 / 07.02.146 in
+    QP's response. The Kingdee CLI returns ZERO rows for these via
+    entry-level FMtoNo, which made them look like ghosts.
+
+    Verified via direct Kingdee SAL_SaleOrder query 2026-04-26: real sales
+    orders with the MTO at header-level F_QWJI_JHGZH (entry FMtoNo points
+    to child MTOs DK256192S / DK257232S / DK214046S):
+      XSDD2508129  07.02.142  qty 22+24  F_QWJI_JHGZH=DK251003S
+      XSDD2508118  07.02.145  qty 192    F_QWJI_JHGZH=DK251003S
+      XSDD2508224  07.02.145  qty 384    F_QWJI_JHGZH=DK251003S
+      XSDD2510044  07.02.146  qty 60     F_QWJI_JHGZH=DK251003S
+
+    QP's SalesOrderReader correctly queries both fields. Identical to the
+    Wave 4A 07.01.80 case. CLI is the one missing rows (Wave 5A territory).
+
+    This test pins that QP behavior is correct — the rows ARE expected.
+    """
+    live_status, live_body = _fetch("DK251003S", "live")
+    if live_status != 200:
+        pytest.skip(f"DK251003S live unreachable status={live_status}")
+    children = live_body.get("child_items", [])
+    if not children:
+        pytest.skip("DK251003S live returned no children")
+
+    expected_codes = {"07.02.142", "07.02.145", "07.02.146"}
+    found = {c["material_code"] for c in children if c["material_code"] in expected_codes}
+    assert found == expected_codes, (
+        f"DK251003S live missing expected header-MTO rows. Found: {found}, "
+        f"expected: {expected_codes}. These come from SAL_SaleOrder entries "
+        f"with F_QWJI_JHGZH=DK251003S. If missing, check the SalesOrderReader "
+        f"OR-filter in src/readers/factory.py — the F_QWJI_JHGZH fallback must "
+        f"remain in the WHERE clause."
+    )
