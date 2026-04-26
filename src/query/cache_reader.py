@@ -345,17 +345,54 @@ class CacheReader:
                 WHERE b.material_code NOT LIKE '07.%'
                 GROUP BY b.material_code, b.aux_prop_id
             ),
+            -- Wave 4B (Issue #1): set of material_codes that appear in
+            -- cached_purchase_orders for matching MTOs. Used to override
+            -- PPBOM.FMaterialType when it incorrectly says self-made (=1) for
+            -- a 03.xx purchased material — see bom_agg below.
+            pur_keys AS (
+                SELECT DISTINCT po.material_code
+                FROM cached_purchase_orders po
+                JOIN matching_mtos m ON po.mto_number = m.mto_number
+            ),
             bom_agg AS (
-                -- For self-made (material_type=1), prefer PRD_MO.FQty (production
-                -- target) over SUM(need_qty) which inflates when the component is
-                -- consumed by N parent BOMs (Pattern 10 BOM-rollup variant). Falls
-                -- back to MAX(need_qty) when no matching PRD_MO row — largest single
-                -- parent demand is closer to truth than SUM.
-                -- For purchased (2) / subcontracted (3) / unknown: keep SUM —
-                -- purchased materials legitimately accumulate across parent BOMs
-                -- (you place one combined order).
+                -- Wave 4B (Issue #1): material_type override for 03.xx purchased
+                -- materials.  Kingdee's PRD_PPBOM.FMaterialType is essentially
+                -- always 1 in this tenant (CLAUDE.md "carries no routing info"),
+                -- so 03.xx purchased materials get classified as self-made and
+                -- routed through the BOM-rollup PRD_MO override below — which
+                -- inflates `prod_instock_must_qty` 5–16× for cases where the
+                -- same material appears in many parent BOMs (e.g. AS2603009 /
+                -- 03.03.001: cache=593 vs live=51 — 11.6×).
+                --
+                -- The live path avoids this in mto_handler.py:889-911 by
+                -- explicitly emitting purchase-order materials with
+                -- material_type=2.  Mirror that behavior here:
+                --   IF material_code LIKE '03.%' AND material has a PUR row
+                --      → corrected_material_type=2 (purchased)
+                --   ELSE → keep PPBOM's material_type as-is.
+                --
+                -- This is the CTE-internal "Option A".  Alternative (Option B)
+                -- would be to compute corrected type in _bom_row_to_child, but
+                -- that risks affecting the live path which already handles 2b
+                -- via synthetic-row emission — so cleanest to fix at the cache
+                -- SQL boundary.
+                --
+                -- For self-made (corrected_material_type=1), prefer PRD_MO.FQty
+                -- over SUM(need_qty) (Pattern 10 BOM-rollup cap).  For purchased
+                -- (corrected_material_type=2) / subcontracted (3) / unknown:
+                -- keep SUM — purchased materials legitimately accumulate across
+                -- parent BOMs (one combined PO covers all parents).
                 SELECT br.material_code, br.aux_prop_id,
                        CASE
+                           WHEN br.material_code LIKE '03.%'
+                                AND pk.material_code IS NOT NULL
+                               THEN 2
+                           ELSE br.material_type
+                       END as corrected_material_type,
+                       CASE
+                           WHEN br.material_code LIKE '03.%'
+                                AND pk.material_code IS NOT NULL
+                               THEN br.sum_need_qty
                            WHEN br.material_type = 1
                                THEN COALESCE(mo.mo_qty, mo_all.mo_qty, br.max_need_qty)
                            ELSE br.sum_need_qty
@@ -367,6 +404,8 @@ class CacheReader:
                    AND mo.aux_prop_id = br.aux_prop_id
                 LEFT JOIN prd_mo_agg_all mo_all
                     ON mo_all.material_code = br.material_code
+                LEFT JOIN pur_keys pk
+                    ON pk.material_code = br.material_code
             )
             SELECT
                 br.mo_bill_no,
@@ -376,7 +415,7 @@ class CacheReader:
                 br.specification,
                 br.aux_attributes,
                 br.aux_prop_id,
-                br.material_type,
+                ba.corrected_material_type as material_type,
                 ROUND(ba.need_qty, 2) as need_qty,
                 ROUND(ba.picked_qty, 2) as picked_qty,
                 ROUND(ba.no_picked_qty, 2) as no_picked_qty,

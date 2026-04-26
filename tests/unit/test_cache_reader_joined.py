@@ -8,6 +8,25 @@ import pytest
 from src.query.cache_reader import BOMJoinedRow, CacheReader
 
 
+async def zsql_insert_pur(
+    test_database, mto: str, mat_code: str, order_qty: int, aux_id: int = 0,
+    bill_no: str = "PO_TEST",
+) -> None:
+    """Helper: insert a cached_purchase_orders row for Wave 4B 03.xx override
+    tests. Used to seed the pur_keys CTE that triggers the material-type
+    correction in bom_agg."""
+    await test_database.execute_write(
+        """
+        INSERT INTO cached_purchase_orders
+        (bill_no, mto_number, material_code, material_name, specification,
+         aux_attributes, aux_prop_id, order_qty, stock_in_qty,
+         remain_stock_in_qty, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        [bill_no, mto, mat_code, "", "", "", aux_id, order_qty, 0, order_qty],
+    )
+
+
 class TestBOMJoinedRowConstruction:
     """Tests for BOMJoinedRow dataclass."""
 
@@ -672,6 +691,154 @@ class TestSelfMadeBomRollupRegression:
         # SUM(50, 70) = 120 — purchased materials accumulate
         assert row.need_qty == Decimal("120"), (
             f"Expected SUM(need_qty)=120 for purchased, got {row.need_qty}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_03xx_with_purchase_order_overrides_unreliable_selfmade_type(
+        self, test_database
+    ):
+        """Wave 4B regression pin (Issue #1): cache-path routing override.
+
+        Kingdee's PRD_PPBOM.FMaterialType is essentially always 1 in this
+        tenant — so 03.xx purchased materials get classified as self-made
+        and routed through the BOM-rollup PRD_MO path (which inflates
+        prod_instock_must_qty 5–16× when the same material appears in many
+        parent BOMs).
+
+        The live path mirrors this fix at mto_handler.py:889-911 by
+        explicitly emitting purchase-order materials with material_type=2.
+        Cache must do the same: 03.xx + has cached_purchase_orders row →
+        material_type=2, need_qty=SUM(BOM rows) (purchased semantics).
+
+        Pre-fix on AS2603009 / 03.03.001: cache=593, live=51 (11.6×).
+        """
+        mto = "AS2603009"
+        mat_code = "03.03.001"
+
+        # 5 parent BOM rows, each with FMaterialType=1 (unreliable Kingdee
+        # classification — same shape as production data).  SUM=5 × 100 = 500.
+        for mo_no in ["MO_A", "MO_B", "MO_C", "MO_D", "MO_E"]:
+            await test_database.execute_write(
+                """
+                INSERT INTO cached_production_bom
+                (mo_bill_no, mto_number, material_code, material_name,
+                 specification, aux_attributes, aux_prop_id, material_type,
+                 need_qty, picked_qty, no_picked_qty, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [mo_no, mto, mat_code, "外箱", "", "", 0, 1, 100, 0, 100],
+            )
+
+        # PUR row: this is the signal that triggers the Wave 4B override.
+        # Without this row, the existing self-made PRD_MO path runs.
+        await zsql_insert_pur(test_database, mto, mat_code, order_qty=51, aux_id=0)
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        assert row.material_code == mat_code
+        # The fix: corrected material_type emitted as 2 (purchased), not 1.
+        assert row.material_type == 2, (
+            f"03.xx + PUR row must override unreliable PPBOM type=1 to 2. "
+            f"Got material_type={row.material_type}. If this regresses, the "
+            f"bom_agg CASE in cache_reader.get_mto_bom_joined dropped the "
+            f"`material_code LIKE '03.%' AND pur_keys.material_code IS NOT "
+            f"NULL` branch."
+        )
+        # And: need_qty uses SUM (purchased semantics), not the BOM-rollup
+        # PRD_MO path that produced the 5-16× inflation in prod.
+        assert row.need_qty == Decimal("500"), (
+            f"Expected SUM(need_qty)=500 (purchased), got {row.need_qty}. "
+            "If this is the per-parent value (100), the override is firing "
+            "but the need_qty branch is wrong."
+        )
+        # purchase_order_qty should populate from cached_purchase_orders.
+        assert row.purchase_order_qty == Decimal("51")
+
+    @pytest.mark.asyncio
+    async def test_03xx_without_purchase_order_keeps_bom_type(
+        self, test_database
+    ):
+        """Wave 4B negative case: 03.xx with no PUR row → type override does
+        NOT fire; existing PPBOM material_type behavior is preserved."""
+        mto = "AS2603009-NO-PUR"
+        mat_code = "03.99.999"
+
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_bom
+            (mo_bill_no, mto_number, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, material_type,
+             need_qty, picked_qty, no_picked_qty, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            ["MO_A", mto, mat_code, "测试件", "", "", 0, 2, 100, 0, 100],
+        )
+        # No PUR row inserted — the override must not fire.
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        # PPBOM material_type=2 should be passed through unchanged when no
+        # PUR row exists; the override only applies when both conditions hold.
+        assert row.material_type == 2
+
+    @pytest.mark.asyncio
+    async def test_05xx_self_made_routing_unaffected_by_pur_row(
+        self, test_database
+    ):
+        """Wave 4B negative case: 05.xx self-made remains type=1 even if a
+        PUR row exists for it (the override is scoped to LIKE '03.%').
+        Guards against the override accidentally rerouting self-made items
+        when their semi-finished components show up in PUR (rare but real).
+        """
+        mto = "AS2603009-05XX"
+        mat_code = "05.07.02.01"
+
+        # PPBOM: aux=0 generic with the same FMustQty inflation pattern
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_bom
+            (mo_bill_no, mto_number, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, material_type,
+             need_qty, picked_qty, no_picked_qty, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            ["MO_A", mto, mat_code, "鞋撑", "", "", 0, 1, 1000, 0, 1000],
+        )
+        # PRD_MO with the team's actual production target
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_orders
+            (mto_number, bill_no, workshop, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, qty, status,
+             create_date, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            [mto, "MO_TARGET", "鞋撑工段", mat_code, "鞋撑", "", "",
+             0, 250, "已审核", "2026-04-20"],
+        )
+        # PUR row for the same 05.xx — the override must NOT fire.
+        await zsql_insert_pur(test_database, mto, mat_code, order_qty=10, aux_id=0)
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        # Type stays 1 (self-made); override is scoped to 03.xx only.
+        assert row.material_type == 1, (
+            f"05.xx must NOT be overridden to type=2 even when a PUR row "
+            f"exists. Got material_type={row.material_type}."
+        )
+        # And: need_qty still uses the PRD_MO target (not the BOM 1000).
+        assert row.need_qty == Decimal("250"), (
+            f"05.xx self-made path must still resolve need_qty against "
+            f"PRD_MO.FQty, got {row.need_qty}."
         )
 
     @pytest.mark.asyncio

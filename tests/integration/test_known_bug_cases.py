@@ -290,6 +290,132 @@ async def test_match_quality_breakdown_populated_for_non_finished(real_handler):
 
 
 # ============================================================================
+# Issue #1 pins — cache routing override (Wave 4B)
+#
+# Cache path classified 03.xx purchased materials as self-made because
+# Kingdee's PRD_PPBOM.FMaterialType is essentially always 1 in this tenant.
+# That sent them through the BOM-rollup PRD_MO path in cache_reader.bom_agg,
+# producing 5–16× inflated prod_instock_must_qty vs the live path.
+#
+# Fix (Wave 4B): bom_agg now overrides material_type=1 to 2 when the material
+# matches LIKE '03.%' AND has a row in cached_purchase_orders.  The pin below
+# checks the user-visible artifact via the deployed prod API: cache and live
+# agree on prod_instock_must_qty for the historical inflation cases.
+#
+# Hits the prod API rather than spinning up a local cache because the
+# `real_handler` fixture in this file only provides Kingdee live access — the
+# cache path requires a populated SQLite cache that's only stable on prod.
+# The companion file (test_cache_live_kingdee_parity.py) uses the same
+# pattern; this pin narrows it to the specific (MTO, code) cases that
+# demonstrated 11.6× / 16× divergence pre-fix.
+# ============================================================================
+def _prod_cache_live_for_mto(mto: str):
+    """Fetch (cache_body, live_body) for one MTO from prod API. Returns
+    (None, None, reason) when prod is unreachable so the test can skip."""
+    import json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    prod_url = os.environ.get("QP_PROD_URL", "https://fltpulse.szfluent.cn")
+    prod_password = os.environ.get("QP_PROD_PASSWORD", "FltPulse@2026!Prod")
+
+    try:
+        data = urllib.parse.urlencode(
+            {"username": "admin", "password": prod_password}
+        ).encode()
+        req = urllib.request.Request(
+            f"{prod_url}/api/auth/token",
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            token = json.loads(r.read())["access_token"]
+    except Exception as e:
+        return None, None, f"prod auth failed: {e}"
+
+    def fetch(source: str):
+        req = urllib.request.Request(
+            f"{prod_url}/api/mto/{mto}?source={source}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    cache_status, cache_body = fetch("cache")
+    live_status, live_body = fetch("live")
+    if cache_status == 404:
+        return None, None, f"{mto} not in prod cache (sync window)"
+    if cache_status != 200:
+        return None, None, f"cache status {cache_status}: {cache_body}"
+    if live_status != 200:
+        return None, None, f"live status {live_status}: {live_body}"
+    return cache_body, live_body, None
+
+
+def test_issue1_AS2603009_cache_03_xx_routing_matches_live():
+    """AS2603009 / 03.03.001 外箱 + 03.04.001 内盒: cache pre-Wave-4B returned
+    593 / 6912 prod_instock_must_qty; live returned 51 / 432 (11.6× / 16×
+    inflation).  Post-fix cache and live should agree within 5%.
+
+    Both paths share `_bom_row_to_child` after the BOM-first refactor.  The
+    Wave 4B fix lives in cache_reader.get_mto_bom_joined's bom_agg CTE: a
+    new `corrected_material_type` column that flips PPBOM's unreliable
+    type=1 to type=2 when the material is LIKE '03.%' AND has a row in
+    cached_purchase_orders.  Without that override, 03.xx materials get
+    routed through the self-made `prd_instock_must_qty=row.need_qty` branch
+    where need_qty is the BOM-rollup-PRD_MO override (inflated when there
+    are many parent BOMs).
+    """
+    cache_body, live_body, skip_reason = _prod_cache_live_for_mto("AS2603009")
+    if skip_reason:
+        pytest.skip(skip_reason)
+
+    def sum_must_dict(children, code):
+        return sum(
+            (_to_dec(c.get("prod_instock_must_qty"))
+             for c in children if c["material_code"] == code),
+            Decimal(0),
+        )
+
+    for code, pre_fix_cache, pre_fix_live, ratio_label in [
+        ("03.03.001", 593, 51, "11.6×"),
+        ("03.04.001", 6912, 432, "16×"),
+    ]:
+        cache_must = sum_must_dict(cache_body.get("child_items", []), code)
+        live_must = sum_must_dict(live_body.get("child_items", []), code)
+
+        # Both paths might emit 0 if the field isn't populated for purchased
+        # rows (which is the post-fix shape — purchased materials don't carry
+        # prod_instock_must_qty).  In that case the pin is satisfied.
+        if cache_must == 0 and live_must == 0:
+            continue
+
+        if live_must > 0:
+            ratio = cache_must / live_must
+            assert ratio <= Decimal("1.05"), (
+                f"AS2603009 / {code}: cache prod_instock_must_qty={cache_must} "
+                f"vs live={live_must} (ratio={ratio:.2f}×).  Pre-Wave-4B fix "
+                f"this was {pre_fix_cache} / {pre_fix_live} = {ratio_label} "
+                f"because the cache routed 03.xx as self-made and used the "
+                f"BOM-rollup PRD_MO path.  If this regresses, check the "
+                f"bom_agg CTE in src/query/cache_reader.py — the "
+                f"'corrected_material_type' override branch (LIKE '03.%' AND "
+                f"pur_keys.material_code IS NOT NULL) must be present."
+            )
+        else:
+            # Live=0 but cache has a positive value → cache is still inflated.
+            assert cache_must == 0, (
+                f"AS2603009 / {code}: live prod_instock_must_qty=0 but "
+                f"cache={cache_must}.  Cache is over-reporting purchased "
+                f"material as self-made (Issue #1 regressed)."
+            )
+
+
+# ============================================================================
 # Bug 1 + 5b/6 + 7 cumulative — total mismatches stay below the post-fix level.
 #
 # This is a soft canary: total mismatch counts can drift slightly with

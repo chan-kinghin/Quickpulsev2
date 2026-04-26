@@ -177,17 +177,24 @@ def test_cache_live_agree_per_material_on_prod(mto):
     #                 purchase_order_qty) cache being meaningfully lower
     #                 means an order was placed and the row didn't make it
     #                 into cache — also a Pattern 1 bug. Fail at ratio ≤ 0.5×.
-    # Threshold tuning: catch Bug 1 magnitude only. Historical Bug 1 produced
-    # 50–990× cache/live divergence; the architectural fix (commit 5490fa8 +
-    # 948054c) caps that to ~1×. 20× is well above any legitimate cache
-    # scenario yet far below pre-fix levels — it would have failed loudly on
-    # the AK2510034 / 05.02.08.027 case (50×) but passes the small-residual
-    # drift on 03.xx materials misrouted as self-made (Pattern 3 routing
-    # interaction, ~10–16× — a separate unfixed bug not in scope).
-    INFLATION_RATIO = Decimal("20")  # cache > live × 20 → Bug 1 shape, fail
+    # Threshold tuning: catch any structural cache-vs-live divergence.
+    # Historical Bug 1 produced 50–990× divergence (capped to ~1× by commits
+    # 5490fa8 + 948054c).  The previous Wave 3 round left the threshold at
+    # 20× to skip past Issue #1 — the cache-side 03.xx routing edge case
+    # which produced 5–16× divergence (e.g. AS2603009 / 03.03.001 cache=593
+    # vs live=51, 11.6×).
+    #
+    # Wave 4B fixed Issue #1 at the cache_reader bom_agg CTE
+    # (corrected_material_type override).  We can now drop the threshold to
+    # 2× — anything beyond that is structural cache inflation, not legitimate
+    # sync lag (legitimate lag leaves cache *behind*, not ahead).
+    INFLATION_RATIO = Decimal("2")  # cache > live × 2 → structural drift, fail
     DEMAND_FIELDS = {"sales_order_qty", "prod_instock_must_qty",
                      "purchase_order_qty"}
-    DEMAND_DROP_RATIO = Decimal("0.05")  # cache < live × 0.05 on demand → fail
+    # Demand fields: cache being meaningfully lower means a row was placed
+    # but didn't sync.  Threshold tightened from 0.05× to 0.5× — anything
+    # under 50% on a demand field is a Pattern 1 row drop, not sync lag.
+    DEMAND_DROP_RATIO = Decimal("0.5")  # cache < live × 0.5 on demand → fail
 
     structural_drift = []
     benign_lag = []
