@@ -662,13 +662,22 @@ class SyncService:
         )
 
     async def _upsert_subcontracting_orders_no_commit(self, records: Iterable) -> None:
-        """Upsert subcontracting orders without commit (for transaction use)."""
+        """Upsert subcontracting orders without commit (for transaction use).
+
+        bug-patterns.md #5 (Bug 7, fixed 2026-04-26): the UNIQUE constraint and
+        ON CONFLICT clause both include mto_number. A subcontract bill_no can
+        legitimately appear under multiple MTOs of the same customer; without
+        mto_number in the conflict key, the upsert silently migrated rows
+        between MTOs and produced "ghost" data on lookup.
+        """
         if not records:
             return
         records_list = list(records)
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (r.bill_no, r.material_code, getattr(r, 'aux_prop_id', 0) or 0)
+            # Dedup key MUST match the table's UNIQUE constraint (incl. mto_number).
+            key = (r.bill_no, r.mto_number, r.material_code,
+                   getattr(r, 'aux_prop_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
@@ -690,8 +699,7 @@ class SyncService:
                 bill_no, mto_number, material_code, order_qty, stock_in_qty,
                 no_stock_in_qty, aux_prop_id, raw_data, synced_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, material_code, aux_prop_id) DO UPDATE SET
-                mto_number=excluded.mto_number,
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
                 order_qty=excluded.order_qty, stock_in_qty=excluded.stock_in_qty,
                 no_stock_in_qty=excluded.no_stock_in_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP

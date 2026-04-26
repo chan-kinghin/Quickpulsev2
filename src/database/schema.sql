@@ -25,6 +25,8 @@ CREATE INDEX IF NOT EXISTS idx_po_synced ON cached_production_orders(synced_at);
 CREATE INDEX IF NOT EXISTS idx_po_material ON cached_production_orders(material_code);
 -- Compound index for common query pattern: filter by mto_number, sort by synced_at
 CREATE INDEX IF NOT EXISTS idx_po_mto_synced ON cached_production_orders(mto_number, synced_at DESC);
+-- Composite index for MTO search with material name filtering
+CREATE INDEX IF NOT EXISTS idx_search_mto_material ON cached_production_orders(mto_number, material_name, synced_at DESC);
 
 -- Production BOM cache
 CREATE TABLE IF NOT EXISTS cached_production_bom (
@@ -84,7 +86,11 @@ CREATE TABLE IF NOT EXISTS cached_subcontracting_orders (
     aux_prop_id INTEGER DEFAULT 0,
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, material_code, aux_prop_id)
+    -- bug-patterns.md #5 (Bug 7, 2026-04-26): mto_number MUST be in the
+    -- UNIQUE key. A subcontract bill_no can legitimately appear under
+    -- multiple MTOs of the same customer; without mto_number here the
+    -- upsert silently migrates rows between MTOs.
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_subo_mto ON cached_subcontracting_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_subo_material ON cached_subcontracting_orders(material_code);
@@ -115,7 +121,7 @@ CREATE TABLE IF NOT EXISTS cached_purchase_receipts (
     material_code TEXT NOT NULL,
     real_qty REAL,
     must_qty REAL,
-    bill_type_number TEXT,  -- RKD01_SYS=外购, RKD02_SYS=委外
+    bill_type_number TEXT,  -- RKD01_SYS=外购入库, RKD03_SYS=委外入库 (NOT RKD02_SYS — that returns zero rows)
     aux_prop_id INTEGER DEFAULT 0,
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

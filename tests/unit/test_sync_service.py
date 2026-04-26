@@ -1,11 +1,13 @@
 """Tests for src/sync/sync_service.py"""
 
 from datetime import date, timedelta
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.exceptions import SyncError
+from src.readers.models import SubcontractingOrderModel
 from src.sync.sync_service import SyncResult, SyncService, date_chunks, model_to_json
 
 
@@ -151,6 +153,113 @@ class TestSyncService:
 
         with pytest.raises(SyncError, match="already running"):
             await service.run_sync(days_back=7)
+
+    @pytest.mark.asyncio
+    async def test_subcontract_upsert_preserves_distinct_mtos(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Bug 7 / bug-patterns.md #5 (Pattern 5 recurrence) regression guard.
+
+        Two subcontract orders sharing (bill_no, material_code, aux_prop_id)
+        but belonging to DIFFERENT MTOs of the same customer must both persist
+        through the upsert. This was the contamination shape that produced
+        DS256203S / 07.25.80 ghost rows on prod 2026-04-26: a supplier's
+        subcontract order legitimately spans multiple MTOs of customer
+        瑞弧WeaArCo, and the old upsert silently rewrote the first row's
+        mto_number to the second's, then DELETE-by-mto removed the survivor
+        on subsequent syncs.
+        """
+        service = self.create_service(mock_readers, test_database, mock_sync_progress)
+
+        # Same supplier subcontract bill_no, same material, same aux — different MTOs.
+        # Both rows must coexist after the upsert.
+        records = [
+            SubcontractingOrderModel(
+                bill_no="SUB_SHARED_001",
+                mto_number="DS242022S-A2",
+                material_code="07.25.80",
+                order_qty=Decimal("100"),
+                stock_in_qty=Decimal("0"),
+                no_stock_in_qty=Decimal("100"),
+                aux_prop_id=0,
+            ),
+            SubcontractingOrderModel(
+                bill_no="SUB_SHARED_001",
+                mto_number="DS256203S",
+                material_code="07.25.80",
+                order_qty=Decimal("780"),
+                stock_in_qty=Decimal("0"),
+                no_stock_in_qty=Decimal("780"),
+                aux_prop_id=0,
+            ),
+        ]
+
+        await service._upsert_subcontracting_orders_no_commit(records)
+        await test_database._connection.commit()
+
+        async with test_database._connection.execute(
+            "SELECT mto_number, order_qty FROM cached_subcontracting_orders "
+            "WHERE bill_no = ? AND material_code = ? ORDER BY mto_number",
+            ("SUB_SHARED_001", "07.25.80"),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        assert len(rows) == 2, (
+            f"Expected 2 rows (one per MTO); got {len(rows)}. "
+            "If 1 row, the contamination bug is back: the upsert collapsed two "
+            "distinct MTOs into one because mto_number is missing from the "
+            "UNIQUE / ON CONFLICT key set. See bug-patterns.md #5."
+        )
+        mtos = {r[0] for r in rows}
+        assert mtos == {"DS242022S-A2", "DS256203S"}
+        # And the qty for each MTO must match what was inserted (no overwrite).
+        qty_by_mto = {r[0]: float(r[1]) for r in rows}
+        assert qty_by_mto["DS242022S-A2"] == 100.0
+        assert qty_by_mto["DS256203S"] == 780.0
+
+    @pytest.mark.asyncio
+    async def test_subcontract_upsert_dedups_within_same_mto(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Idempotent within an MTO: two records with identical UNIQUE key
+        for the same MTO collapse to one, with the later qty winning."""
+        service = self.create_service(mock_readers, test_database, mock_sync_progress)
+
+        records = [
+            SubcontractingOrderModel(
+                bill_no="SUB_DUP",
+                mto_number="DS256203S",
+                material_code="07.25.80",
+                order_qty=Decimal("100"),
+                stock_in_qty=Decimal("0"),
+                no_stock_in_qty=Decimal("100"),
+                aux_prop_id=0,
+            ),
+            SubcontractingOrderModel(
+                bill_no="SUB_DUP",
+                mto_number="DS256203S",
+                material_code="07.25.80",
+                order_qty=Decimal("780"),
+                stock_in_qty=Decimal("0"),
+                no_stock_in_qty=Decimal("780"),
+                aux_prop_id=0,
+            ),
+        ]
+
+        await service._upsert_subcontracting_orders_no_commit(records)
+        await test_database._connection.commit()
+
+        async with test_database._connection.execute(
+            "SELECT order_qty FROM cached_subcontracting_orders "
+            "WHERE bill_no = ? AND mto_number = ?",
+            ("SUB_DUP", "DS256203S"),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        assert len(rows) == 1
+        # In-memory dedup retains the LAST record per (bill_no, mto_number,
+        # material_code, aux_prop_id), so qty=780 wins.
+        assert float(rows[0][0]) == 780.0
 
     # Tests for _sync_orders, _sync_orders_with_data, _sync_bom_for_orders_empty
     # removed — those methods were dead code and have been deleted
