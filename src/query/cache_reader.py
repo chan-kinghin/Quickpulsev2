@@ -354,6 +354,33 @@ class CacheReader:
                 FROM cached_purchase_orders po
                 JOIN matching_mtos m ON po.mto_number = m.mto_number
             ),
+            -- Wave 4D (cache mirror of live's Wave 4C dedup): per-code
+            -- aggregate showing whether ANY (code, aux) BOM row has a Tier-1
+            -- exact PRD_MO match. Used by bom_agg below to apply Tier-2.5/3
+            -- rollup dedup (cache mirror of mto_handler.py Step 1 dedup).
+            mo_match_per_code AS (
+                SELECT br.material_code,
+                       MAX(CASE WHEN mo.mo_qty > 0 THEN 1 ELSE 0 END) as has_any_exact,
+                       COUNT(*) as group_count
+                FROM bom_raw br
+                LEFT JOIN prd_mo_agg mo
+                    ON mo.material_code = br.material_code
+                   AND mo.aux_prop_id = br.aux_prop_id
+                GROUP BY br.material_code
+            ),
+            -- Per-row election rank: aux=0 wins over specific aux; among
+            -- specific aux, smallest wins. Mirrors the dict iteration order
+            -- in mto_handler.py:_build_bom_joined_rows_from_live (where the
+            -- first encountered BOM-aux group becomes the elected row).
+            bom_ranked_for_dedup AS (
+                SELECT br.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY br.material_code
+                           ORDER BY (CASE WHEN br.aux_prop_id = 0 THEN 0 ELSE 1 END),
+                                    br.aux_prop_id
+                       ) as elect_rank
+                FROM bom_raw br
+            ),
             bom_agg AS (
                 -- Wave 4B (Issue #1): material_type override for 03.xx purchased
                 -- materials.  Kingdee's PRD_PPBOM.FMaterialType is essentially
@@ -382,6 +409,13 @@ class CacheReader:
                 -- (corrected_material_type=2) / subcontracted (3) / unknown:
                 -- keep SUM — purchased materials legitimately accumulate across
                 -- parent BOMs (one combined PO covers all parents).
+                -- Wave 4D dedup: when a self-made code has multiple BOM-aux
+                -- groups, no exact PRD_MO match for any of them, and Tier-2.5/3
+                -- rollup applies → only the elected row (rank=1) carries the
+                -- full team rollup; sibling rows get 0. This mirrors live's
+                -- Wave 4C Step 1 dedup, preventing the SUM(must_qty)-by-code
+                -- = N × team-target shape (real-data: AS2602033 / 05.02.12.44
+                -- pre-fix cache=51840 vs live=8640, ratio 6×).
                 SELECT br.material_code, br.aux_prop_id,
                        CASE
                            WHEN br.material_code LIKE '03.%'
@@ -390,15 +424,34 @@ class CacheReader:
                            ELSE br.material_type
                        END as corrected_material_type,
                        CASE
+                           -- 03.xx purchased override (Wave 4B)
                            WHEN br.material_code LIKE '03.%'
                                 AND pk.material_code IS NOT NULL
                                THEN br.sum_need_qty
+                           -- Tier 1 exact match — always assign
                            WHEN br.material_type = 1
-                               THEN COALESCE(mo.mo_qty, mo_all.mo_qty, br.max_need_qty)
+                                AND mo.mo_qty IS NOT NULL AND mo.mo_qty > 0
+                               THEN mo.mo_qty
+                           -- Tier 2.5/3 rollup w/ multi-group dedup (Wave 4D)
+                           WHEN br.material_type = 1
+                                AND mo_all.mo_qty IS NOT NULL AND mo_all.mo_qty > 0
+                                AND mc.has_any_exact = 0
+                                AND mc.group_count > 1
+                                AND br.elect_rank = 1
+                               THEN mo_all.mo_qty
+                           WHEN br.material_type = 1
+                                AND mo_all.mo_qty IS NOT NULL
+                                AND mc.has_any_exact = 0
+                                AND mc.group_count > 1
+                                AND br.elect_rank > 1
+                               THEN 0
+                           -- Single-group fallback (no dedup needed)
+                           WHEN br.material_type = 1
+                               THEN COALESCE(mo_all.mo_qty, br.max_need_qty)
                            ELSE br.sum_need_qty
                        END as need_qty,
                        br.picked_qty, br.no_picked_qty, br.synced_at
-                FROM bom_raw br
+                FROM bom_ranked_for_dedup br
                 LEFT JOIN prd_mo_agg mo
                     ON mo.material_code = br.material_code
                    AND mo.aux_prop_id = br.aux_prop_id
@@ -406,6 +459,8 @@ class CacheReader:
                     ON mo_all.material_code = br.material_code
                 LEFT JOIN pur_keys pk
                     ON pk.material_code = br.material_code
+                LEFT JOIN mo_match_per_code mc
+                    ON mc.material_code = br.material_code
             )
             SELECT
                 br.mo_bill_no,
