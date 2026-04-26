@@ -2252,44 +2252,80 @@ class TestBuildBomJoinedRowsFromLive:
         assert row.material_code == "05.03.001"
         assert row.material_type == 1  # self-made (PRD_MO implies production)
 
-    def test_covered_codes_dedup_prevents_aux_variant_synthetic(self, mock_readers):
-        """BOM item with aux=0 prevents synthetic row for same code with aux=5.
+    def test_synthetic_row_emits_all_aux_variants_no_bom(self, mock_readers):
+        """Bug-patterns.md #11 (Bug 5b) regression guard.
 
-        The covered_codes set uses material_code only, so a BOM entry for
-        (03.01.001, aux=0) prevents any synthetic row for 03.01.001 regardless
-        of aux_prop_id. This is correct because BOM is authoritative — receipt
-        data for other aux variants is already aggregated via _make_row lookups.
+        Three PUR aux variants of the same purchased material with NO PPBOM entry
+        must produce 3 separate synthetic rows. The original code-only dedup
+        emitted only the first.
+
+        Real-world case: 03.23.009 贴纸 with 3 SKUs (3 colors), each its own
+        purchase order, none in PPBOM → operator must see all 3, not just one.
         """
-        bom = ProductionBOMModel(
-            mo_bill_no="MO800",
-            mto_number="AS800",
-            material_code="03.01.001",
-            material_name="包材Y",
-            specification="",
-            aux_prop_id=0,
-            material_type=2,
-            need_qty=Decimal("100"),
-            picked_qty=Decimal("50"),
-            no_picked_qty=Decimal("50"),
-        )
-        # Receipt has different aux variant
-        receipt = ProductionReceiptModel(
-            bill_no="RK800",
-            mto_number="AS800",
-            material_code="03.01.001",
-            material_name="包材Y",
-            specification="",
-            real_qty=Decimal("30"),
-            must_qty=Decimal("30"),
-            aux_prop_id=5,  # Different from BOM!
-            mo_bill_no="MO800",
-        )
+        pur_rows = [
+            PurchaseOrderModel(
+                bill_no=f"PO{i}",
+                mto_number="AS900",
+                material_code="03.23.009",
+                material_name="贴纸",
+                specification="",
+                aux_prop_id=aux,
+                order_qty=Decimal("100"),
+                stock_in_qty=Decimal("100"),
+                remain_stock_in_qty=Decimal("0"),
+            )
+            for i, aux in enumerate([211001, 199180, 211709], start=1)
+        ]
 
         handler = self._make_handler(mock_readers)
         rows = handler._build_bom_joined_rows_from_live(
-            production_bom=[bom],
+            production_bom=[],
             prod_orders=[],
-            prod_receipts=[receipt],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=pur_rows,
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 3, (
+            "Expected 3 synthetic rows (one per aux variant). "
+            "Got fewer → Pattern 11 regression: code-only dedup is back."
+        )
+        aux_ids = sorted(r.aux_prop_id for r in rows)
+        assert aux_ids == [199180, 211001, 211709]
+        for r in rows:
+            assert r.material_code == "03.23.009"
+
+    def test_synthetic_row_dedup_within_source(self, mock_readers):
+        """Composite-key dedup still prevents true duplicates.
+
+        Two PRD_INSTOCK records with the same (material_code, aux_prop_id)
+        must collapse to a single synthetic row. This was the legitimate
+        purpose the original `covered_codes` set tried to serve; the
+        composite (code, aux) key in `covered_keys` already handles it.
+        """
+        receipts = [
+            ProductionReceiptModel(
+                bill_no=bill,
+                mto_number="AS950",
+                material_code="03.05.001",
+                material_name="纸箱A",
+                specification="",
+                real_qty=Decimal("50"),
+                must_qty=Decimal("50"),
+                aux_prop_id=0,
+                mo_bill_no="MO950",
+            )
+            for bill in ("RK950A", "RK950B")
+        ]
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[],
+            prod_receipts=receipts,
             material_picks=[],
             purchase_orders=[],
             purchase_receipts=[],
@@ -2297,10 +2333,9 @@ class TestBuildBomJoinedRowsFromLive:
             sales_deliveries=[],
         )
 
-        # Only one row from BOM — no synthetic for the aux=5 receipt
         assert len(rows) == 1
-        assert rows[0].material_code == "03.01.001"
-        assert rows[0].aux_prop_id == 0  # From BOM, not receipt
+        assert rows[0].material_code == "03.05.001"
+        assert rows[0].aux_prop_id == 0
 
     def test_pick_only_creates_synthetic_with_inferred_type(self, mock_readers):
         """Material pick without any other source creates synthetic row."""

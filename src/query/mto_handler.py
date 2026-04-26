@@ -838,10 +838,27 @@ class MTOQueryHandler:
             covered_keys.add((code, aux))
 
         # --- Step 2: Synthetic rows for items NOT in PPBOM ---
-        # Skip finished_goods (07.xx) — handled separately via _build_aggregated_sales_child
-        # For synthetic rows, track by code to avoid showing same material twice
-        # when aux_prop_id differs between sources (e.g., PRD_MO aux=0, receipt aux=5001)
-        covered_codes: set[str] = {code for code, _aux in covered_keys}
+        # Skip finished_goods (07.xx) — handled via _build_aggregated_sales_child.
+        #
+        # Dedup rule (bug-patterns.md #11):
+        #  - `covered_keys` (composite (code, aux)) — exact-match dedup; enforced
+        #    in every block.
+        #  - `covered_codes_from_bom` (code only, seeded from BOM only) — suppresses
+        #    every block when ANY BOM entry exists for that code, because the
+        #    3-tier aux fallback in `_get` / `_lookup_mo_qty` already attributes
+        #    non-matching aux variants' qty to the BOM row.
+        #  - `covered_codes_synthetic` (code only, mutated by 2a/2c/2d) — prevents
+        #    self-made-flavored blocks from double-emitting across each other
+        #    (e.g., PRD_INSTOCK at aux=5001 + PRD_MO at aux=0 for the same code →
+        #    one row, not two).
+        #
+        # Critical (Bug 5b): block 2b (PUR) does NOT consult or mutate
+        # `covered_codes_synthetic`. A purchased material with multiple aux
+        # variants (e.g., 03.23.009 贴纸 with 3 color SKUs and no PPBOM) is
+        # legitimately N distinct rows, not 1 — the previous code-only dedup
+        # silently emitted only the first variant.
+        covered_codes_from_bom: set[str] = {code for code, _aux in covered_keys}
+        covered_codes_synthetic: set[str] = set(covered_codes_from_bom)
 
         # 2a: Items from PRD_INSTOCK not in PPBOM (skip 07.xx finished goods)
         receipt_groups: dict[tuple[str, int], list] = defaultdict(list)
@@ -852,7 +869,7 @@ class MTOQueryHandler:
             receipt_groups[(pr.material_code, aux)].append(pr)
 
         for (code, aux), pr_list in receipt_groups.items():
-            if (code, aux) in covered_keys or code in covered_codes:
+            if (code, aux) in covered_keys or code in covered_codes_synthetic:
                 continue
             first = pr_list[0]
             # Items in PRD_INSTOCK are production receipts → self-made
@@ -867,9 +884,10 @@ class MTOQueryHandler:
                 picked_qty=ZERO, no_picked_qty=ZERO,
             ))
             covered_keys.add((code, aux))
-            covered_codes.add(code)
+            covered_codes_synthetic.add(code)
 
-        # 2b: Purchase orders (03.xx) without PPBOM entry
+        # 2b: Purchase orders (03.xx) without PPBOM entry — multi-aux SKU-aware,
+        # does NOT consult or mutate covered_codes_synthetic (see Bug 5b).
         pur_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pur in purchase_orders:
             if pur.material_code.startswith("07."):
@@ -878,7 +896,8 @@ class MTOQueryHandler:
             pur_groups[(pur.material_code, aux)].append(pur)
 
         for (code, aux), pur_list in pur_groups.items():
-            if (code, aux) in covered_keys or code in covered_codes:
+            # Note: deliberately NOT checking covered_codes_synthetic — Bug 5b.
+            if (code, aux) in covered_keys or code in covered_codes_from_bom:
                 continue
             first = pur_list[0]
             rows.append(_make_row(
@@ -890,9 +909,9 @@ class MTOQueryHandler:
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
             ))
             covered_keys.add((code, aux))
-            covered_codes.add(code)
 
-        # 2c: PRD_MO (05.xx or 03.xx+selfmade) without PPBOM or receipts
+        # 2c: PRD_MO (05.xx or 03.xx+selfmade) without PPBOM or receipts.
+        # Self-made-flavored: shares covered_codes_synthetic with 2a/2d.
         mo_groups: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
             if po.material_code.startswith("07."):
@@ -901,7 +920,7 @@ class MTOQueryHandler:
             mo_groups[(po.material_code, aux)].append(po)
 
         for (code, aux), po_list in mo_groups.items():
-            if (code, aux) in covered_keys or code in covered_codes:
+            if (code, aux) in covered_keys or code in covered_codes_synthetic:
                 continue
             first = po_list[0]
             # Use PRD_MO qty as need_qty for synthetic rows (no BOM entry)
@@ -915,9 +934,10 @@ class MTOQueryHandler:
                 need_qty=mo_qty, picked_qty=ZERO, no_picked_qty=ZERO,
             ))
             covered_keys.add((code, aux))
-            covered_codes.add(code)
+            covered_codes_synthetic.add(code)
 
-        # 2d: Material picks without any other source
+        # 2d: Material picks without any other source.
+        # Self-made-flavored: shares covered_codes_synthetic with 2a/2c.
         pick_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pick in material_picks:
             if pick.material_code.startswith("07."):
@@ -926,7 +946,7 @@ class MTOQueryHandler:
             pick_groups[(pick.material_code, aux)].append(pick)
 
         for (code, aux), pick_list in pick_groups.items():
-            if (code, aux) in covered_keys or code in covered_codes:
+            if (code, aux) in covered_keys or code in covered_codes_synthetic:
                 continue
             first = pick_list[0]
             # Conservative default — picking data with no other source, assume self-made
@@ -940,7 +960,7 @@ class MTOQueryHandler:
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
             ))
             covered_keys.add((code, aux))
-            covered_codes.add(code)
+            covered_codes_synthetic.add(code)
 
         return rows
 
