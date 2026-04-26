@@ -322,6 +322,9 @@ class TestMTOQueryHandler:
         mock_cache.get_material_picking = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
+        mock_cache.get_purchase_receipts = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 
@@ -2078,6 +2081,139 @@ class TestSalesReceiptFallback(TestMTOQueryHandler):
         # Should find receipt via (code, 0) fallback, NOT show 0
         assert child.prod_instock_real_qty == Decimal("500")
 
+    @pytest.mark.asyncio
+    async def test_finished_goods_receipt_via_purchase_receipt(self, mock_readers):
+        """Wave 6B: 07.xx finished goods receipt via STK_InStock (purchase_receipts).
+
+        Pre-fix: _build_aggregated_sales_child only consulted prod_receipts
+        (PRD_INSTOCK). When a 07.xx finished good is bought-in from a sister
+        plant / OEM partner, the receipt lands in STK_InStock with
+        bill_type_number=RKD01_SYS, and prod_instock_real_qty was 0 with no
+        sign of the inbound quantity.
+
+        Post-fix: same Tier 1 → Tier 3 rollup logic applied to
+        purchase_receipts and surfaced as purchase_stock_in_qty on the child.
+
+        Reproduces DK251003S 07.02.151/154 (BOM aux=A specific for 07.xx with
+        STK_InStock receipt at the same aux) — KD demand=242, fulfilled=242
+        but PRD_INSTOCK is empty.
+        """
+        from src.readers.models import PurchaseReceiptModel
+
+        sales_order = SalesOrderModel(
+            bill_no="SO_W6B",
+            mto_number="DK_W6B",
+            material_code="07.02.151",
+            material_name="泳镜",
+            specification="规格X",
+            aux_attributes="蓝色",
+            aux_prop_id=205453,
+            customer_name="客户W6B",
+            delivery_date="2026-01-30",
+            qty=Decimal("242"),
+        )
+        # NOTE: PRD_INSTOCK is intentionally empty for this scenario.
+        purchase_receipt = PurchaseReceiptModel(
+            bill_no="CG_W6B",
+            mto_number="DK_W6B",
+            material_code="07.02.151",
+            material_name="泳镜",
+            specification="规格X",
+            real_qty=Decimal("242"),
+            must_qty=Decimal("242"),
+            bill_type_number="RKD01_SYS",
+            aux_prop_id=205453,  # exact aux match with sales order
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
+            return_value=[sales_order]
+        )
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[purchase_receipt]
+        )
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["subcontracting_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_bom"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={205453: "蓝色"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("DK_W6B", use_cache=False)
+
+        finished = [c for c in result.children if c.material_code == "07.02.151"]
+        assert len(finished) == 1
+        child = finished[0]
+        assert child.material_type_name == "成品"
+        assert child.sales_order_qty == Decimal("242")
+        # Pre-fix: prod_instock_real_qty=0 AND purchase_stock_in_qty=0.
+        # Post-fix: STK_InStock receipt is surfaced via purchase_stock_in_qty.
+        assert child.prod_instock_real_qty == Decimal("0")
+        assert child.purchase_stock_in_qty == Decimal("242"), (
+            "Wave 6B: STK_InStock receipt for 07.xx finished good must be "
+            "surfaced as purchase_stock_in_qty when PRD_INSTOCK is empty"
+        )
+
+    @pytest.mark.asyncio
+    async def test_finished_goods_purchase_receipt_aux_mismatch_fallback(self, mock_readers):
+        """Wave 6B: aux mismatch between SAL and STK_InStock falls through to rollup.
+
+        SAL has aux=A specific, STK_InStock has aux=B specific (different).
+        Tier 3 (all_aux_rollup) should kick in and surface the receipt qty.
+        """
+        from src.readers.models import PurchaseReceiptModel
+
+        sales_order = SalesOrderModel(
+            bill_no="SO_W6B2",
+            mto_number="DK_W6B2",
+            material_code="07.02.147",
+            material_name="泳镜",
+            specification="",
+            aux_prop_id=111,  # SAL aux
+            customer_name="客户",
+            delivery_date="2026-02-01",
+            qty=Decimal("100"),
+        )
+        purchase_receipt = PurchaseReceiptModel(
+            bill_no="CG_W6B2",
+            mto_number="DK_W6B2",
+            material_code="07.02.147",
+            real_qty=Decimal("100"),
+            must_qty=Decimal("100"),
+            bill_type_number="RKD01_SYS",
+            aux_prop_id=222,  # different aux
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(
+            return_value=[sales_order]
+        )
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(
+            return_value=[purchase_receipt]
+        )
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["subcontracting_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_bom"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={111: "A", 222: "B"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("DK_W6B2", use_cache=False)
+
+        finished = [c for c in result.children if c.material_code == "07.02.147"]
+        assert len(finished) == 1
+        # Tier 3 rollup: SAL aux=111 doesn't match STK aux=222, so fall through
+        # to the all-aux sum.
+        assert finished[0].purchase_stock_in_qty == Decimal("100")
+
 
 class TestBuildBomJoinedRowsFromLive:
     """Tests for _build_bom_joined_rows_from_live synthetic entries.
@@ -2493,6 +2629,133 @@ class TestBuildBomJoinedRowsFromLive:
         assert aux_ids == [199180, 211001, 211709]
         for r in rows:
             assert r.material_code == "03.23.009"
+
+    def test_prd_mo_multi_aux_no_bom_no_receipt_emits_all(self, mock_readers):
+        """Wave 6C: 05.xx self-made code with multi-aux PRD_MO and no PPBOM.
+
+        Pre-Wave-6C: only the first PRD_MO aux surfaced; the rest were silently
+        dropped because block 2c added the code to covered_codes_synthetic and
+        subsequent groups skipped.
+
+        Real-data case: DK251003S / 05.20.01.07.011 PC镜片 had 3 PRD_MO rows
+        at 3 distinct aux summing to 49440 (960 + 9600 + 38880). QP returned
+        demand=960 (1/50 of Kingdee). Post-Wave-6C, all 3 rows emit so the
+        sum matches Kingdee's PRD_MO total.
+
+        The code-level gate is preserved when BOM exists (so 3-tier rollup
+        attribution still works) and when 2a fired (so receipt rollup is
+        only attributed once).
+        """
+        prod_orders = [
+            ProductionOrderModel(
+                bill_no=f"MO_W6C_{i}",
+                mto_number="DK_W6C",
+                workshop="测试",
+                material_code="05.20.01.07.011",
+                material_name="PC镜片(已印刷)",
+                specification="",
+                aux_prop_id=aux,
+                qty=qty,
+                status="已审核",
+                create_date="2026-04-01",
+            )
+            for i, (aux, qty) in enumerate(
+                [(105726, Decimal("960")),
+                 (106250, Decimal("9600")),
+                 (105980, Decimal("38880"))],
+                start=1,
+            )
+        ]
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=prod_orders,
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 3, (
+            f"Wave 6C: expected 3 synthetic rows from PRD_MO multi-aux, got "
+            f"{len(rows)}. Pre-fix dropped all-but-first → demand 960 vs "
+            f"Kingdee 49440 (50× shortfall on DK251003S 05.20.01.07.011)."
+        )
+        total_need = sum(r.need_qty for r in rows)
+        assert total_need == Decimal("49440")
+        aux_ids = sorted(r.aux_prop_id for r in rows)
+        assert aux_ids == [105726, 105980, 106250]
+
+    def test_prd_mo_multi_aux_with_prd_instock_keeps_old_dedup(self, mock_readers):
+        """Wave 6C: when PRD_INSTOCK fired in 2a, 2c keeps the old code-level
+        gate so the receipt rollup isn't attributed twice.
+
+        Setup: PRD_INSTOCK at aux=A (1 emit in 2a), PRD_MO at aux=A and aux=B.
+        Block 2a emits 1 row (aux=A) with _lookup_mo_qty(A) → exact match.
+        Block 2c at aux=A: covered_keys hit → skip.
+        Block 2c at aux=B: code already in covered_codes_synthetic AND
+        codes_with_prd_instock_emit → skip (legacy behavior preserved).
+        Result: 1 row total.
+        """
+        receipt = ProductionReceiptModel(
+            bill_no="RK_W6C2",
+            mto_number="DK_W6C2",
+            material_code="05.20.01.07.012",
+            material_name="自制件",
+            specification="",
+            real_qty=Decimal("100"),
+            must_qty=Decimal("100"),
+            aux_prop_id=900,  # aux=A
+            mo_bill_no="MO_W6C2_A",
+        )
+        prod_orders = [
+            ProductionOrderModel(
+                bill_no="MO_W6C2_A",
+                mto_number="DK_W6C2",
+                workshop="测试",
+                material_code="05.20.01.07.012",
+                material_name="自制件",
+                specification="",
+                aux_prop_id=900,  # aux=A (matches receipt)
+                qty=Decimal("100"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+            ProductionOrderModel(
+                bill_no="MO_W6C2_B",
+                mto_number="DK_W6C2",
+                workshop="测试",
+                material_code="05.20.01.07.012",
+                material_name="自制件",
+                specification="",
+                aux_prop_id=901,  # aux=B (no receipt at B)
+                qty=Decimal("50"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+        ]
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=prod_orders,
+            prod_receipts=[receipt],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        # 2a emits 1 (aux=A); 2c skips both A (covered_keys) and B (legacy
+        # gate when 2a fired, prevents receipt rollup double attribution).
+        assert len(rows) == 1
+        assert rows[0].aux_prop_id == 900
+        # need_qty comes from _lookup_mo_qty(A) = exact PRD_MO at A
+        assert rows[0].need_qty == Decimal("100")
 
     def test_synthetic_row_dedup_within_source(self, mock_readers):
         """Composite-key dedup still prevents true duplicates.

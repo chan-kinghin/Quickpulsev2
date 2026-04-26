@@ -431,10 +431,15 @@ class MTOQueryHandler:
         prod_receipts_result = await self._cache_reader.get_production_receipts(mto_number)
         sales_delivery_result = await self._cache_reader.get_sales_delivery(mto_number)
         material_picking_result = await self._cache_reader.get_material_picking(mto_number)
+        # Wave 6B: also pull purchase receipts (STK_InStock) — 07.xx finished
+        # goods can be transferred in from sister plants / OEM partners and
+        # land in STK_InStock RKD01_SYS instead of PRD_INSTOCK.
+        purchase_receipts_result = await self._cache_reader.get_purchase_receipts(mto_number)
 
         prod_receipts_07 = [r for r in (prod_receipts_result.data or []) if r.material_code.startswith("07.")]
         sales_delivery_07 = [r for r in (sales_delivery_result.data or []) if r.material_code.startswith("07.")]
         material_picks_07 = [r for r in (material_picking_result.data or []) if r.material_code.startswith("07.")]
+        purchase_receipts_07 = [r for r in (purchase_receipts_result.data or []) if r.material_code.startswith("07.")]
 
         receipt_by_material: dict[tuple[str, int], Decimal] = {}
         for r in prod_receipts_07:
@@ -445,6 +450,13 @@ class MTOQueryHandler:
         for r in sales_delivery_07:
             key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
             delivered_by_material[key] = delivered_by_material.get(key, ZERO) + r.real_qty
+
+        purchase_receipt_by_material: dict[tuple[str, int], Decimal] = {}
+        for r in purchase_receipts_07:
+            key = (r.material_code, getattr(r, "aux_prop_id", 0) or 0)
+            purchase_receipt_by_material[key] = (
+                purchase_receipt_by_material.get(key, ZERO) + r.real_qty
+            )
 
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
@@ -457,7 +469,8 @@ class MTOQueryHandler:
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
-                aux_descriptions
+                aux_descriptions,
+                purchase_receipt_by_material=purchase_receipt_by_material,
             )
             children.append(child)
 
@@ -551,6 +564,11 @@ class MTOQueryHandler:
         # --- Finished goods (07.xx) from SAL_SaleOrder ---
         receipt_by_material = _sum_by_material_and_aux(prod_receipts, "real_qty")
         delivered_by_material = _sum_by_material_and_aux(sales_deliveries, "real_qty")
+        # Wave 6B: include STK_InStock (purchase_receipts) so finished goods
+        # transferred from sister plants are visible (DK251003S 07.02.151/154).
+        purchase_receipt_by_material = _sum_by_material_and_aux(
+            purchase_receipts, "real_qty"
+        )
 
         sales_by_key: dict[tuple[str, int], list] = defaultdict(list)
         for so in sales_orders:
@@ -562,7 +580,8 @@ class MTOQueryHandler:
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
-                aux_descriptions
+                aux_descriptions,
+                purchase_receipt_by_material=purchase_receipt_by_material,
             )
             children.append(child)
 
@@ -1118,6 +1137,13 @@ class MTOQueryHandler:
             aux = getattr(pr, "aux_prop_id", 0) or 0
             receipt_groups[(pr.material_code, aux)].append(pr)
 
+        # Wave 6C: track which codes had an actual 2a emit (i.e., PRD_INSTOCK
+        # exists). 2c uses this to decide whether the `covered_codes_synthetic`
+        # gate applies. For codes with NO PRD_INSTOCK at all, 2c needs to emit
+        # every PRD_MO aux variant (otherwise multi-aux self-made codes lose
+        # all-but-one variant — DK251003S 05.20.01.07.011 had 3 PRD_MO aux
+        # totaling 49440 but only 960 surfaced).
+        codes_with_prd_instock_emit: set[str] = set()
         for (code, aux), pr_list in receipt_groups.items():
             if (code, aux) in covered_keys or code in covered_codes_synthetic:
                 continue
@@ -1135,6 +1161,7 @@ class MTOQueryHandler:
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
+            codes_with_prd_instock_emit.add(code)
 
         # 2b: Purchase orders (03.xx) without PPBOM entry — multi-aux SKU-aware,
         # does NOT consult or mutate covered_codes_synthetic (see Bug 5b).
@@ -1162,6 +1189,15 @@ class MTOQueryHandler:
 
         # 2c: PRD_MO (05.xx or 03.xx+selfmade) without PPBOM or receipts.
         # Self-made-flavored: shares covered_codes_synthetic with 2a/2d.
+        #
+        # Wave 6C carve-out: for codes with NO PRD_INSTOCK emit in 2a, drop
+        # the `covered_codes_synthetic` gate so every PRD_MO aux variant
+        # surfaces. Pre-Wave-6C, a code with N PRD_MO aux variants and zero
+        # PRD_INSTOCK rows lost N-1 aux variants entirely (DK251003S
+        # 05.20.01.07.011: 3 PRD_MO rows summing to 49440 → QP showed 960).
+        # The gate is preserved when 2a fired so the receipt-side `_get`
+        # rollup doesn't get attributed twice (the elected 2a row already
+        # consumed the receipt rollup at its aux).
         mo_groups: dict[tuple[str, int], list] = defaultdict(list)
         for po in prod_orders:
             if po.material_code.startswith("07."):
@@ -1170,8 +1206,18 @@ class MTOQueryHandler:
             mo_groups[(po.material_code, aux)].append(po)
 
         for (code, aux), po_list in mo_groups.items():
-            if (code, aux) in covered_keys or code in covered_codes_synthetic:
+            if (code, aux) in covered_keys:
                 continue
+            # Code-level dedup applies UNLESS 2c is the only block emitting for
+            # this code (no BOM, no PRD_INSTOCK). In that case the previous
+            # gate collapsed multi-aux PRD_MO into a single row — DK251003S
+            # 05.20.01.07.011 had 3 PRD_MO aux summing to 49440, only 960
+            # surfaced. Skip the gate only when BOM had no entry AND 2a did
+            # not emit, leaving 2c free to surface every aux variant.
+            if code in covered_codes_from_bom:
+                continue  # BOM already represents this code (with 3-tier rollup)
+            if code in codes_with_prd_instock_emit:
+                continue  # 2a already emitted; preserve old single-row behavior
             first = po_list[0]
             # Use PRD_MO qty as need_qty for synthetic rows (no BOM entry)
             mo_qty = sum(getattr(p, "qty", ZERO) for p in po_list)
@@ -1220,12 +1266,20 @@ class MTOQueryHandler:
         receipt_by_material: dict[tuple[str, int], Decimal],
         delivered_by_material: dict[tuple[str, int], Decimal],
         aux_descriptions: dict[int, str],
+        purchase_receipt_by_material: dict[tuple[str, int], Decimal] | None = None,
     ) -> ChildItem:
         """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
 
         字段映射 (金蝶原始字段):
         - sales_order_qty: 销售订单.数量
-        - prod_instock_real_qty: 生产入库单.实收数量
+        - prod_instock_real_qty: 生产入库单.实收数量 (PRD_INSTOCK)
+        - purchase_stock_in_qty: 采购入库单.实收数量 (STK_InStock RKD01_SYS)
+          — for 07.xx finished goods that arrive via inter-company / sister-plant
+          purchase rather than in-house production. Wave 6B fix: prior to this,
+          STK_InStock receipts for 07.xx were silently dropped because
+          _build_aggregated_sales_child only consulted PRD_INSTOCK.
+          Observed on DK251003S 07.02.151/154 where SAL had qty=242/583 but
+          PRD_INSTOCK had zero rows; the receipt lived in STK_InStock RKD01.
         - bom_short_name: BOM简称
         """
         first = sales_orders[0]
@@ -1239,14 +1293,16 @@ class MTOQueryHandler:
 
         # 生产入库单.实收数量 — try exact (code, aux) first, then sum all aux variants
         # in case SAL_SaleOrder and PRD_INSTOCK have different aux_prop_id values
-        key = (code, aux_prop_id)
-        _exact = receipt_by_material.get(key)
-        if _exact is not None:
-            prod_instock_real_qty = _exact
-        else:
-            # Fallback: sum all aux variants for this material code
-            _fallback_sum = sum(v for k, v in receipt_by_material.items() if k[0] == code)
-            prod_instock_real_qty = _fallback_sum if _fallback_sum else ZERO
+        prod_instock_real_qty = self._lookup_finished_receipt(
+            receipt_by_material, code, aux_prop_id
+        )
+
+        # 采购入库单.实收数量 — same Tier 1 → Tier 3 rollup against the STK_InStock
+        # receipts when the 07.xx item is bought-in (sister-plant transfer, OEM,
+        # consignment) rather than produced in-house.
+        purchase_stock_in_qty = self._lookup_finished_receipt(
+            purchase_receipt_by_material or {}, code, aux_prop_id
+        )
 
         return ChildItem(
             material_code=code,
@@ -1260,7 +1316,40 @@ class MTOQueryHandler:
             # 金蝶原始字段
             sales_order_qty=sales_order_qty,
             prod_instock_real_qty=prod_instock_real_qty,
+            purchase_stock_in_qty=purchase_stock_in_qty,
         )
+
+    @staticmethod
+    def _lookup_finished_receipt(
+        receipt_by_material: dict[tuple[str, int], Decimal],
+        code: str,
+        aux_prop_id: int,
+    ) -> Decimal:
+        """Receipt lookup for 07.xx finished goods.
+
+        Tier 1: exact (code, aux) match.
+        Tier 2 (aux_zero_fallback): SAL has aux≠0, receipt has aux=0.
+        Tier 3 (all_aux_rollup): no exact / Tier 2 hit — sum across all aux for this code.
+
+        Mirrors the BOM-row receipt fallback in `_get` (the live BOMJoinedRow
+        builder) so finished goods get the same coverage as self-made / packaging
+        components when SAL and receipt aux_prop_ids disagree.
+        """
+        key = (code, aux_prop_id)
+        exact = receipt_by_material.get(key)
+        if exact is not None:
+            return exact
+        # Tier 2: receipt at aux=0
+        if aux_prop_id != 0:
+            zero_fallback = receipt_by_material.get((code, 0))
+            if zero_fallback is not None:
+                return zero_fallback
+        # Tier 3: sum across all aux for this code
+        rollup = sum(
+            (v for k, v in receipt_by_material.items() if k[0] == code),
+            ZERO,
+        )
+        return rollup if rollup else ZERO
 
     def _bom_row_to_child(
         self,
