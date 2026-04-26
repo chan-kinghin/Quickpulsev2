@@ -758,13 +758,36 @@ class MTOQueryHandler:
             _mo_qty_by_code[c] = _mo_qty_by_code.get(c, ZERO) + v
 
         def _lookup_mo_qty(code: str, aux: int) -> Decimal:
-            """Resolve PRD_MO.FQty for (code, aux) with 3-tier aux fallback.
+            """Resolve PRD_MO.FQty for (code, aux) with 4-tier aux fallback.
 
             Tier 1: exact (code, aux) match.
             Tier 2: BOM has specific aux, PRD_MO recorded at aux=0.
+            Tier 2.5 (Wave 4C): BOM has specific aux AND PRD_MO has only
+                    other specific aux values (no aux=0 entry) — disjoint
+                    aux numbering between PPBOM and PRD_MO. Roll up all
+                    PRD_MO rows for the code, same answer as Tier 3 for the
+                    BOM-aux=0 case. Real-data scenario: AS2602033 /
+                    05.02.12.44 — PPBOM at aux=105726/197964/206684/106447/
+                    106237 and PRD_MO at aux=221031/221032/221033. Without
+                    this tier, Tier 1 + Tier 2 both miss and the caller
+                    drops to MAX(b.need_qty), inflating the demand by N×
+                    the actual production target (~2.7× in this case).
             Tier 3: BOM has generic aux=0, PRD_MO at one or more specific aux
                     values → sum across all PRD_MO rows for this material.
                     (Mirrors the receipt-side `all_aux_rollup` in _get.)
+
+            Tier 2.5 and Tier 3 are symmetric — both reduce to "use the
+            team's total production target across all aux variants" when
+            PPBOM and PRD_MO disagree on aux numbering.
+
+            NOTE — multi-row dedup (Wave 4C): when N BOM-aux groups for the
+            same code all hit Tier 2.5/Tier 3 (no Tier 1 match anywhere),
+            assigning the rollup to every group inflates SUM(must_qty) by
+            N×. The caller (Step 1 BOM-row builder) handles this dedup via
+            `_tier_2_5_codes` — only ONE row per qualifying code carries
+            the rollup; later rows skip both this helper and the MAX
+            fallback, going to ZERO. See the comment block above
+            `_tier_2_5_codes` for the full rule.
 
             Returns ZERO when no PRD_MO row exists for the material at all —
             caller falls back to MAX(b.need_qty) per Pattern 10 fix.
@@ -778,7 +801,13 @@ class MTOQueryHandler:
                 v = _mo_qty.get((code, 0))
                 if v is not None and v > 0:
                     return v
-                return ZERO
+                # Tier 2.5 (Wave 4C): both exact and aux=0 missed — PPBOM and
+                # PRD_MO use disjoint aux numbering for the same code (real-
+                # data case AS2602033 / 05.02.12.44). Roll up all PRD_MO for
+                # the code, same answer as Tier 3 for the BOM-aux=0 case.
+                # Without this fallback, the caller drops to MAX(b.need_qty)
+                # and inflates the demand by N× the actual production target.
+                return _mo_qty_by_code.get(code, ZERO)
             # Tier 3: BOM aux=0 → roll up ALL PRD_MO rows for this material
             return _mo_qty_by_code.get(code, ZERO)
 
@@ -789,6 +818,55 @@ class MTOQueryHandler:
                 continue  # finished goods handled via _build_aggregated_sales_child
             key = (bom.material_code, getattr(bom, "aux_prop_id", 0) or 0)
             bom_groups[key].append(bom)
+
+        # Wave 4C — per-code dedup of fallback rollup across multiple
+        # BOM-aux groups for the same self-made code.
+        #
+        # When PPBOM and PRD_MO use disjoint aux numbering for the same code
+        # (real-data case AS2602033 / 05.02.12.44 — PPBOM at aux=0 +
+        # 105726/106237/106447/197964/206684, PRD_MO at aux=221031/221032/
+        # 221033), several BOM-aux groups land in fallback territory:
+        #   - aux=0 group goes to Tier 3 rollup
+        #   - specific-aux groups go to Tier 2.5 rollup OR MAX(need_qty)
+        # If every fallback row receives the full team rollup (or its own
+        # MAX), SUM(must_qty) by code = N × team-target instead of 1 ×
+        # team-target.
+        #
+        # A code qualifies for fallback-row dedup when:
+        #   1. self-made (material_type == 1), and
+        #   2. _mo_qty_by_code[code] > 0 (PRD_MO rollup exists), and
+        #   3. No BOM-aux group has a Tier 1 exact match, and
+        #   4. There is more than one BOM-aux group for this code (single-
+        #      group cases are handled correctly by `_lookup_mo_qty` alone).
+        #
+        # When a code qualifies:
+        #   - the FIRST BOM group encountered carries _mo_qty_by_code[code]
+        #     (the team total)
+        #   - every subsequent BOM group for that code gets ZERO (no MAX
+        #     fallback — the team's total is already accounted for in the
+        #     elected representative row).
+        #
+        # If ANY BOM-aux group has a Tier 1 exact match, the code's
+        # production target is being correctly distributed across PRD_MO-
+        # matched aux variants — DON'T dedup; let `_lookup_mo_qty` per-row
+        # handle each group (Tier 1 hits use exact qty; Tier 2/2.5/3 misses
+        # fall to MAX).
+        _tier_2_5_codes: set[str] = set()
+        _bom_codes_seen: dict[str, list[int]] = defaultdict(list)
+        for (c, a) in bom_groups.keys():
+            _bom_codes_seen[c].append(a)
+        for c, aux_list in _bom_codes_seen.items():
+            rollup = _mo_qty_by_code.get(c, ZERO)
+            if rollup <= 0:
+                continue
+            # If any BOM-aux has a Tier 1 exact match, don't dedup —
+            # PRD_MO sub-targets are aligned with PPBOM aux numbering.
+            if any((c, a) in _mo_qty and _mo_qty[(c, a)] > 0 for a in aux_list):
+                continue
+            # More than one BOM-aux group for this code — dedup needed.
+            if len(aux_list) >= 2:
+                _tier_2_5_codes.add(c)
+        _tier_2_5_consumed: set[str] = set()
 
         rows = []
         covered_keys: set[tuple[str, int]] = set()
@@ -803,7 +881,12 @@ class MTOQueryHandler:
             # each line carrying the full demand for that parent (e.g.,
             # 05.02.08.027 in 50 parents × 3744 = 187,200, when the actual
             # production target is 3744). The authoritative source is
-            # PRD_MO.FQty for (code, aux), with fallback to MAX(b.need_qty).
+            # PRD_MO.FQty for (code, aux), with fallback chain in
+            # `_lookup_mo_qty` (Tier 1 exact → Tier 2 aux=0 → Tier 2.5/Tier 3
+            # all-aux rollup) before degrading to MAX(b.need_qty). Tier 2.5
+            # (Wave 4C) handles BOM-specific-aux + PRD_MO-other-specific-aux
+            # disjoint numbering (AS2602033 / 05.02.12.44); Tier 3 (commit
+            # 948054c) handles BOM-aux=0 + PRD_MO-specific-aux.
             # Old variant fixed `b8e6fc7` (receipt FMustQty sum); BOM-rollup
             # variant introduced by `ce08d69` (BOM-first refactor) and fixed
             # 2026-04-26.
@@ -812,14 +895,27 @@ class MTOQueryHandler:
             # purchased materials legitimately accumulate across parent BOMs
             # (you place one combined order).
             if m_type == 1:
-                _mo = _lookup_mo_qty(code, aux)
-                if _mo > 0:
-                    need_qty_val = _mo
+                # Wave 4C: When a code is flagged for Tier 2.5 dedup, only
+                # ONE row per code carries the all-aux rollup; others go to
+                # ZERO with NO MAX fallback (the team's total target is
+                # already accounted for in the elected representative row).
+                if code in _tier_2_5_codes:
+                    if code in _tier_2_5_consumed:
+                        # Already elected a representative — this row's
+                        # demand is folded into the rep's rollup.
+                        need_qty_val = ZERO
+                    else:
+                        need_qty_val = _mo_qty_by_code.get(code, ZERO)
+                        _tier_2_5_consumed.add(code)
                 else:
-                    need_qty_val = max(
-                        (getattr(b, "need_qty", ZERO) for b in bom_list),
-                        default=ZERO,
-                    )
+                    _mo = _lookup_mo_qty(code, aux)
+                    if _mo > 0:
+                        need_qty_val = _mo
+                    else:
+                        need_qty_val = max(
+                            (getattr(b, "need_qty", ZERO) for b in bom_list),
+                            default=ZERO,
+                        )
             else:
                 need_qty_val = sum(getattr(b, "need_qty", ZERO) for b in bom_list)
             rows.append(_make_row(

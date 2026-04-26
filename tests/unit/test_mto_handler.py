@@ -821,6 +821,202 @@ class TestMTOQueryHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_bom_specific_aux_with_disjoint_prd_mo_aux_falls_back_to_rollup(
+        self, mock_readers
+    ):
+        """Tier 2.5 (Wave 4C): BOM at aux=A (specific) + PRD_MO at aux=B,C
+        (different specific) — Tier 1 and Tier 2 both miss; the fallback
+        rolls up PRD_MO across all aux for the code so the demand matches
+        the team's production target.
+
+        Real-data scenario: AS2602033 / 05.02.12.44 had PPBOM at aux=
+        105726/197964/206684/106447/106237 and PRD_MO at aux=221031/221032/
+        221033 (FQty 2880 each, total 8640). Pre-Tier-2.5 the BOM-specific-
+        aux rows fell to MAX(b.need_qty) and over-counted ~2.7× (~23040
+        instead of 8640).
+
+        This test uses a single BOM line at aux=999 (specific) and two
+        PRD_MO rows at aux=1000 and aux=1001 (also specific, fully
+        disjoint from BOM aux). Expected need_qty = 1000 + 662 = 1662
+        (sum of all PRD_MO), NOT MAX(b.need_qty)=2880, NOT ZERO.
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "AS2602033"
+        # PPBOM: single line at SPECIFIC aux=999 with inflated upstream demand.
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO260400099",
+                mto_number=mto,
+                material_code="05.02.12.44",
+                material_name="测试件",
+                specification="",
+                aux_prop_id=999,
+                material_type=1,
+                need_qty=Decimal("2880"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("2880"),
+            ),
+        ]
+        # PRD_MO: two rows at SPECIFIC aux values, NEITHER matching BOM's 999
+        # AND no row at aux=0. Tier 1 (exact 999) misses; Tier 2 ((code,0))
+        # misses; Tier 2.5 must roll up all PRD_MO → 1000 + 662 = 1662.
+        prod_orders = [
+            ProductionOrderModel(
+                bill_no="MO_X",
+                mto_number=mto,
+                workshop="组装工段",
+                material_code="05.02.12.44",
+                material_name="测试件",
+                specification="",
+                aux_prop_id=1000,
+                qty=Decimal("1000"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+            ProductionOrderModel(
+                bill_no="MO_Y",
+                mto_number=mto,
+                workshop="组装工段",
+                material_code="05.02.12.44",
+                material_name="测试件",
+                specification="",
+                aux_prop_id=1001,
+                qty=Decimal("662"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+        ]
+
+        handler = self.create_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=prod_orders,
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "05.02.12.44"
+        # Tier 2.5: BOM specific-aux + PRD_MO disjoint specific-aux →
+        # all-aux rollup = 1000 + 662 = 1662.
+        assert row.need_qty == Decimal("1662"), (
+            f"Expected Tier-2.5 PRD_MO all-aux rollup = 1662, got "
+            f"{row.need_qty}. Tier 1 (exact aux=999) and Tier 2 ((code,0)) "
+            "both miss; without Tier 2.5 the caller drops to MAX(b.need_qty)"
+            " = 2880 (inflated) or returns ZERO. AS2602033 / 05.02.12.44 "
+            "real-data regression — see bug-patterns.md #10 + Wave 4C plan."
+        )
+        # And specifically NOT the BOM upstream value:
+        assert row.need_qty != Decimal("2880"), (
+            "need_qty fell through to MAX(b.need_qty) — Tier-2.5 PRD_MO "
+            "rollup is missing or returning ZERO. Inspect _lookup_mo_qty's "
+            "Tier-2.5 branch (the post-Tier-2 fallback to _mo_qty_by_code)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_bom_multi_specific_aux_disjoint_prd_mo_dedups_rollup(
+        self, mock_readers
+    ):
+        """Tier 2.5 multi-row dedup (Wave 4C): when N BOM-aux groups all
+        miss Tier 1+2 (disjoint aux numbering), exactly ONE row carries the
+        all-aux PRD_MO rollup; the others get ZERO (no MAX fallback).
+
+        Without this dedup, every BOM-aux row would carry the full team
+        target → SUM(must_qty) by code = N × team-target instead of 1 ×
+        team-target. Real-data scenario: AS2602033 / 05.02.12.44 had 5 BOM
+        groups at specific aux + 1 BOM group at aux=0; with naive Tier 2.5
+        every group returned 8640 → SUM 51840 = 6× target.
+
+        This test uses 3 BOM groups at distinct specific aux + 2 PRD_MO
+        rows at completely different specific aux. Total target = 1000+
+        662 = 1662. Expected: SUM(need_qty across rows) == 1662.
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "AS2602033_MULTI"
+        # 3 BOM groups at distinct specific aux, all with FMustQty=2880.
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO_AAA",
+                mto_number=mto,
+                material_code="05.02.12.44",
+                material_name="测试件",
+                specification="",
+                aux_prop_id=900 + i,  # 900, 901, 902
+                material_type=1,
+                need_qty=Decimal("2880"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("2880"),
+            )
+            for i in range(3)
+        ]
+        # 2 PRD_MO rows at completely different specific aux (no overlap
+        # with BOM, no aux=0 entry).
+        prod_orders = [
+            ProductionOrderModel(
+                bill_no="MO_X",
+                mto_number=mto,
+                workshop="组装工段",
+                material_code="05.02.12.44",
+                material_name="测试件",
+                specification="",
+                aux_prop_id=2000,
+                qty=Decimal("1000"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+            ProductionOrderModel(
+                bill_no="MO_Y",
+                mto_number=mto,
+                workshop="组装工段",
+                material_code="05.02.12.44",
+                material_name="测试件",
+                specification="",
+                aux_prop_id=2001,
+                qty=Decimal("662"),
+                status="已审核",
+                create_date="2026-04-01",
+            ),
+        ]
+
+        handler = self.create_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=prod_orders,
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        # Three rows preserved (one per BOM-aux group), but exactly one
+        # carries the team total — the others are ZERO.
+        assert len(rows) == 3, f"Expected 3 BOM-aux rows, got {len(rows)}"
+        # SUM across all rows for this code must equal the team target,
+        # NOT 3 × team-target.
+        sum_need = sum((r.need_qty for r in rows), Decimal(0))
+        assert sum_need == Decimal("1662"), (
+            f"Expected SUM(need_qty) across {len(rows)} disjoint-aux rows "
+            f"to equal team target = 1662, got {sum_need}. Without per-code "
+            "Tier-2.5 dedup, every row would carry the full rollup and "
+            "SUM = N × target. AS2602033 / 05.02.12.44 real-data regression."
+        )
+        # Verify the elected row carries the full rollup and the others
+        # are zero.
+        non_zero_rows = [r for r in rows if r.need_qty > 0]
+        assert len(non_zero_rows) == 1, (
+            f"Expected exactly 1 row with need_qty>0 (Tier-2.5 dedup); "
+            f"got {len(non_zero_rows)}: {[(r.aux_prop_id, r.need_qty) for r in rows]}"
+        )
+        assert non_zero_rows[0].need_qty == Decimal("1662")
+
+    @pytest.mark.asyncio
     async def test_03_with_prd_mo_routes_as_selfmade(self, mock_readers):
         """03.xx material with PRD_MO (工段) routes through self-made path.
 

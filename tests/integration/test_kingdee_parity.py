@@ -94,15 +94,21 @@ TEST_MTOS = [
 # - MUST_VS_PRD_MO_TARGET_LIMIT: the team's PRD_MO.FQty is the authoritative
 #   demand target. QP's prod_instock_must_qty SHOULD equal that target.
 #   Historical Bug 1 produced 50×–990× — orders of magnitude beyond any
-#   legitimate operational state. 5× catches that without false-flagging the
-#   known small-inflation edge case where PPBOM and PRD_MO use different aux
-#   numbering systems for the same code (e.g., AS2602033 / 05.02.12.44 has
-#   PPBOM at aux=105726/197964/206684/106447/106237 but PRD_MO at
-#   aux=221031/221032/221033 — Tier-1/2/3 fallbacks all miss for the BOM-
-#   specific aux rows and default to MAX(b.need_qty), producing ~2.7× sum).
-#   This is the deferred Bug-1 variant (the "7 stuck rows" from Wave 1's
-#   95% match rate); see plan in /Users/kinghinchan/.claude/plans/.
-MUST_VS_PRD_MO_TARGET_LIMIT = Decimal(5)
+#   legitimate operational state. Wave 3 set this to 5× as a temporary
+#   ceiling that allowed the disjoint-aux edge case (AS2602033 / 05.02.12.44:
+#   PPBOM at aux=105726/197964/206684/106447/106237, PRD_MO at aux=221031/
+#   221032/221033 — Tier 1, Tier 2, and Tier 3 of `_lookup_mo_qty` all
+#   missed, defaulting to MAX(b.need_qty) and producing ~2.7× sum) to pass
+#   while we still had cleanup work in flight.
+#
+#   Wave 4C (commit `_lookup_mo_qty` Tier 2.5) closed that gap: when both
+#   the exact (code, aux) and (code, 0) lookups miss for a BOM-specific-aux
+#   row, the helper now rolls up all PRD_MO across aux for the code (same
+#   answer Tier 3 already returned for the BOM-aux=0 case). With Tier 2.5
+#   in place, the disjoint-aux edge case collapses to 1×, so the threshold
+#   tightens back to 2× — historical Bug 1 magnitude detector with no
+#   known false positives. Any future >2× drift is a real regression.
+MUST_VS_PRD_MO_TARGET_LIMIT = Decimal(2)
 
 
 # ============================================================================
