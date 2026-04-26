@@ -2159,6 +2159,77 @@ class TestSalesReceiptFallback(TestMTOQueryHandler):
         )
 
     @pytest.mark.asyncio
+    async def test_finished_goods_multi_aux_no_double_attribution(self, mock_readers):
+        """Wave 6 followup: 3 SAL aux groups + 1 PRD_INSTOCK aux must NOT cause
+        the same receipt to be attributed to all 3 children.
+
+        Real-data case: DK251003S 07.01.07 had 3 SAL aux groups
+        (153245/100398/100238) but PRD_INSTOCK only at aux=153245 with
+        FRealQty=17280. Pre-dedup, all 3 children got prod_instock_real_qty
+        =17280 (Tier 3 rollup) → SUM = 51840 (3× the actual receipt).
+        Post-dedup, only the Tier-1-matched child gets 17280; the other 2
+        get 0.
+        """
+        sales_orders = [
+            SalesOrderModel(
+                bill_no="SO_X1", mto_number="DK_X",
+                material_code="07.01.07", aux_prop_id=153245,
+                customer_name="A", delivery_date="2026-01-01",
+                qty=Decimal("17000"),
+            ),
+            SalesOrderModel(
+                bill_no="SO_X2", mto_number="DK_X",
+                material_code="07.01.07", aux_prop_id=100398,
+                customer_name="A", delivery_date="2026-01-01",
+                qty=Decimal("24"),
+            ),
+            SalesOrderModel(
+                bill_no="SO_X3", mto_number="DK_X",
+                material_code="07.01.07", aux_prop_id=100238,
+                customer_name="A", delivery_date="2026-01-01",
+                qty=Decimal("24"),
+            ),
+        ]
+        receipt = ProductionReceiptModel(
+            bill_no="RK_X", mto_number="DK_X",
+            material_code="07.01.07",
+            real_qty=Decimal("17280"),
+            must_qty=Decimal("17280"),
+            aux_prop_id=153245,  # exact match with first SAL
+            mo_bill_no="MO_X",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=sales_orders)
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[receipt])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["subcontracting_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_bom"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={153245: "A", 100398: "B", 100238: "C"}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status("DK_X", use_cache=False)
+        children = [c for c in result.children if c.material_code == "07.01.07"]
+        assert len(children) == 3
+        # Exactly ONE child should have prod_instock_real_qty=17280 (the one
+        # whose aux Tier-1 matched). The other two must have 0.
+        instock_values = sorted([int(c.prod_instock_real_qty) for c in children])
+        assert instock_values == [0, 0, 17280], (
+            f"Expected [0, 0, 17280], got {instock_values}. Pre-dedup all 3 "
+            f"children received the all-aux rollup (3× double-attribution) — "
+            f"DK251003S 07.01.07 saw QP=51840 vs KD=17280."
+        )
+        # Tier-1 match should land on the largest SAL aux group (153245).
+        for c in children:
+            if c.prod_instock_real_qty > 0:
+                assert c.aux_attributes == "A"
+
+    @pytest.mark.asyncio
     async def test_finished_goods_purchase_receipt_aux_mismatch_fallback(self, mock_readers):
         """Wave 6B: aux mismatch between SAL and STK_InStock falls through to rollup.
 

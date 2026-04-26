@@ -466,11 +466,21 @@ class MTOQueryHandler:
                 key = (so.material_code, aux_prop_id)
                 sales_by_key[key].append(so)
 
+        # Wave 6B+6C followup: when SAL has multiple aux groups for one code
+        # but receipts are at a different aux (or no specific aux), the
+        # all-aux rollup must be attributed to AT MOST ONE child to avoid
+        # N× receipt double-count. Build a per-code dedup state that
+        # _build_aggregated_sales_child consults.
+        receipt_dedup_state = self._build_finished_receipt_dedup_state(
+            sales_by_key, receipt_by_material, purchase_receipt_by_material
+        )
+
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
                 aux_descriptions,
                 purchase_receipt_by_material=purchase_receipt_by_material,
+                receipt_dedup_state=receipt_dedup_state,
             )
             children.append(child)
 
@@ -577,11 +587,18 @@ class MTOQueryHandler:
                 key = (so.material_code, getattr(so, "aux_prop_id", 0) or 0)
                 sales_by_key[key].append(so)
 
+        # Wave 6B+6C followup (live path): same per-code rollup dedup as the
+        # cache path — see _build_finished_receipt_dedup_state.
+        receipt_dedup_state = self._build_finished_receipt_dedup_state(
+            sales_by_key, receipt_by_material, purchase_receipt_by_material
+        )
+
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
                 aux_descriptions,
                 purchase_receipt_by_material=purchase_receipt_by_material,
+                receipt_dedup_state=receipt_dedup_state,
             )
             children.append(child)
 
@@ -1267,6 +1284,7 @@ class MTOQueryHandler:
         delivered_by_material: dict[tuple[str, int], Decimal],
         aux_descriptions: dict[int, str],
         purchase_receipt_by_material: dict[tuple[str, int], Decimal] | None = None,
+        receipt_dedup_state: dict[tuple[str, str], dict] | None = None,
     ) -> ChildItem:
         """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
 
@@ -1294,14 +1312,16 @@ class MTOQueryHandler:
         # 生产入库单.实收数量 — try exact (code, aux) first, then sum all aux variants
         # in case SAL_SaleOrder and PRD_INSTOCK have different aux_prop_id values
         prod_instock_real_qty = self._lookup_finished_receipt(
-            receipt_by_material, code, aux_prop_id
+            receipt_by_material, code, aux_prop_id,
+            dedup_state=receipt_dedup_state, dedup_label="prod",
         )
 
         # 采购入库单.实收数量 — same Tier 1 → Tier 3 rollup against the STK_InStock
         # receipts when the 07.xx item is bought-in (sister-plant transfer, OEM,
         # consignment) rather than produced in-house.
         purchase_stock_in_qty = self._lookup_finished_receipt(
-            purchase_receipt_by_material or {}, code, aux_prop_id
+            purchase_receipt_by_material or {}, code, aux_prop_id,
+            dedup_state=receipt_dedup_state, dedup_label="purchase",
         )
 
         return ChildItem(
@@ -1324,21 +1344,46 @@ class MTOQueryHandler:
         receipt_by_material: dict[tuple[str, int], Decimal],
         code: str,
         aux_prop_id: int,
+        dedup_state: dict[tuple[str, str], dict] | None = None,
+        dedup_label: str = "",
     ) -> Decimal:
         """Receipt lookup for 07.xx finished goods.
 
-        Tier 1: exact (code, aux) match.
+        Tier 1: exact (code, aux) match — always returned.
         Tier 2 (aux_zero_fallback): SAL has aux≠0, receipt has aux=0.
         Tier 3 (all_aux_rollup): no exact / Tier 2 hit — sum across all aux for this code.
 
+        Per-code dedup (Wave 6 followup): when multiple SAL aux groups exist
+        for one code, the Tier-2/3 rollup must be attributed to AT MOST ONE
+        child to avoid N× receipt double-count. `dedup_state[(code,
+        dedup_label)]` carries an "elected_aux" + "remainder" pair when
+        partial matches exist; non-elected aux that fall through to
+        Tier 2/3 receive 0 instead of the full rollup. When no state
+        exists (single SAL aux group, or no rollup data), the original
+        single-group fallback applies.
+
         Mirrors the BOM-row receipt fallback in `_get` (the live BOMJoinedRow
-        builder) so finished goods get the same coverage as self-made / packaging
-        components when SAL and receipt aux_prop_ids disagree.
+        builder).
         """
         key = (code, aux_prop_id)
         exact = receipt_by_material.get(key)
         if exact is not None:
             return exact
+
+        state = (
+            dedup_state.get((code, dedup_label))
+            if dedup_state is not None and dedup_label
+            else None
+        )
+        if state is not None:
+            # Per-code dedup is active. Only the elected aux receives the
+            # rollup remainder; everyone else gets ZERO so we don't N×
+            # double-count receipts across SAL aux groups.
+            if aux_prop_id == state["elected_aux"]:
+                return state["remainder"]
+            return ZERO
+
+        # No dedup state ⇒ either single SAL aux group or empty rollup.
         # Tier 2: receipt at aux=0
         if aux_prop_id != 0:
             zero_fallback = receipt_by_material.get((code, 0))
@@ -1350,6 +1395,76 @@ class MTOQueryHandler:
             ZERO,
         )
         return rollup if rollup else ZERO
+
+    @staticmethod
+    def _build_finished_receipt_dedup_state(
+        sales_by_key: dict[tuple[str, int], list],
+        receipt_by_material: dict[tuple[str, int], Decimal],
+        purchase_receipt_by_material: dict[tuple[str, int], Decimal] | None,
+    ) -> dict[tuple[str, str], dict]:
+        """Per-code dedup state for finished-goods receipt rollup.
+
+        For each (code, source) where source is "prod" or "purchase":
+        - Find which SAL aux groups would Tier-1 match the receipts
+          (exact (code, aux) hit).
+        - Elect the LARGEST non-matching SAL aux group to receive the
+          rollup remainder. Other non-matching aux groups receive ZERO.
+        - The remainder = total receipts for the code MINUS sum of
+          Tier-1 matches.
+
+        State entry shape: {"elected_aux": int, "remainder": Decimal}.
+
+        State is only populated when there are >=2 SAL aux groups AND the
+        rollup yields something non-trivial. Single-group cases keep the
+        old all-aux fallback semantics (no over-counting risk).
+        """
+        state: dict[tuple[str, str], dict] = {}
+        # Group SAL aux + qty per code so we can identify multi-aux codes
+        # and pick the elected representative.
+        sal_aux_qty_by_code: dict[str, list[tuple[int, Decimal]]] = defaultdict(list)
+        for (code, aux), so_list in sales_by_key.items():
+            qty = sum(getattr(s, "qty", ZERO) for s in so_list)
+            sal_aux_qty_by_code[code].append((aux, qty))
+
+        for label, recv_map in [
+            ("prod", receipt_by_material),
+            ("purchase", purchase_receipt_by_material or {}),
+        ]:
+            # Per-code receipt totals
+            recv_total_by_code: dict[str, Decimal] = defaultdict(lambda: ZERO)
+            for (c, _a), v in recv_map.items():
+                recv_total_by_code[c] += v
+            for code, aux_qtys in sal_aux_qty_by_code.items():
+                if len(aux_qtys) < 2:
+                    continue  # single group, no risk of N× attribution
+                total = recv_total_by_code.get(code, ZERO)
+                if total <= 0:
+                    continue
+                # How much receipts is already covered by Tier-1 (exact-aux)
+                # matches across SAL aux groups?
+                exact_sum = ZERO
+                non_matched: list[tuple[int, Decimal]] = []
+                for aux, qty in aux_qtys:
+                    if (code, aux) in recv_map:
+                        exact_sum += recv_map[(code, aux)]
+                    else:
+                        non_matched.append((aux, qty))
+                if not non_matched:
+                    continue  # all SAL aux exact-matched; no risk
+                remainder = total - exact_sum
+                if remainder < 0:
+                    remainder = ZERO
+                # Elect the non-matched group with the largest SAL qty.
+                # When `remainder == 0`, every non-elected gets ZERO and the
+                # elected gets ZERO too — that's correct: receipts are fully
+                # accounted for via Tier-1 matches, no leftover to attribute.
+                non_matched.sort(key=lambda kv: kv[1], reverse=True)
+                elected_aux = non_matched[0][0]
+                state[(code, label)] = {
+                    "elected_aux": elected_aux,
+                    "remainder": remainder,
+                }
+        return state
 
     def _bom_row_to_child(
         self,
