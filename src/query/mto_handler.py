@@ -739,6 +739,17 @@ class MTOQueryHandler:
                 },
             )
 
+        # PRD_MO qty lookup — used both for synthetic rows AND for self-made
+        # need_qty in Step 1 (see Pattern 10 / bug-patterns.md). Defined here
+        # so it's available throughout the rest of this method.
+        _mo_qty: dict[tuple[str, int], Decimal] = {}
+        for po in prod_orders:
+            k = (po.material_code, getattr(po, "aux_prop_id", 0) or 0)
+            _mo_qty[k] = _mo_qty.get(k, ZERO) + getattr(po, "qty", ZERO)
+
+        def _lookup_mo_qty(code: str, aux: int) -> Decimal:
+            return _mo_qty.get((code, aux)) or _mo_qty.get((code, 0), ZERO)
+
         # --- Step 1: Build rows from PPBOM (primary source) ---
         bom_groups: dict[tuple[str, int], list] = defaultdict(list)
         for bom in production_bom:
@@ -752,14 +763,41 @@ class MTOQueryHandler:
 
         for (code, aux), bom_list in bom_groups.items():
             first = bom_list[0]
+            m_type = getattr(first, "material_type", 0)
+            # REGRESSION GUARD (bug-patterns.md #10, BOM-rollup variant):
+            # For self-made (material_type == 1), `need_qty` is the team's
+            # production target — NOT the sum across parent BOMs. The same
+            # self-made component can appear in N parent PPBOMs within one MTO,
+            # each line carrying the full demand for that parent (e.g.,
+            # 05.02.08.027 in 50 parents × 3744 = 187,200, when the actual
+            # production target is 3744). The authoritative source is
+            # PRD_MO.FQty for (code, aux), with fallback to MAX(b.need_qty).
+            # Old variant fixed `b8e6fc7` (receipt FMustQty sum); BOM-rollup
+            # variant introduced by `ce08d69` (BOM-first refactor) and fixed
+            # 2026-04-26.
+            #
+            # For purchased (2) / subcontracted (3): summing IS correct —
+            # purchased materials legitimately accumulate across parent BOMs
+            # (you place one combined order).
+            if m_type == 1:
+                _mo = _lookup_mo_qty(code, aux)
+                if _mo > 0:
+                    need_qty_val = _mo
+                else:
+                    need_qty_val = max(
+                        (getattr(b, "need_qty", ZERO) for b in bom_list),
+                        default=ZERO,
+                    )
+            else:
+                need_qty_val = sum(getattr(b, "need_qty", ZERO) for b in bom_list)
             rows.append(_make_row(
                 code=code,
                 aux=aux,
                 material_name=getattr(first, "material_name", ""),
                 specification=getattr(first, "specification", ""),
                 aux_attributes=getattr(first, "aux_attributes", ""),
-                material_type=getattr(first, "material_type", 0),
-                need_qty=sum(getattr(b, "need_qty", ZERO) for b in bom_list),
+                material_type=m_type,
+                need_qty=need_qty_val,
                 picked_qty=sum(getattr(b, "picked_qty", ZERO) for b in bom_list),
                 no_picked_qty=sum(getattr(b, "no_picked_qty", ZERO) for b in bom_list),
                 mo_bill_no=getattr(first, "mo_bill_no", ""),
@@ -772,15 +810,6 @@ class MTOQueryHandler:
         # For synthetic rows, track by code to avoid showing same material twice
         # when aux_prop_id differs between sources (e.g., PRD_MO aux=0, receipt aux=5001)
         covered_codes: set[str] = {code for code, _aux in covered_keys}
-
-        # PRD_MO qty lookup for synthetic rows (items not in BOM need PRD_MO as demand source)
-        _mo_qty: dict[tuple[str, int], Decimal] = {}
-        for po in prod_orders:
-            k = (po.material_code, getattr(po, "aux_prop_id", 0) or 0)
-            _mo_qty[k] = _mo_qty.get(k, ZERO) + getattr(po, "qty", ZERO)
-
-        def _lookup_mo_qty(code: str, aux: int) -> Decimal:
-            return _mo_qty.get((code, aux)) or _mo_qty.get((code, 0), ZERO)
 
         # 2a: Items from PRD_INSTOCK not in PPBOM (skip 07.xx finished goods)
         receipt_groups: dict[tuple[str, int], list] = defaultdict(list)
@@ -965,9 +994,17 @@ class MTOQueryHandler:
                 material_type=MaterialType.SELF_MADE,
                 material_type_name="自制",
                 # REGRESSION GUARD (bug-patterns.md #10): MUST use row.need_qty here.
-                # Do NOT change to row.prod_receipt_must_qty — receipt FMustQty values
-                # overlap across batches and are NOT additive. Summing them inflates
-                # the demand figure. Already regressed once (265303a), fixed twice.
+                # Two known inflation variants — both forbidden:
+                #   (a) row.prod_receipt_must_qty — receipt FMustQty values overlap
+                #       across batches and are NOT additive (fixed b8e6fc7,
+                #       regressed 265303a, re-fixed 2026-03-30).
+                #   (b) SUM(b.need_qty for b in PPBOM lines) — when the same
+                #       self-made component appears in N parent BOMs within one
+                #       MTO, summing yields N × actual production target. The
+                #       upstream builder (_build_bom_joined_rows_from_live and
+                #       cache_reader.get_mto_bom_joined) MUST resolve self-made
+                #       need_qty against PRD_MO.FQty, not by summing PPBOM lines
+                #       (introduced ce08d69, fixed 2026-04-26).
                 prod_instock_must_qty=row.need_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
@@ -1009,6 +1046,8 @@ class MTOQueryHandler:
                 material_type=effective_type,
                 material_type_name="未知",
                 # REGRESSION GUARD (bug-patterns.md #10): same as self-made above
+                # — both inflation variants (receipt FMustQty sum, BOM-rollup sum)
+                # are forbidden. Use row.need_qty.
                 prod_instock_must_qty=row.need_qty,
                 match_quality_breakdown=match_quality,
             )

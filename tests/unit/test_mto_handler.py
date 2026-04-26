@@ -448,6 +448,234 @@ class TestMTOQueryHandler:
         assert child.prod_instock_must_qty == Decimal("1008")  # PRD_MO.FQty
 
     @pytest.mark.asyncio
+    async def test_regression_must_qty_never_from_bom_rollup_sum(self, mock_readers):
+        """REGRESSION GUARD (bug-patterns.md #10, BOM-rollup variant): when the
+        SAME self-made (code, aux) appears in N parent PPBOM lines within one MTO,
+        the resulting need_qty MUST be the production target (PRD_MO.FQty), NOT
+        the sum across the N parent lines.
+
+        Concrete scenario (mirrors AK2510034 / 05.02.08.027 in dev):
+        - Self-made component appears in 3 parent BOMs, each with need_qty=100
+        - PRD_MO has one row for this component with qty=100
+        - Old (buggy) live builder: SUM(100, 100, 100) = 300
+        - Correct: PRD_MO.FQty = 100
+
+        If this test fails with prod_instock_must_qty == 300, the bug has
+        regressed: someone reverted the self-made branch in
+        _build_bom_joined_rows_from_live (Step 1) back to
+        `sum(b.need_qty for b in bom_list)`. The summation is correct ONLY for
+        purchased/subcontracted (material_type ∈ {2,3}) — see the
+        REGRESSION GUARD comment block at the call site.
+
+        Introduced 2026-04-26. Companion to
+        test_regression_must_qty_never_from_receipt_sum.
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "BOMR0001"
+        # 3 parent BOMs all consuming the same self-made component, each line
+        # carrying the full demand for THAT parent (3 × 100 = 300 inflated).
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no=f"MO{i:03d}",
+                mto_number=mto,
+                material_code="05.02.08.027",
+                material_name="盒子",
+                specification="",
+                aux_prop_id=0,
+                material_type=1,  # 自制
+                need_qty=Decimal("100"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("100"),
+            )
+            for i in range(3)
+        ]
+        # Single PRD_MO row carrying the team's actual production target.
+        prod_order = ProductionOrderModel(
+            bill_no="MO_TARGET",
+            mto_number=mto,
+            workshop="组装工段",
+            material_code="05.02.08.027",
+            material_name="盒子",
+            specification="",
+            aux_prop_id=0,
+            qty=Decimal("100"),  # actual production target
+            status="已审核",
+            create_date="2026-04-20",
+        )
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        mock_readers["production_bom"].fetch_by_mto = AsyncMock(
+            return_value=bom_lines
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+        result = await handler.get_status(mto, use_cache=False)
+
+        assert len(result.children) == 1
+        child = result.children[0]
+        assert child.material_code == "05.02.08.027"
+        assert child.material_type_name == "自制"
+        inflated_sum = Decimal("300")  # 3 × 100 — the WRONG value
+        assert child.prod_instock_must_qty != inflated_sum, (
+            "prod_instock_must_qty equals SUM(need_qty) across BOM lines (300). "
+            "This is a known regression — when a self-made component appears in "
+            "N parent BOMs within one MTO, summing inflates by N×. Use "
+            "PRD_MO.FQty (or MAX(need_qty) fallback) for self-made. "
+            "See bug-patterns.md #10."
+        )
+        assert child.prod_instock_must_qty == Decimal("100"), (
+            "Expected need_qty = PRD_MO.FQty (100), got "
+            f"{child.prod_instock_must_qty}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_bom_rollup_falls_back_to_max_when_no_prd_mo(self, mock_readers):
+        """When self-made component has BOM lines but no matching PRD_MO row,
+        fall back to MAX(need_qty), not SUM. The largest single parent demand
+        is closer to the truth than the cumulative sum across parents.
+
+        Companion to test_regression_must_qty_never_from_bom_rollup_sum: covers
+        the COALESCE fallback path for self-made when PRD_MO data is absent
+        (e.g., partial sync, or component fabricated without an explicit MO).
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "BOMR0002"
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO_A",
+                mto_number=mto,
+                material_code="05.02.08.099",
+                material_name="盖子",
+                specification="",
+                aux_prop_id=0,
+                material_type=1,
+                need_qty=Decimal("80"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("80"),
+            ),
+            ProductionBOMModel(
+                mo_bill_no="MO_B",
+                mto_number=mto,
+                material_code="05.02.08.099",
+                material_name="盖子",
+                specification="",
+                aux_prop_id=0,
+                material_type=1,
+                need_qty=Decimal("120"),  # largest
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("120"),
+            ),
+        ]
+
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        # No PRD_MO row for this component
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_bom"].fetch_by_mto = AsyncMock(
+            return_value=bom_lines
+        )
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers)
+        # No PRD_MO and no other source means get_status will raise (no parent).
+        # Drive the live builder directly instead.
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=[],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "05.02.08.099"
+        # MAX(80, 120) = 120, not SUM(80, 120) = 200
+        assert row.need_qty == Decimal("120"), (
+            f"Expected MAX(need_qty)=120 fallback, got {row.need_qty}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_purchased_still_sums_across_bom_lines(self, mock_readers):
+        """Purchased materials (material_type=2) MUST keep summing across BOM
+        lines — the fix in test_regression_must_qty_never_from_bom_rollup_sum
+        applies ONLY to self-made (material_type=1).
+
+        For purchased materials, demand legitimately accumulates across parents
+        (you place one combined order). Reverting the sum for purchased would
+        under-count purchase demand.
+        """
+        from src.readers.models import ProductionBOMModel
+
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO_A",
+                mto_number="BOMR0003",
+                material_code="03.01.001",
+                material_name="包材",
+                specification="",
+                aux_prop_id=0,
+                material_type=2,  # 外购
+                need_qty=Decimal("50"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("50"),
+            ),
+            ProductionBOMModel(
+                mo_bill_no="MO_B",
+                mto_number="BOMR0003",
+                material_code="03.01.001",
+                material_name="包材",
+                specification="",
+                aux_prop_id=0,
+                material_type=2,
+                need_qty=Decimal("70"),
+                picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("70"),
+            ),
+        ]
+
+        handler = self.create_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=[],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.material_code == "03.01.001"
+        assert row.material_type == 2
+        # SUM(50, 70) = 120 — purchased materials accumulate across BOM lines
+        assert row.need_qty == Decimal("120"), (
+            f"Expected SUM(need_qty)=120 for purchased, got {row.need_qty}"
+        )
+
+    @pytest.mark.asyncio
     async def test_03_with_prd_mo_routes_as_selfmade(self, mock_readers):
         """03.xx material with PRD_MO (工段) routes through self-made path.
 

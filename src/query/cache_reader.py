@@ -306,14 +306,63 @@ class CacheReader:
                 WHERE b.material_code NOT LIKE '07.%'
             ),
             bom_repr AS (SELECT * FROM bom_ranked WHERE rn = 1),
-            bom_agg AS (
+            -- PRD_MO aggregation: production target per (material_code, aux_prop_id).
+            -- Used to override SUM(need_qty) for self-made (material_type=1) where the
+            -- same component appears in N parent PPBOMs within one MTO and summing
+            -- yields N × actual target. See bug-patterns.md #10 (BOM-rollup variant).
+            prd_mo_agg AS (
+                SELECT po.material_code, po.aux_prop_id,
+                       SUM(po.qty) as mo_qty
+                FROM cached_production_orders po
+                JOIN matching_mtos m ON po.mto_number = m.mto_number
+                GROUP BY po.material_code, po.aux_prop_id
+            ),
+            -- Same, rolled up across all aux variants (Tier-2 fallback when PPBOM
+            -- has aux≠0 but PRD_MO recorded aux=0, or vice versa).
+            prd_mo_agg_all AS (
+                SELECT po.material_code,
+                       SUM(po.qty) as mo_qty
+                FROM cached_production_orders po
+                JOIN matching_mtos m ON po.mto_number = m.mto_number
+                GROUP BY po.material_code
+            ),
+            -- Raw BOM aggregation per (material_code, aux_prop_id). Self-made
+            -- override happens in bom_agg below.
+            bom_raw AS (
                 SELECT b.material_code, b.aux_prop_id,
-                       SUM(b.need_qty) as need_qty, SUM(b.picked_qty) as picked_qty,
-                       SUM(b.no_picked_qty) as no_picked_qty, MAX(b.synced_at) as synced_at
+                       MAX(b.material_type) as material_type,
+                       SUM(b.need_qty) as sum_need_qty,
+                       MAX(b.need_qty) as max_need_qty,
+                       SUM(b.picked_qty) as picked_qty,
+                       SUM(b.no_picked_qty) as no_picked_qty,
+                       MAX(b.synced_at) as synced_at
                 FROM cached_production_bom b
                 JOIN matching_mtos m ON b.mto_number = m.mto_number
                 WHERE b.material_code NOT LIKE '07.%'
                 GROUP BY b.material_code, b.aux_prop_id
+            ),
+            bom_agg AS (
+                -- For self-made (material_type=1), prefer PRD_MO.FQty (production
+                -- target) over SUM(need_qty) which inflates when the component is
+                -- consumed by N parent BOMs (Pattern 10 BOM-rollup variant). Falls
+                -- back to MAX(need_qty) when no matching PRD_MO row — largest single
+                -- parent demand is closer to truth than SUM.
+                -- For purchased (2) / subcontracted (3) / unknown: keep SUM —
+                -- purchased materials legitimately accumulate across parent BOMs
+                -- (you place one combined order).
+                SELECT br.material_code, br.aux_prop_id,
+                       CASE
+                           WHEN br.material_type = 1
+                               THEN COALESCE(mo.mo_qty, mo_all.mo_qty, br.max_need_qty)
+                           ELSE br.sum_need_qty
+                       END as need_qty,
+                       br.picked_qty, br.no_picked_qty, br.synced_at
+                FROM bom_raw br
+                LEFT JOIN prd_mo_agg mo
+                    ON mo.material_code = br.material_code
+                   AND mo.aux_prop_id = br.aux_prop_id
+                LEFT JOIN prd_mo_agg_all mo_all
+                    ON mo_all.material_code = br.material_code
             )
             SELECT
                 br.mo_bill_no,

@@ -549,6 +549,179 @@ class TestGetMtoBomJoined:
         # because the GROUP BY aggregates BOM rows. What matters is receipt accuracy.
 
 
+class TestSelfMadeBomRollupRegression:
+    """Regression tests for bug-patterns.md #10 (BOM-rollup variant) — cache path.
+
+    For self-made (material_type=1) where the same component appears in N parent
+    PPBOM rows within one MTO, need_qty MUST be sourced from PRD_MO.FQty (the
+    team's production target), NOT from SUM(need_qty across BOM rows). Summing
+    yields N × actual target.
+
+    Companion to test_regression_must_qty_never_from_bom_rollup_sum in
+    test_mto_handler.py (which guards the live path).
+    """
+
+    @pytest.mark.asyncio
+    async def test_selfmade_uses_prd_mo_qty_not_bom_sum(self, test_database):
+        """Self-made component in 3 parent BOMs (each need_qty=100) + 1 PRD_MO
+        with qty=100 → need_qty MUST be 100, not 300."""
+        mto = "AK2510034"
+        mat_code = "05.02.08.027"
+        aux_id = 0
+
+        # 3 parent BOM rows, each with the full per-parent demand
+        for mo_no in ["MO0001", "MO0002", "MO0003"]:
+            await test_database.execute_write(
+                """
+                INSERT INTO cached_production_bom
+                (mo_bill_no, mto_number, material_code, material_name,
+                 specification, aux_attributes, aux_prop_id, material_type,
+                 need_qty, picked_qty, no_picked_qty, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [mo_no, mto, mat_code, "盒子", "", "", aux_id, 1, 100, 0, 100],
+            )
+
+        # Single PRD_MO row carrying the team's actual production target
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_orders
+            (mto_number, bill_no, workshop, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, qty, status,
+             create_date, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            [mto, "MO_TARGET", "组装工段", mat_code, "盒子",
+             "", "", aux_id, 100, "已审核", "2026-04-20"],
+        )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        assert row.material_code == mat_code
+        assert row.material_type == 1
+        inflated = Decimal("300")  # 3 × 100 — the WRONG value
+        assert row.need_qty != inflated, (
+            f"need_qty equals SUM(need_qty) across 3 parent BOMs ({inflated}). "
+            "This is the BOM-rollup inflation regression — see "
+            "bug-patterns.md #10."
+        )
+        assert row.need_qty == Decimal("100"), (
+            f"Expected need_qty = PRD_MO.FQty (100), got {row.need_qty}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_selfmade_falls_back_to_max_when_no_prd_mo(self, test_database):
+        """Self-made with multiple BOM rows but no PRD_MO → fall back to
+        MAX(need_qty), not SUM. Largest single parent demand is closer to
+        truth than SUM across parents."""
+        mto = "AK2510099"
+        mat_code = "05.02.08.099"
+
+        # Two BOM rows for same self-made (material, aux), no PRD_MO
+        for mo_no, qty in [("MO_A", 80), ("MO_B", 120)]:
+            await test_database.execute_write(
+                """
+                INSERT INTO cached_production_bom
+                (mo_bill_no, mto_number, material_code, material_name,
+                 specification, aux_attributes, aux_prop_id, material_type,
+                 need_qty, picked_qty, no_picked_qty, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [mo_no, mto, mat_code, "盖子", "", "", 0, 1, qty, 0, qty],
+            )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        # MAX(80, 120) = 120, not SUM = 200
+        assert row.need_qty == Decimal("120"), (
+            f"Expected MAX(need_qty)=120 fallback, got {row.need_qty}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_purchased_still_sums_need_qty_across_bom_rows(self, test_database):
+        """Purchased materials (material_type=2) MUST still SUM(need_qty)
+        across BOM rows — purchased demand legitimately accumulates across
+        parents (you place one combined order)."""
+        mto = "AK2510088"
+        mat_code = "03.01.001"
+
+        for mo_no, qty in [("MO_A", 50), ("MO_B", 70)]:
+            await test_database.execute_write(
+                """
+                INSERT INTO cached_production_bom
+                (mo_bill_no, mto_number, material_code, material_name,
+                 specification, aux_attributes, aux_prop_id, material_type,
+                 need_qty, picked_qty, no_picked_qty, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [mo_no, mto, mat_code, "包材", "", "", 0, 2, qty, 0, qty],
+            )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        assert row.material_type == 2
+        # SUM(50, 70) = 120 — purchased materials accumulate
+        assert row.need_qty == Decimal("120"), (
+            f"Expected SUM(need_qty)=120 for purchased, got {row.need_qty}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_selfmade_prd_mo_aux_fallback_when_bom_aux_differs(
+        self, test_database
+    ):
+        """When PPBOM has aux=5001 but PRD_MO has aux=0 (or vice versa), the
+        prd_mo_agg_all CTE rolls up across all aux variants — fallback Tier 2.
+        This covers the common case where PPBOM is variant-specific but PRD_MO
+        was logged at a generic level (or vice versa).
+        """
+        mto = "AK2510077"
+        mat_code = "05.02.08.077"
+
+        # BOM row with specific aux
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_bom
+            (mo_bill_no, mto_number, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, material_type,
+             need_qty, picked_qty, no_picked_qty, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            ["MO_A", mto, mat_code, "组件", "", "", 5001, 1, 200, 0, 200],
+        )
+        # PRD_MO with aux=0 (mismatch) carrying production target
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_orders
+            (mto_number, bill_no, workshop, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, qty, status,
+             create_date, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            [mto, "MO_TARGET", "组装", mat_code, "组件",
+             "", "", 0, 150, "已审核", "2026-04-20"],
+        )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+
+        assert len(result.data) == 1
+        row = result.data[0]
+        # Tier-2 fallback: prd_mo_agg_all (across all aux) → 150, not BOM 200
+        assert row.need_qty == Decimal("150"), (
+            f"Expected need_qty = PRD_MO.FQty all-aux fallback (150), "
+            f"got {row.need_qty}"
+        )
+
+
 class TestMatchQualityFromSQL:
     """Stage 3 of PLAN_aux_match_visibility: verify SQL CASE expressions emit the
     correct match_quality label for each fallback tier, and that the label
