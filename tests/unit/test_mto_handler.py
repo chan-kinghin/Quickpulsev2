@@ -2564,6 +2564,159 @@ class TestBuildBomJoinedRowsFromLive:
         assert row.material_type == 1
         assert row.pick_actual_qty == Decimal("80")
 
+    # ------------------------------------------------------------------
+    # Wave 5B regression pins (live path — both bugs share helpers).
+    # ------------------------------------------------------------------
+    def test_lookup_mo_qty_partial_exact_match_dedups_remainder(self, mock_readers):
+        """Wave 5B Bug A — partial-exact-match dedup of PRD_MO Tier 2.5 rollup.
+
+        Real-data: AS2602033 / 05.02.08.037 盒子. Kingdee says total demand
+        = 32544 (sum of two PRD_MO rows). QP's BOM has 2 aux groups; ONE
+        matches a PRD_MO aux exactly (32544), the OTHER misses. Pre-Wave-5B
+        the matched row claimed Tier 1 (32544) AND the non-matched row
+        claimed full Tier 2.5 rollup (32544) → SUM = 65088 = 2× truth.
+
+        Post-Wave-5B partial-match dedup: matched row keeps 32544,
+        non-matched row gets max(0, rollup - exact_matched) = 0. SUM =
+        32544 = team's actual production target.
+
+        Synthetic shape: BOM aux=A and aux=B (both same code). PRD_MO
+        only at aux=A (qty=10000). _mo_qty_by_code total = 10000.
+        Expected: aux=A row gets 10000 (Tier 1); aux=B row gets 0.
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "AS2602033_W5B"
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO_AAA", mto_number=mto,
+                material_code="05.02.08.037", material_name="盒子",
+                specification="", aux_prop_id=900, material_type=1,
+                need_qty=Decimal("8000"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("8000"),
+            ),
+            ProductionBOMModel(
+                mo_bill_no="MO_BBB", mto_number=mto,
+                material_code="05.02.08.037", material_name="盒子",
+                specification="", aux_prop_id=901, material_type=1,
+                need_qty=Decimal("8000"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("8000"),
+            ),
+        ]
+        prod_orders = [
+            # PRD_MO at aux=900 — Tier 1 exact match for the first BOM row.
+            ProductionOrderModel(
+                bill_no="MO_X", mto_number=mto, workshop="组装工段",
+                material_code="05.02.08.037", material_name="盒子",
+                specification="", aux_prop_id=900, qty=Decimal("10000"),
+                status="已审核", create_date="2026-04-01",
+            ),
+        ]
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines, prod_orders=prod_orders,
+            prod_receipts=[], material_picks=[], purchase_orders=[],
+            purchase_receipts=[], subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 2
+        by_aux = {r.aux_prop_id: r for r in rows}
+        # Tier 1 row claims exact PRD_MO qty.
+        assert by_aux[900].need_qty == Decimal("10000")
+        # Non-matched row gets max(0, rollup - exact_matched) =
+        # max(0, 10000 - 10000) = 0. NOT the full rollup (10000) and
+        # NOT MAX(b.need_qty) = 8000.
+        assert by_aux[901].need_qty == Decimal("0"), (
+            f"Wave 5B partial-match dedup regressed. Got "
+            f"{by_aux[901].need_qty}. Pre-fix this row would claim full "
+            "rollup = 10000 (Tier 2.5 over-application); post-fix the "
+            "remainder is max(0, 10000 - 10000) = 0. AS2602033 / "
+            "05.02.08.037 real-data regression."
+        )
+        # SUM matches the team's PRD_MO target.
+        assert sum((r.need_qty for r in rows), Decimal(0)) == Decimal("10000")
+
+    def test_get_receipt_partial_exact_match_dedups_remainder(self, mock_readers):
+        """Wave 5B Bug B — receipt-side partial-match dedup.
+
+        Real-data: AK2510034 / 05.02.15.62 电镀镜片. Kingdee says
+        prod_instock_real_qty=1444. QP's BOM has multiple aux groups;
+        receipts are at completely different aux. Pre-Wave-5B QP returns
+        0/0/0 for fulfilled/pick (Tier 1+2 miss; Tier 3 only fired for
+        BOM aux=0). Post-fix the elected non-matched BOM-aux claims the
+        rollup (1444); siblings stay 0; SUM matches Kingdee.
+
+        Synthetic shape: BOM aux=A and aux=B; receipt at aux=B (Tier 1
+        match for B) and aux=C (disjoint). _by_code_all total = 1444.
+        Expected: aux=B row gets exact value; aux=A row gets remainder
+        (1444 - exact_amount).
+        """
+        from src.readers.models import ProductionBOMModel
+
+        mto = "AK2510034_W5B"
+        bom_lines = [
+            # BOM at aux=A (no receipt match) and aux=B (Tier 1 match).
+            ProductionBOMModel(
+                mo_bill_no="MO_R1", mto_number=mto,
+                material_code="05.02.15.62", material_name="电镀镜片",
+                specification="", aux_prop_id=900, material_type=1,
+                need_qty=Decimal("722"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("722"),
+            ),
+            ProductionBOMModel(
+                mo_bill_no="MO_R2", mto_number=mto,
+                material_code="05.02.15.62", material_name="电镀镜片",
+                specification="", aux_prop_id=901, material_type=1,
+                need_qty=Decimal("722"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("722"),
+            ),
+        ]
+        # Receipts: Tier 1 hit at aux=901 (=500), and disjoint aux=999 (=944).
+        # Total all-aux rollup = 500 + 944 = 1444.
+        receipts = [
+            ProductionReceiptModel(
+                bill_no="RK1", mto_number=mto, material_code="05.02.15.62",
+                material_name="电镀镜片", specification="",
+                real_qty=Decimal("500"), must_qty=Decimal("500"),
+                aux_prop_id=901, mo_bill_no="MO_R2",
+            ),
+            ProductionReceiptModel(
+                bill_no="RK2", mto_number=mto, material_code="05.02.15.62",
+                material_name="电镀镜片", specification="",
+                real_qty=Decimal("944"), must_qty=Decimal("944"),
+                aux_prop_id=999, mo_bill_no="MO_DISJOINT",
+            ),
+        ]
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines, prod_orders=[], prod_receipts=receipts,
+            material_picks=[], purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 2
+        by_aux = {r.aux_prop_id: r for r in rows}
+        # Tier 1 match: receipt at aux=901 → exact 500.
+        assert by_aux[901].prod_receipt_real_qty == Decimal("500")
+        # Non-matched (aux=900): elected (only one non-matched, smallest
+        # aux). Claims max(0, rollup - exact_sum) = 1444 - 500 = 944.
+        assert by_aux[900].prod_receipt_real_qty == Decimal("944"), (
+            f"Wave 5B receipt-side Tier 2.5 fall-through + dedup regressed. "
+            f"Got {by_aux[900].prod_receipt_real_qty}. Pre-fix this row "
+            "returned 0 (Tier 1+2 miss; Tier 3 only fired for BOM aux=0). "
+            "Post-fix _get falls through to _by_code_all rollup with "
+            "partial-match dedup. AK2510034 / 05.02.15.62 real-data "
+            "regression."
+        )
+        # SUM across BOM-aux rows matches Kingdee total.
+        total = sum(
+            (r.prod_receipt_real_qty for r in rows), Decimal(0)
+        )
+        assert total == Decimal("1444"), (
+            f"SUM(prod_receipt_real_qty) across {len(rows)} BOM-aux rows "
+            f"= {total}, expected 1444. Without Wave 5B receipt-side "
+            "dedup, both BOM-aux rows could attribute the rollup → "
+            "SUM = 2× actual."
+        )
+
 
 class TestLiveMatchQualityParity:
     """Stage 4 of PLAN_aux_match_visibility: live-path match_quality_breakdown

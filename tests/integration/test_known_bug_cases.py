@@ -150,6 +150,69 @@ async def test_bug1_AS2602037_05_06_02_21_watervalve_must_match_PRDMO_target(rea
 
 
 # ============================================================================
+# Wave 5B pins — partial-exact-match dedup over-application (Bug A) and
+# missing receipt-side Tier-2.5 (Bug B). See PR description for context.
+# ============================================================================
+@pytest.mark.asyncio
+async def test_AS2602033_05_02_08_037_box_no_partial_match_overcount(real_handler):
+    """Wave 5B Bug A real-data pin: AS2602033 / 05.02.08.037 盒子.
+
+    QP's PPBOM has 2 aux groups; PRD_MO has a partial exact match (one
+    aux matches at 32544; the other doesn't). Pre-Wave-5B:
+      - matched aux row claimed Tier 1 = 32544
+      - non-matched aux row claimed Tier 2.5 rollup = 32544
+      - SUM(prod_instock_must_qty) = 65088 = 2× actual production target
+    Post-Wave-5B partial-match dedup: matched row keeps 32544; non-
+    matched row gets max(0, rollup - matched) = 0; SUM = 32544.
+    """
+    response = await real_handler.get_status("AS2602033", use_cache=False, source="live")
+    must_total = _sum_must_for_code(response.children, "05.02.08.037")
+    # KD truth from /tmp/diff_AS2602033.json: demand = 32544.
+    assert Decimal("32000") <= must_total <= Decimal("33100"), (
+        f"AS2602033 / 05.02.08.037 (盒子): SUM(must_qty)={must_total}. "
+        f"Expected ~32544 (matches Kingdee). Pre-Wave-5B value was 65088 "
+        f"(2× over) because the Tier-2.5 dedup bailed out when ANY exact "
+        f"match existed → the matched aux row claimed exact qty AND the "
+        f"non-matched aux row claimed the full rollup. If this fails, "
+        f"check src/query/mto_handler.py `_tier_2_5_state` partial-match "
+        f"logic and the cache CTE `nm_elect_rank` branch in bom_agg."
+    )
+
+
+@pytest.mark.asyncio
+async def test_AK2510034_05_02_15_62_receipts_match_kingdee(real_handler):
+    """Wave 5B Bug B real-data pin: AK2510034 / 05.02.15.62 电镀镜片.
+
+    QP's PPBOM has the material at specific aux variants; PRD_INSTOCK
+    receipts are recorded against completely different aux variants
+    (disjoint numbering — same shape as Bug A's PPBOM/PRD_MO disjoint
+    case). Pre-Wave-5B the receipt-side `_get` had no Tier-2.5 fall-
+    through (Tier 3 only fired when BOM aux=0) → prod_instock_real_qty
+    = 0 for all BOM-aux rows. KD truth: 1444.
+
+    Post-Wave-5B: receipt-side `_get` falls through to all-aux rollup
+    when BOM aux≠0 and Tier 1+2 both miss; partial-match dedup zeroes
+    non-elected non-matched siblings so SUM matches Kingdee.
+    """
+    response = await real_handler.get_status("AK2510034", use_cache=False, source="live")
+    real_total = sum(
+        (_to_dec(c.prod_instock_real_qty) for c in response.children
+         if c.material_code == "05.02.15.62"),
+        Decimal(0),
+    )
+    # KD truth from /tmp/diff_AK2510034.json: fulfilled = 1444.
+    assert Decimal("1400") <= real_total <= Decimal("1500"), (
+        f"AK2510034 / 05.02.15.62 (电镀镜片): SUM(prod_instock_real_qty)"
+        f"={real_total}. Expected ~1444 (matches Kingdee). Pre-Wave-5B "
+        f"value was 0 because the receipt-side `_get` had no Tier-2.5 "
+        f"fall-through (Tier 3 only fires for BOM aux=0). If this fails, "
+        f"check src/query/mto_handler.py `_get` Tier-2.5 branch and "
+        f"`_recv_tier_state` dedup, plus the cache "
+        f"_apply_recv_partial_match_dedup post-SQL hook."
+    )
+
+
+# ============================================================================
 # Bug 5b/6 pins — purchased multi-aux variants drop (commit 826e87a)
 #
 # Pre-fix: only the first PUR aux variant emitted as a synthetic row.

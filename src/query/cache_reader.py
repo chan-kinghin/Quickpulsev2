@@ -284,9 +284,11 @@ class CacheReader:
 
         Each receipt/order table has THREE JOINs (3-tier aux_prop_id fallback):
         - Tier 1: Exact match on (material_code, aux_prop_id)
-        - Tier 2: When BOM has specific aux (!=0), fallback to receipts with aux=0
-        - Tier 3: When BOM has generic aux (=0), sum ALL receipts for that material
-        COALESCE prefers exact match; Tier 2/3 are mutually exclusive by aux value.
+        - Tier 2 (BOM aux!=0, Kingdee receipt aux=0): pr0 / pk0 / etc.
+        - Tier 2.5 (Wave 5B): BOM aux!=0, Tier-1+Tier-2 miss → fall back
+          to all-aux rollup with partial-match dedup (see `_recv_dedup_cte`).
+        - Tier 3 (BOM aux=0): sum ALL receipts; same partial-match dedup.
+        COALESCE prefers exact match; later tiers fire only when earlier miss.
         """
         pattern = f"{mto_number}%"
         rows = await self.db.execute_read(
@@ -354,32 +356,64 @@ class CacheReader:
                 FROM cached_purchase_orders po
                 JOIN matching_mtos m ON po.mto_number = m.mto_number
             ),
-            -- Wave 4D (cache mirror of live's Wave 4C dedup): per-code
-            -- aggregate showing whether ANY (code, aux) BOM row has a Tier-1
-            -- exact PRD_MO match. Used by bom_agg below to apply Tier-2.5/3
-            -- rollup dedup (cache mirror of mto_handler.py Step 1 dedup).
+            -- Wave 4D → Wave 5B (Bug A): per-code aggregate enabling
+            -- partial-match dedup of fallback rollup. Wave 4D bailed out
+            -- entirely if ANY BOM-aux had a Tier-1 exact match; Wave 5B
+            -- splits the rollup so exact-matched aux claim their share
+            -- and non-matched aux share the REMAINDER (rollup minus
+            -- already-matched amount). Real-data: AS2602033 /
+            -- 05.02.08.037 had a partial match → pre-Wave-5B both rows
+            -- fired (Tier-1: 32544) AND (Tier-2.5: 32544 rollup) →
+            -- SUM=65088=2× target.
             mo_match_per_code AS (
                 SELECT br.material_code,
                        MAX(CASE WHEN mo.mo_qty > 0 THEN 1 ELSE 0 END) as has_any_exact,
-                       COUNT(*) as group_count
+                       COUNT(*) as group_count,
+                       -- Sum of Tier-1 exact-matched PRD_MO qty across
+                       -- the BOM-aux groups for this code. Used to
+                       -- compute remainder = rollup - this_amount.
+                       SUM(CASE WHEN mo.mo_qty > 0 THEN mo.mo_qty ELSE 0 END)
+                           as exact_matched_amount,
+                       -- Count of BOM-aux groups that have NO Tier-1
+                       -- match. Used to detect single non-matched group
+                       -- vs multi-non-matched cases.
+                       SUM(CASE WHEN mo.mo_qty IS NULL OR mo.mo_qty <= 0
+                                THEN 1 ELSE 0 END) as non_matched_count
                 FROM bom_raw br
                 LEFT JOIN prd_mo_agg mo
                     ON mo.material_code = br.material_code
                    AND mo.aux_prop_id = br.aux_prop_id
                 GROUP BY br.material_code
             ),
-            -- Per-row election rank: aux=0 wins over specific aux; among
-            -- specific aux, smallest wins. Mirrors the dict iteration order
-            -- in mto_handler.py:_build_bom_joined_rows_from_live (where the
-            -- first encountered BOM-aux group becomes the elected row).
+            -- Per-row election rank.
+            -- `elect_rank`: aux=0 wins; among specific aux, smallest wins.
+            --   Mirrors mto_handler.py:_build_bom_joined_rows_from_live
+            --   election in the legacy Wave 4D path (any-exact / no-exact
+            --   single dedup).
+            -- `nm_elect_rank`: same shape, but ONLY ranks within the
+            --   subset of non-matched (Tier-1 missed) BOM-aux groups.
+            --   Used for Wave 5B partial-match dedup — the elected
+            --   non-matched group claims the remainder, all other non-
+            --   matched groups get 0. Matched groups still use Tier-1.
             bom_ranked_for_dedup AS (
                 SELECT br.*,
+                       (mo.mo_qty IS NULL OR mo.mo_qty <= 0) as is_non_matched,
                        ROW_NUMBER() OVER (
                            PARTITION BY br.material_code
                            ORDER BY (CASE WHEN br.aux_prop_id = 0 THEN 0 ELSE 1 END),
                                     br.aux_prop_id
-                       ) as elect_rank
+                       ) as elect_rank,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY br.material_code,
+                                        (CASE WHEN mo.mo_qty IS NULL OR mo.mo_qty <= 0
+                                              THEN 1 ELSE 0 END)
+                           ORDER BY (CASE WHEN br.aux_prop_id = 0 THEN 0 ELSE 1 END),
+                                    br.aux_prop_id
+                       ) as nm_elect_rank
                 FROM bom_raw br
+                LEFT JOIN prd_mo_agg mo
+                    ON mo.material_code = br.material_code
+                   AND mo.aux_prop_id = br.aux_prop_id
             ),
             bom_agg AS (
                 -- Wave 4B (Issue #1): material_type override for 03.xx purchased
@@ -409,13 +443,22 @@ class CacheReader:
                 -- (corrected_material_type=2) / subcontracted (3) / unknown:
                 -- keep SUM — purchased materials legitimately accumulate across
                 -- parent BOMs (one combined PO covers all parents).
-                -- Wave 4D dedup: when a self-made code has multiple BOM-aux
-                -- groups, no exact PRD_MO match for any of them, and Tier-2.5/3
-                -- rollup applies → only the elected row (rank=1) carries the
-                -- full team rollup; sibling rows get 0. This mirrors live's
-                -- Wave 4C Step 1 dedup, preventing the SUM(must_qty)-by-code
-                -- = N × team-target shape (real-data: AS2602033 / 05.02.12.44
-                -- pre-fix cache=51840 vs live=8640, ratio 6×).
+                -- Wave 5B partial-match dedup (extends Wave 4D):
+                -- self-made codes with multiple BOM-aux groups split the
+                -- team's PRD_MO target between exact-matched aux (Tier-1
+                -- claims their exact share) and non-matched aux (share
+                -- the remainder via the elected non-matched aux).
+                --   exact_matched_amount = SUM(mo.mo_qty for matched aux)
+                --   remainder = MAX(0, mo_all.mo_qty - exact_matched_amount)
+                --   elected non-matched aux (nm_elect_rank=1) gets remainder
+                --   other non-matched aux get 0
+                -- When no exact match exists (legacy Wave 4D), exact_
+                -- matched_amount=0 → remainder=mo_all.mo_qty, behaviour
+                -- identical to Wave 4D.
+                -- Real-data: AS2602033 / 05.02.08.037 had partial match →
+                -- pre-Wave-5B SUM(must_qty)=65088 (2× target 32544); post-
+                -- Wave-5B Tier-1 row claims 32544, non-matched row claims
+                -- max(0, 32544 - 32544) = 0 → SUM=32544.
                 SELECT br.material_code, br.aux_prop_id,
                        CASE
                            WHEN br.material_code LIKE '03.%'
@@ -432,18 +475,23 @@ class CacheReader:
                            WHEN br.material_type = 1
                                 AND mo.mo_qty IS NOT NULL AND mo.mo_qty > 0
                                THEN mo.mo_qty
-                           -- Tier 2.5/3 rollup w/ multi-group dedup (Wave 4D)
+                           -- Wave 5B partial-match dedup: non-matched
+                           -- BOM-aux row, multiple BOM-aux groups exist,
+                           -- elected non-matched representative → claim
+                           -- remainder (rollup - exact_matched_amount).
                            WHEN br.material_type = 1
-                                AND mo_all.mo_qty IS NOT NULL AND mo_all.mo_qty > 0
-                                AND mc.has_any_exact = 0
-                                AND mc.group_count > 1
-                                AND br.elect_rank = 1
-                               THEN mo_all.mo_qty
-                           WHEN br.material_type = 1
+                                AND br.is_non_matched
                                 AND mo_all.mo_qty IS NOT NULL
-                                AND mc.has_any_exact = 0
                                 AND mc.group_count > 1
-                                AND br.elect_rank > 1
+                                AND br.nm_elect_rank = 1
+                               THEN MAX(0, COALESCE(mo_all.mo_qty, 0)
+                                            - COALESCE(mc.exact_matched_amount, 0))
+                           -- Non-elected non-matched aux → 0 (the
+                           -- elected representative already claimed the
+                           -- remainder for this code).
+                           WHEN br.material_type = 1
+                                AND br.is_non_matched
+                                AND mc.group_count > 1
                                THEN 0
                            -- Single-group fallback (no dedup needed)
                            WHEN br.material_type = 1
@@ -474,99 +522,109 @@ class CacheReader:
                 ROUND(ba.need_qty, 2) as need_qty,
                 ROUND(ba.picked_qty, 2) as picked_qty,
                 ROUND(ba.no_picked_qty, 2) as no_picked_qty,
+                /* Wave 5B: Tier-2.5 fall-through — when BOM aux!=0 and Tier 1
+                   (pr) + Tier 2 (pr0) miss, fall through to all-aux rollup
+                   (pr_all). Partial-match dedup is applied post-SQL in
+                   `_apply_recv_partial_match_dedup` to zero non-elected
+                   non-matched siblings. Mirrors live's `_get` _recv_tier_state. */
                 ROUND(COALESCE(
                     pr.real_qty,
                     CASE WHEN pr.material_code IS NULL AND br.aux_prop_id != 0 THEN pr0.real_qty END,
-                    CASE WHEN pr.material_code IS NULL AND br.aux_prop_id = 0 THEN pr_all.real_qty END,
+                    pr_all.real_qty,
                     0
                 ), 2) as prod_receipt_real_qty,
                 -- Use BOM need_qty (PPBOM.FMustQty) instead of receipt SUM(must_qty)
                 -- which inflates across multiple receipt batches (see commit c7df68c)
                 ROUND(COALESCE(ba.need_qty, 0), 2) as prod_receipt_must_qty,
+                /* Wave 5B: Tier-2.5 fall-through to all-aux rollup. See
+                   prod_receipt_real_qty above; post-SQL dedup in
+                   `_apply_recv_partial_match_dedup`. */
                 ROUND(COALESCE(
                     pk.actual_qty,
                     CASE WHEN pk.material_code IS NULL AND br.aux_prop_id != 0 THEN pk0.actual_qty END,
-                    CASE WHEN pk.material_code IS NULL AND br.aux_prop_id = 0 THEN pk_all.actual_qty END,
+                    pk_all.actual_qty,
                     0
                 ), 2) as pick_actual_qty,
                 ROUND(COALESCE(
                     pk.app_qty,
                     CASE WHEN pk.material_code IS NULL AND br.aux_prop_id != 0 THEN pk0.app_qty END,
-                    CASE WHEN pk.material_code IS NULL AND br.aux_prop_id = 0 THEN pk_all.app_qty END,
+                    pk_all.app_qty,
                     0
                 ), 2) as pick_app_qty,
                 ROUND(COALESCE(
                     po.order_qty,
                     CASE WHEN po.material_code IS NULL AND br.aux_prop_id != 0 THEN po0.order_qty END,
-                    CASE WHEN po.material_code IS NULL AND br.aux_prop_id = 0 THEN po_all.order_qty END,
+                    po_all.order_qty,
                     0
                 ), 2) as purchase_order_qty,
                 ROUND(COALESCE(
                     po.stock_in_qty,
                     CASE WHEN po.material_code IS NULL AND br.aux_prop_id != 0 THEN po0.stock_in_qty END,
-                    CASE WHEN po.material_code IS NULL AND br.aux_prop_id = 0 THEN po_all.stock_in_qty END,
+                    po_all.stock_in_qty,
                     0
                 ), 2) as purchase_stock_in_qty,
                 ROUND(COALESCE(
                     pur.real_qty,
                     CASE WHEN pur.material_code IS NULL AND br.aux_prop_id != 0 THEN pur0.real_qty END,
-                    CASE WHEN pur.material_code IS NULL AND br.aux_prop_id = 0 THEN pur_all.real_qty END,
+                    pur_all.real_qty,
                     0
                 ), 2) as purchase_receipt_real_qty,
                 ROUND(COALESCE(
                     sub.order_qty,
                     CASE WHEN sub.material_code IS NULL AND br.aux_prop_id != 0 THEN sub0.order_qty END,
-                    CASE WHEN sub.material_code IS NULL AND br.aux_prop_id = 0 THEN sub_all.order_qty END,
+                    sub_all.order_qty,
                     0
                 ), 2) as subcontract_order_qty,
                 ROUND(COALESCE(
                     sub.stock_in_qty,
                     CASE WHEN sub.material_code IS NULL AND br.aux_prop_id != 0 THEN sub0.stock_in_qty END,
-                    CASE WHEN sub.material_code IS NULL AND br.aux_prop_id = 0 THEN sub_all.stock_in_qty END,
+                    sub_all.stock_in_qty,
                     0
                 ), 2) as subcontract_stock_in_qty,
                 ROUND(COALESCE(
                     sd.real_qty,
                     CASE WHEN sd.material_code IS NULL AND br.aux_prop_id != 0 THEN sd0.real_qty END,
-                    CASE WHEN sd.material_code IS NULL AND br.aux_prop_id = 0 THEN sd_all.real_qty END,
+                    sd_all.real_qty,
                     0
                 ), 2) as delivery_real_qty,
                 /* match_quality labels per source — telemetry only (Stage 1 of PLAN_aux_match_visibility).
-                   Mirrors the COALESCE tier ordering above so each label = which tier produced the qty. */
+                   Mirrors the COALESCE tier ordering above. Wave 5B widened
+                   `all_aux_rollup` to fire for BOTH aux=0 and aux!=0 (Tier-3
+                   AND Tier-2.5). */
                 CASE
                     WHEN pr.material_code IS NOT NULL THEN 'exact'
                     WHEN br.aux_prop_id != 0 AND pr0.material_code IS NOT NULL THEN 'aux_zero_fallback'
-                    WHEN br.aux_prop_id = 0 AND pr_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    WHEN pr_all.material_code IS NOT NULL THEN 'all_aux_rollup'
                     ELSE 'no_match'
                 END as prod_receipt_match_quality,
                 CASE
                     WHEN pk.material_code IS NOT NULL THEN 'exact'
                     WHEN br.aux_prop_id != 0 AND pk0.material_code IS NOT NULL THEN 'aux_zero_fallback'
-                    WHEN br.aux_prop_id = 0 AND pk_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    WHEN pk_all.material_code IS NOT NULL THEN 'all_aux_rollup'
                     ELSE 'no_match'
                 END as pick_match_quality,
                 CASE
                     WHEN po.material_code IS NOT NULL THEN 'exact'
                     WHEN br.aux_prop_id != 0 AND po0.material_code IS NOT NULL THEN 'aux_zero_fallback'
-                    WHEN br.aux_prop_id = 0 AND po_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    WHEN po_all.material_code IS NOT NULL THEN 'all_aux_rollup'
                     ELSE 'no_match'
                 END as purchase_order_match_quality,
                 CASE
                     WHEN pur.material_code IS NOT NULL THEN 'exact'
                     WHEN br.aux_prop_id != 0 AND pur0.material_code IS NOT NULL THEN 'aux_zero_fallback'
-                    WHEN br.aux_prop_id = 0 AND pur_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    WHEN pur_all.material_code IS NOT NULL THEN 'all_aux_rollup'
                     ELSE 'no_match'
                 END as purchase_receipt_match_quality,
                 CASE
                     WHEN sub.material_code IS NOT NULL THEN 'exact'
                     WHEN br.aux_prop_id != 0 AND sub0.material_code IS NOT NULL THEN 'aux_zero_fallback'
-                    WHEN br.aux_prop_id = 0 AND sub_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    WHEN sub_all.material_code IS NOT NULL THEN 'all_aux_rollup'
                     ELSE 'no_match'
                 END as subcontract_match_quality,
                 CASE
                     WHEN sd.material_code IS NOT NULL THEN 'exact'
                     WHEN br.aux_prop_id != 0 AND sd0.material_code IS NOT NULL THEN 'aux_zero_fallback'
-                    WHEN br.aux_prop_id = 0 AND sd_all.material_code IS NOT NULL THEN 'all_aux_rollup'
+                    WHEN sd_all.material_code IS NOT NULL THEN 'all_aux_rollup'
                     ELSE 'no_match'
                 END as delivery_match_quality,
                 ba.synced_at
@@ -740,7 +798,115 @@ class CacheReader:
         self._log_fallback_telemetry(mto_number, rows)
 
         data = [self._row_to_bom_joined(row) for row in rows]
+        # Wave 5B (Bug B) — receipt-side partial-match dedup.
+        # The SQL above adds Tier-2.5 fall-through to all_aux rollup for
+        # every receipt source, but this would inflate by N× when multiple
+        # BOM-aux groups for the same code all consume the rollup. Mirror
+        # live's `_recv_tier_state` here: distribute the rollup so exact-
+        # matched aux keep their Tier-1 value and the elected non-matched
+        # aux claims the remainder; non-elected non-matched aux get 0.
+        # See `_apply_recv_partial_match_dedup` for the rule.
+        self._apply_recv_partial_match_dedup(data)
         return CacheResult(data=data, synced_at=oldest_sync, is_fresh=is_fresh)
+
+    @staticmethod
+    def _apply_recv_partial_match_dedup(data: list) -> None:
+        """In-place receipt-side Tier-2.5/3 partial-match dedup.
+
+        Wave 5B (Bug B). For each (material_code, source) where multiple
+        BOM-aux rows hit Tier-2.5 or Tier-3 (i.e. their qty came from
+        all_aux rollup not exact match), distribute the rollup so:
+          - exact-matched rows (match_quality='exact') keep their value
+          - the elected non-matched row (aux=0 wins; else smallest aux)
+            claims `remainder = max(0, rollup - sum_of_exact_amounts)`
+          - other non-matched rows are zeroed
+
+        Mirrors `mto_handler._build_bom_joined_rows_from_live` /
+        `_recv_tier_state` and matches `mo_match_per_code` cache CTE
+        semantics for the demand side.
+
+        Real-data: AK2510034 / 05.02.15.62 — pre-Wave-5B QP returns
+        prod_receipt_real_qty=0; post-fix the elected BOM-aux row claims
+        the rollup (=1444) and SUM matches Kingdee.
+
+        Sources processed:
+          (qty_attr, quality_key)
+          - prod_receipt_real_qty  / prod_receipt
+          - prod_receipt_must_qty  / prod_receipt   (mirrors real_qty's match,
+                                                     but holds need_qty — see note)
+          - pick_actual_qty        / pick
+          - pick_app_qty           / pick
+          - purchase_order_qty     / purchase_order
+          - purchase_stock_in_qty  / purchase_order
+          - purchase_receipt_real_qty / purchase_receipt
+          - subcontract_order_qty  / subcontract
+          - subcontract_stock_in_qty / subcontract
+          - delivery_real_qty      / delivery
+
+        Note on prod_receipt_must_qty: it's sourced from BOM need_qty
+        (already deduplicated via `bom_agg.need_qty` in the demand side),
+        not from receipts directly, so it's intentionally skipped here.
+        """
+        # Group rows by material_code
+        by_code: dict[str, list] = {}
+        for row in data:
+            by_code.setdefault(row.material_code, []).append(row)
+
+        # (qty_attr, quality_key)
+        qty_to_quality = [
+            ("prod_receipt_real_qty", "prod_receipt"),
+            ("pick_actual_qty", "pick"),
+            ("pick_app_qty", "pick"),
+            ("purchase_order_qty", "purchase_order"),
+            ("purchase_stock_in_qty", "purchase_order"),
+            ("purchase_receipt_real_qty", "purchase_receipt"),
+            ("subcontract_order_qty", "subcontract"),
+            ("subcontract_stock_in_qty", "subcontract"),
+            ("delivery_real_qty", "delivery"),
+        ]
+
+        ZERO = Decimal("0")
+        for code, rows_for_code in by_code.items():
+            if len(rows_for_code) < 2:
+                continue  # single-group: no dedup needed
+            for qty_attr, quality_key in qty_to_quality:
+                # Identify exact-matched vs non-matched rows for THIS source.
+                exact = []
+                non_matched = []
+                for r in rows_for_code:
+                    q = (r.match_quality_breakdown or {}).get(quality_key)
+                    val = getattr(r, qty_attr, ZERO) or ZERO
+                    if q == "exact":
+                        exact.append((r, val))
+                    else:
+                        non_matched.append((r, val))
+                if not non_matched:
+                    continue
+                # Determine if any non-matched row has a fallback value
+                # (i.e. all_aux_rollup was the source). If all non-matched
+                # are 'no_match' / 0, no dedup needed.
+                if not any(v > 0 for _, v in non_matched):
+                    continue
+                # The all_aux rollup value is whatever a non-matched row
+                # received from SQL (they all received the same rollup
+                # because the SQL CTE returns one rollup per code).
+                rollup = max((v for _, v in non_matched), default=ZERO)
+                exact_sum = sum((v for _, v in exact), ZERO)
+                remainder = max(ZERO, rollup - exact_sum)
+                # Election: aux=0 wins; else smallest aux among non-matched.
+                non_matched_sorted = sorted(
+                    non_matched,
+                    key=lambda rv: (
+                        0 if rv[0].aux_prop_id == 0 else 1,
+                        rv[0].aux_prop_id,
+                    ),
+                )
+                elected_row = non_matched_sorted[0][0]
+                for r, _ in non_matched:
+                    if r is elected_row:
+                        setattr(r, qty_attr, remainder)
+                    else:
+                        setattr(r, qty_attr, ZERO)
 
     @staticmethod
     def _log_fallback_telemetry(mto_number: str, rows: list) -> None:

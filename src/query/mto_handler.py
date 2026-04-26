@@ -660,13 +660,59 @@ class MTOQueryHandler:
                 code_totals[code] = code_totals.get(code, ZERO) + val
             _by_code_all[label] = code_totals
 
+        # ---- Wave 5B (receipt-side): pre-compute Tier 2.5/Tier 3 rollup
+        # dedup state per receipt label.
+        #
+        # Bug class: when BOM has multiple aux groups for the same code AND
+        # receipts are recorded at aux values disjoint from the BOM aux
+        # numbering, every BOM-aux row that falls to Tier 2.5 (aux≠0 →
+        # _by_code_all) or Tier 3 (aux=0 → _by_code_all) currently returns
+        # the FULL all-aux rollup → SUM by code = N × actual receipt total.
+        # When partial exact matches exist (some BOM-aux DO match a receipt
+        # aux), the matched groups claim their exact amount AND non-matched
+        # groups claim full rollup → the same shape on the receipt side
+        # that Bug A fixes on the PRD_MO/demand side.
+        #
+        # The fix mirrors `_lookup_mo_qty`'s partial-match dedup:
+        #   - exact_matched_amount = SUM of receipt qty across BOM-aux that
+        #     have a Tier 1 hit in this `lookup`
+        #   - remainder = max(0, all_aux_rollup - exact_matched_amount)
+        #   - elect ONE non-matched BOM-aux as the representative (aux=0
+        #     wins; else smallest aux). The elected row gets `remainder`.
+        #     All other non-matched BOM-aux rows get 0.
+        #
+        # Real-data scenarios this kills:
+        #   - AK2510034 / 05.02.15.62 电镀镜片: BOM at specific aux,
+        #     receipts at completely different aux → pre-Wave-5B QP returns
+        #     0/0 fulfilled/picked, KD shows 1444/1444. With Tier 2.5 +
+        #     dedup, the elected non-matched BOM-aux returns 1444; siblings
+        #     return 0; SUM matches KD.
+        #
+        # Per-code, per-label state is keyed off bom_groups (computed below
+        # at "Step 1" — `bom_groups` is populated before this block runs).
+        # We don't compute it here; instead, `_get` consults the lazily-
+        # populated `_recv_tier_state` dict, which Step 1 fills before any
+        # `_make_row` call. That ordering is preserved by construction:
+        # `bom_groups` is built and `_recv_tier_state` populated before the
+        # `for (code, aux), bom_list in bom_groups.items(): rows.append(
+        # _make_row(...))` loop. See the comment in Step 1 for details.
+        _recv_tier_state: dict[str, dict[str, dict]] = {}
+
         def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
             """Get value by (code, aux) with bidirectional aux fallback.
 
-            Matches the SQL 3-tier COALESCE behavior:
-            1. Try exact (code, aux) match
-            2. BOM has specific aux (aux != 0) → fall back to aux=0 entries
-            3. BOM has generic aux (aux == 0) → fall back to all-aux sum
+            Tier 1: exact (code, aux) match.
+            Tier 2: BOM aux≠0, receipt at aux=0 (`_by_code`).
+            Tier 2.5 (Wave 5B, Bug B): BOM aux≠0, both Tier 1 + Tier 2
+                miss → fall through to all-aux rollup `_by_code_all`. ONLY
+                the elected representative aux receives the remainder
+                (rollup minus exact-matched siblings). Non-elected non-
+                matched aux receive 0. Mirrors `_lookup_mo_qty`'s Tier 2.5.
+            Tier 3: BOM aux=0 → all-aux rollup `_by_code_all`. Same partial-
+                match dedup applies — when partial exact matches exist for
+                this code, only the elected aux=0 BOM-row receives the
+                remainder; if aux=0 is non-elected (e.g. another BOM group
+                won), it gets 0.
             """
             exact = lookup.get((code, aux))
             if exact is not None:
@@ -676,8 +722,25 @@ class MTOQueryHandler:
                 fallback = _by_code.get(lookup_label, {}).get(code)
                 if fallback is not None:
                     return fallback
+                # Tier 2.5: fall through to all-aux rollup with dedup state.
+                state = _recv_tier_state.get(lookup_label, {}).get(code)
+                if state is not None:
+                    if aux == state["elected_aux"]:
+                        return state["remainder"]
+                    return ZERO
+                # No state ⇒ either no rollup data or a single BOM-aux group
+                # with no exact match. Single-group case: safe to return
+                # the full rollup (same as old behaviour, no double count).
+                all_sum = _by_code_all.get(lookup_label, {}).get(code)
+                if all_sum is not None:
+                    return all_sum
             else:
-                # Tier 3: BOM has aux=0, sum all receipts for material
+                # Tier 3: BOM has aux=0, all-aux rollup with dedup state.
+                state = _recv_tier_state.get(lookup_label, {}).get(code)
+                if state is not None:
+                    if aux == state["elected_aux"]:
+                        return state["remainder"]
+                    return ZERO
                 all_sum = _by_code_all.get(lookup_label, {}).get(code)
                 if all_sum is not None:
                     return all_sum
@@ -688,12 +751,20 @@ class MTOQueryHandler:
 
             Stage 4 of PLAN_aux_match_visibility — keeps live path shape-compatible
             with the cache SQL CASE expressions in get_mto_bom_joined.
+
+            Wave 5B note: when a row is non-elected under Tier 2.5/3 partial-
+            match dedup, _get returns 0 but _get_quality still reports the
+            tier that WOULD have applied — this is intentional; the
+            telemetry tracks WHICH path the data came from, not whether it
+            was zeroed by dedup.
             """
             if (code, aux) in lookup:
                 return "exact"
             if aux != 0:
                 if code in _by_code.get(lookup_label, {}):
                     return "aux_zero_fallback"
+                if code in _by_code_all.get(lookup_label, {}):
+                    return "all_aux_rollup"
             else:
                 if code in _by_code_all.get(lookup_label, {}):
                     return "all_aux_rollup"
@@ -780,14 +851,19 @@ class MTOQueryHandler:
             team's total production target across all aux variants" when
             PPBOM and PRD_MO disagree on aux numbering.
 
-            NOTE — multi-row dedup (Wave 4C): when N BOM-aux groups for the
-            same code all hit Tier 2.5/Tier 3 (no Tier 1 match anywhere),
-            assigning the rollup to every group inflates SUM(must_qty) by
-            N×. The caller (Step 1 BOM-row builder) handles this dedup via
-            `_tier_2_5_codes` — only ONE row per qualifying code carries
-            the rollup; later rows skip both this helper and the MAX
-            fallback, going to ZERO. See the comment block above
-            `_tier_2_5_codes` for the full rule.
+            NOTE — partial-match dedup (Wave 4C → Wave 5B): when multiple
+            BOM-aux groups exist for the same code AND the rollup is in
+            play, attributing the full rollup to every non-matched group
+            inflates SUM(must_qty) by N× (Wave 4C "no exact match
+            anywhere" case) or causes partial-overcount (Wave 5B "some
+            exact, some not" case — AS2602033 / 05.02.08.037). The
+            caller (Step 1 BOM-row builder) bypasses this helper for
+            non-matched BOM-aux rows and uses the precomputed
+            `_tier_2_5_state[code]` (elected_aux + remainder) instead.
+            This helper is still safe to call from synthetic-row blocks
+            (Step 2), where there's at most one row per (code, aux) and
+            no double-count risk. See the docstring above
+            `_tier_2_5_state` for the full rule.
 
             Returns ZERO when no PRD_MO row exists for the material at all —
             caller falls back to MAX(b.need_qty) per Pattern 10 fix.
@@ -819,8 +895,9 @@ class MTOQueryHandler:
             key = (bom.material_code, getattr(bom, "aux_prop_id", 0) or 0)
             bom_groups[key].append(bom)
 
-        # Wave 4C — per-code dedup of fallback rollup across multiple
-        # BOM-aux groups for the same self-made code.
+        # Wave 4C → Wave 5B (Bug A) — per-code partial-match dedup of
+        # fallback rollup across multiple BOM-aux groups for the same
+        # self-made code.
         #
         # When PPBOM and PRD_MO use disjoint aux numbering for the same code
         # (real-data case AS2602033 / 05.02.12.44 — PPBOM at aux=0 +
@@ -832,26 +909,31 @@ class MTOQueryHandler:
         # MAX), SUM(must_qty) by code = N × team-target instead of 1 ×
         # team-target.
         #
-        # A code qualifies for fallback-row dedup when:
-        #   1. self-made (material_type == 1), and
-        #   2. _mo_qty_by_code[code] > 0 (PRD_MO rollup exists), and
-        #   3. No BOM-aux group has a Tier 1 exact match, and
-        #   4. There is more than one BOM-aux group for this code (single-
-        #      group cases are handled correctly by `_lookup_mo_qty` alone).
+        # Wave 5B partial-match extension: the previous Wave 4C dedup
+        # bailed out entirely if ANY BOM-aux had a Tier 1 exact match —
+        # but real-data case AS2602033 / 05.02.08.037 shows the
+        # over-application: PPBOM has 2 aux groups, PRD_MO has 1 exact
+        # match (32544) plus extra coverage. Pre-Wave-5B both rows fired
+        # Tier 1 (matched aux: 32544) AND Tier 2.5 (non-matched aux: full
+        # rollup 32544) → SUM = 65088 = 2× the team's actual target.
         #
-        # When a code qualifies:
-        #   - the FIRST BOM group encountered carries _mo_qty_by_code[code]
-        #     (the team total)
-        #   - every subsequent BOM group for that code gets ZERO (no MAX
-        #     fallback — the team's total is already accounted for in the
-        #     elected representative row).
+        # New rule: when partial exact matches exist, the team's total
+        # target is split — exact-matched rows claim their exact share
+        # (left through `_lookup_mo_qty` unchanged), while non-matched
+        # rows share the REMAINDER:
+        #   exact_matched_amount = SUM(_mo_qty[(c, a)] for a in BOM-aux
+        #                              that has a positive Tier 1 hit)
+        #   remainder = max(0, _mo_qty_by_code[c] - exact_matched_amount)
+        # ONE non-matched BOM-aux (elected: aux=0 wins; else smallest
+        # specific aux) receives `remainder`; all other non-matched BOM-
+        # aux groups get 0.
         #
-        # If ANY BOM-aux group has a Tier 1 exact match, the code's
-        # production target is being correctly distributed across PRD_MO-
-        # matched aux variants — DON'T dedup; let `_lookup_mo_qty` per-row
-        # handle each group (Tier 1 hits use exact qty; Tier 2/2.5/3 misses
-        # fall to MAX).
-        _tier_2_5_codes: set[str] = set()
+        # If no Tier 1 matches exist (legacy Wave 4C case), exact_matched=
+        # 0 and remainder = full rollup — behaviour identical to Wave 4C.
+        #
+        # If `remainder <= 0`, all non-matched groups get 0 — the team's
+        # plan is already fully accounted for in the matched groups.
+        _tier_2_5_state: dict[str, dict] = {}
         _bom_codes_seen: dict[str, list[int]] = defaultdict(list)
         for (c, a) in bom_groups.keys():
             _bom_codes_seen[c].append(a)
@@ -859,14 +941,80 @@ class MTOQueryHandler:
             rollup = _mo_qty_by_code.get(c, ZERO)
             if rollup <= 0:
                 continue
-            # If any BOM-aux has a Tier 1 exact match, don't dedup —
-            # PRD_MO sub-targets are aligned with PPBOM aux numbering.
-            if any((c, a) in _mo_qty and _mo_qty[(c, a)] > 0 for a in aux_list):
+            # Identify Tier 1 exact-match BOM-aux groups vs non-matched.
+            exact_matched_aux = [
+                a for a in aux_list
+                if (c, a) in _mo_qty and _mo_qty[(c, a)] > 0
+            ]
+            non_matched_aux = [a for a in aux_list if a not in exact_matched_aux]
+            # If every BOM-aux has Tier 1 → no fallback rollup needed at
+            # all; let _lookup_mo_qty resolve each row. (Wave 4C kept this
+            # branch as "don't dedup".)
+            if not non_matched_aux:
                 continue
-            # More than one BOM-aux group for this code — dedup needed.
-            if len(aux_list) >= 2:
-                _tier_2_5_codes.add(c)
-        _tier_2_5_consumed: set[str] = set()
+            exact_matched_amount = sum(
+                (_mo_qty[(c, a)] for a in exact_matched_aux), ZERO
+            )
+            remainder = max(ZERO, rollup - exact_matched_amount)
+            # Election rule (matches cache CTE bom_ranked_for_dedup +
+            # Wave 4C "first encountered"): aux=0 wins; else smallest aux.
+            if 0 in non_matched_aux:
+                elected_aux = 0
+            else:
+                elected_aux = min(non_matched_aux)
+            _tier_2_5_state[c] = {
+                "elected_aux": elected_aux,
+                "remainder": remainder,
+                "exact_matched_aux": set(exact_matched_aux),
+            }
+
+        # ---- Wave 5B (Bug B) — receipt-side Tier 2.5/3 partial-match
+        # dedup. Mirror of `_tier_2_5_state` but per receipt label.
+        # Built here (post bom_groups) so the `_get` closure (defined
+        # above) can consult `_recv_tier_state` at row-construction time.
+        #
+        # Real-data scenario: AK2510034 / 05.02.15.62 — BOM at specific
+        # aux, PRD_INSTOCK / PRD_PickMtrl at completely different aux.
+        # Pre-fix: every BOM-aux row returned 0 (Tier 1+2 miss; Tier 3
+        # only fires for BOM aux=0). With Wave 5B Tier 2.5 fall-through
+        # to all-aux rollup, the elected non-matched BOM-aux row claims
+        # the receipt total; siblings stay 0; SUM matches Kingdee.
+        _recv_lookups = (
+            ("receipt_real", receipt_real),
+            ("receipt_must", receipt_must),
+            ("pick_actual", pick_actual_map),
+            ("pick_app", pick_app_map),
+            ("po_order", po_order),
+            ("po_stock_in", po_stock_in),
+            ("pur_real", pur_real),
+            ("sub_order", sub_order),
+            ("sub_stock_in", sub_stock_in),
+            ("del_real", del_real),
+        )
+        for label, lookup in _recv_lookups:
+            per_code: dict[str, dict] = {}
+            for c, aux_list in _bom_codes_seen.items():
+                rollup = _by_code_all.get(label, {}).get(c, ZERO)
+                if rollup <= 0:
+                    continue
+                exact_matched_aux = [a for a in aux_list if (c, a) in lookup]
+                non_matched_aux = [a for a in aux_list if a not in exact_matched_aux]
+                if not non_matched_aux:
+                    continue
+                exact_matched_amount = sum(
+                    (lookup[(c, a)] for a in exact_matched_aux), ZERO
+                )
+                remainder = max(ZERO, rollup - exact_matched_amount)
+                if 0 in non_matched_aux:
+                    elected_aux = 0
+                else:
+                    elected_aux = min(non_matched_aux)
+                per_code[c] = {
+                    "elected_aux": elected_aux,
+                    "remainder": remainder,
+                }
+            if per_code:
+                _recv_tier_state[label] = per_code
 
         rows = []
         covered_keys: set[tuple[str, int]] = set()
@@ -895,19 +1043,25 @@ class MTOQueryHandler:
             # purchased materials legitimately accumulate across parent BOMs
             # (you place one combined order).
             if m_type == 1:
-                # Wave 4C: When a code is flagged for Tier 2.5 dedup, only
-                # ONE row per code carries the all-aux rollup; others go to
-                # ZERO with NO MAX fallback (the team's total target is
-                # already accounted for in the elected representative row).
-                if code in _tier_2_5_codes:
-                    if code in _tier_2_5_consumed:
-                        # Already elected a representative — this row's
-                        # demand is folded into the rep's rollup.
-                        need_qty_val = ZERO
+                # Wave 5B: when a code has a tier_2_5_state entry, the
+                # team's total target is split between exact-matched BOM-
+                # aux rows (which use _lookup_mo_qty Tier 1 directly) and
+                # non-matched BOM-aux rows (which share the remainder via
+                # the elected representative). See Wave 5B docstring above
+                # `_tier_2_5_state`.
+                state = _tier_2_5_state.get(code)
+                if state is not None and aux not in state["exact_matched_aux"]:
+                    # Non-matched BOM-aux group — only the elected aux
+                    # carries the remainder; all others get 0.
+                    if aux == state["elected_aux"]:
+                        need_qty_val = state["remainder"]
                     else:
-                        need_qty_val = _mo_qty_by_code.get(code, ZERO)
-                        _tier_2_5_consumed.add(code)
+                        need_qty_val = ZERO
                 else:
+                    # Either an exact-matched aux (use Tier 1 via
+                    # _lookup_mo_qty), or the code has no fallback state
+                    # at all (single BOM-aux group, all-matched, or no
+                    # PRD_MO rollup) — let `_lookup_mo_qty` resolve.
                     _mo = _lookup_mo_qty(code, aux)
                     if _mo > 0:
                         need_qty_val = _mo

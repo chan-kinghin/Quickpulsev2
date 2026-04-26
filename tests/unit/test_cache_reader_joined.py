@@ -951,6 +951,79 @@ class TestSelfMadeBomRollupRegression:
             "bug-patterns.md #10 (Tier-3 BOM-rollup variant)."
         )
 
+    @pytest.mark.asyncio
+    async def test_partial_exact_match_per_code_dedup_in_bom_agg(self, test_database):
+        """Wave 5B (Bug A) cache mirror — partial-exact-match dedup in bom_agg.
+
+        Real-data: AS2602033 / 05.02.08.037 盒子. Pre-Wave-5B the cache
+        SQL had a binary "any-exact" gate: if ANY BOM-aux had a Tier-1
+        match, dedup was skipped entirely → both the matched row (Tier 1
+        = 32544) AND the non-matched row (Tier 2.5 = 32544 rollup) emitted
+        full values, SUM = 65088 = 2× the actual production target.
+
+        Post-Wave-5B: matched row keeps Tier 1; non-matched row gets
+        max(0, rollup - exact_matched_amount). When the matched amount
+        equals the rollup, non-matched rows get 0 — which is the
+        AS2602033 / 05.02.08.037 case (single PRD_MO row at one aux,
+        rollup = exact = 32544 → remainder = 0).
+
+        Synthetic shape: 2 BOM-aux groups (aux=900, aux=901). PRD_MO
+        only at aux=900 with qty=10000. Expected: aux=900 row gets
+        10000 (Tier 1); aux=901 row gets 0.
+        """
+        mto = "AS2602033_W5B_CACHE"
+        mat_code = "05.02.08.037"
+        # Two BOM-aux groups, both with inflated upstream FMustQty.
+        for mo_no, aux in [("MO_AAA", 900), ("MO_BBB", 901)]:
+            await test_database.execute_write(
+                """
+                INSERT INTO cached_production_bom
+                (mo_bill_no, mto_number, material_code, material_name,
+                 specification, aux_attributes, aux_prop_id, material_type,
+                 need_qty, picked_qty, no_picked_qty, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [mo_no, mto, mat_code, "盒子", "", "", aux, 1, 8000, 0, 8000],
+            )
+        # PRD_MO at aux=900 — matches the first BOM-aux exactly (Tier 1).
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_production_orders
+            (mto_number, bill_no, workshop, material_code, material_name,
+             specification, aux_attributes, aux_prop_id, qty, status,
+             create_date, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            [mto, "MO_X", "组装工段", mat_code, "盒子",
+             "", "", 900, 10000, "已审核", "2026-04-01"],
+        )
+
+        reader = CacheReader(test_database, ttl_minutes=60)
+        result = await reader.get_mto_bom_joined(mto)
+        assert len(result.data) == 2, f"Expected 2 BOM-aux rows, got {len(result.data)}"
+        by_aux = {r.aux_prop_id: r for r in result.data}
+        # Tier 1: aux=900 claims exact PRD_MO qty.
+        assert by_aux[900].need_qty == Decimal("10000"), (
+            f"Tier-1 row regressed: got {by_aux[900].need_qty}, expected 10000."
+        )
+        # Wave 5B: non-matched aux=901 shares remainder = max(0, 10000 -
+        # 10000) = 0. Pre-fix this row would carry full rollup (10000) → SUM=2×.
+        assert by_aux[901].need_qty == Decimal("0"), (
+            f"Wave 5B partial-match dedup regressed in cache CTE. "
+            f"aux=901 got need_qty={by_aux[901].need_qty}, expected 0. "
+            "Pre-fix the SQL `mc.has_any_exact = 0` gate skipped dedup "
+            "when ANY exact match existed → the non-matched aux still "
+            "received full rollup. Fix uses `is_non_matched + nm_elect_rank` "
+            "to distribute remainder. See AS2602033 / 05.02.08.037 "
+            "real-data pin."
+        )
+        # SUM matches PRD_MO target.
+        total = sum((r.need_qty for r in result.data), Decimal(0))
+        assert total == Decimal("10000"), (
+            f"SUM(need_qty) across BOM-aux rows = {total}, expected 10000 "
+            "(team's PRD_MO target)."
+        )
+
 
 class TestMatchQualityFromSQL:
     """Stage 3 of PLAN_aux_match_visibility: verify SQL CASE expressions emit the
