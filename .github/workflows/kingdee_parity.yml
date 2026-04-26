@@ -1,0 +1,90 @@
+name: Kingdee Parity
+
+# Runs the live-Kingdee integration test on:
+# - PRs that touch any data-aggregation surface (the only files where
+#   Bug 1 / Bug 5b/6 / Bug 7 could regress)
+# - A daily schedule on main, to catch upstream Kingdee schema drift before
+#   it surfaces in operator queries
+#
+# Auto-skips when the KINGDEE_* secrets aren't configured (e.g., on forks
+# or before the maintainer adds them). The test module also self-skips on
+# unreachable endpoints, so transient network blips don't fail CI.
+#
+# Required GitHub Secrets (configure once in repo settings → Secrets):
+#   KINGDEE_SERVER_URL
+#   KINGDEE_ACCT_ID
+#   KINGDEE_USER_NAME
+#   KINGDEE_APP_ID
+#   KINGDEE_APP_SEC
+#   KINGDEE_LCID            (optional, defaults to 2052)
+
+on:
+  pull_request:
+    paths:
+      - 'src/query/**'
+      - 'src/readers/**'
+      - 'src/sync/**'
+      - 'src/database/schema.sql'
+      - 'src/database/migrations/**'
+      - 'tests/integration/test_kingdee_parity.py'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/query/**'
+      - 'src/readers/**'
+      - 'src/sync/**'
+      - 'src/database/schema.sql'
+      - 'src/database/migrations/**'
+  schedule:
+    # 02:00 UTC daily (10:00 Asia/Shanghai) — well before business hours.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check whether Kingdee secrets are configured
+        id: secrets_check
+        env:
+          KD_URL: ${{ secrets.KINGDEE_SERVER_URL }}
+        run: |
+          if [[ -z "$KD_URL" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::KINGDEE_* secrets not configured; skipping parity test."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.secrets_check.outputs.configured == 'true'
+        run: |
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-timeout python-dotenv
+
+      - name: Run Kingdee parity test
+        if: steps.secrets_check.outputs.configured == 'true'
+        env:
+          KINGDEE_SERVER_URL: ${{ secrets.KINGDEE_SERVER_URL }}
+          KINGDEE_ACCT_ID: ${{ secrets.KINGDEE_ACCT_ID }}
+          KINGDEE_USER_NAME: ${{ secrets.KINGDEE_USER_NAME }}
+          KINGDEE_APP_ID: ${{ secrets.KINGDEE_APP_ID }}
+          KINGDEE_APP_SEC: ${{ secrets.KINGDEE_APP_SEC }}
+          KINGDEE_LCID: ${{ secrets.KINGDEE_LCID || '2052' }}
+        run: |
+          pytest tests/integration/test_kingdee_parity.py \
+            -v \
+            --timeout=180 \
+            -m integration
+
+      - name: Skip notice
+        if: steps.secrets_check.outputs.configured == 'false'
+        run: echo "Skipped — Kingdee secrets not configured for this repo."

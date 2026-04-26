@@ -46,6 +46,7 @@ filterwarnings = [
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks end-to-end browser tests",
+    "integration: integration tests requiring live Kingdee credentials (KINGDEE_* env vars); auto-skip when absent",
 ]
 
 [tool.coverage.run]
