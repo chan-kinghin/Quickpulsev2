@@ -198,7 +198,7 @@
 "material_code": "FMaterialId.FNumber"
 "real_qty": "FRealQty"        # 实收数量
 "must_qty": "FMustQty"        # 应收数量
-"bill_type_number": "FBillTypeID.FNumber"  # RKD01_SYS/RKD02_SYS
+"bill_type_number": "FBillTypeID.FNumber"  # RKD01_SYS=外购入库 / RKD03_SYS=委外入库
 ```
 
 **可用但未使用的字段**:

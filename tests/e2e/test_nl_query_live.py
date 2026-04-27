@@ -9,21 +9,39 @@ to verify the natural language query pipeline end-to-end:
 """
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, expect, APIRequestContext
 
 
 PROD_URL = "https://fltpulse.szfluent.cn"
 PROD_PASSWORD = "FltPulse@2026!Prod"
 
+# Module-level token cache to avoid rate-limiting on /api/auth/token
+_cached_token = None
+
+
+def _get_token(request_context: APIRequestContext) -> str:
+    """Get auth token, caching across tests to avoid 429 rate-limit."""
+    global _cached_token
+    if _cached_token:
+        return _cached_token
+    response = request_context.post(
+        f"{PROD_URL}/api/auth/token",
+        form={"username": "admin", "password": PROD_PASSWORD},
+    )
+    assert response.ok, f"Auth API returned {response.status}: {response.text()}"
+    _cached_token = response.json()["access_token"]
+    return _cached_token
+
 
 def _login(page: Page):
-    """Login to prod and navigate to dashboard."""
+    """Login to prod and navigate to dashboard using cached API token."""
+    token = _get_token(page.request)
+
+    # Set token in localStorage and navigate to dashboard
     page.goto(f"{PROD_URL}/")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill(PROD_PASSWORD)
-    page.get_by_role("button", name="登录").click()
-    page.wait_for_url("**/dashboard.html**", timeout=10000)
-    expect(page.get_by_text("产品状态明细表")).to_be_visible()
+    page.evaluate(f"localStorage.setItem('token', '{token}')")
+    page.goto(f"{PROD_URL}/dashboard.html", wait_until="domcontentloaded")
+    expect(page.get_by_text("产品状态明细表")).to_be_visible(timeout=15000)
 
 
 @pytest.mark.e2e

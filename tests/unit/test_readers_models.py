@@ -246,15 +246,15 @@ class TestPurchaseReceiptModel:
         assert model.bill_type_number == "RKD01_SYS"
 
     def test_subcontracting_receipt(self):
-        """Test subcontracting receipt (RKD02_SYS)."""
+        """Test subcontracting receipt (RKD03_SYS)."""
         model = PurchaseReceiptModel(
             mto_number="AK001",
             material_code="M001",
             real_qty=Decimal("50"),
             must_qty=Decimal("50"),
-            bill_type_number="RKD02_SYS",
+            bill_type_number="RKD03_SYS",
         )
-        assert model.bill_type_number == "RKD02_SYS"
+        assert model.bill_type_number == "RKD03_SYS"
 
 
 class TestSubcontractingOrderModel:

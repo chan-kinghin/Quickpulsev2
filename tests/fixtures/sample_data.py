@@ -109,13 +109,13 @@ SAMPLE_PURCHASE_RECEIPTS_RAW = [
         "FMustQty": 100,
         "FBillTypeID.FNumber": "RKD01_SYS",
     },
-    # Subcontracting receipt (RKD02_SYS)
+    # Subcontracting receipt (RKD03_SYS)
     {
         "FMtoNo": "AK2510034",
         "FMaterialId.FNumber": "C003",
         "FRealQty": 25,
         "FMustQty": 25,
-        "FBillTypeID.FNumber": "RKD02_SYS",
+        "FBillTypeID.FNumber": "RKD03_SYS",
     },
 ]
 

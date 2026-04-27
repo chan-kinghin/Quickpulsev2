@@ -61,7 +61,7 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "category": "concept",
         "title": "委外订单 (SUB_POORDER)",
         "content": "委外订单是委托外部供应商加工的订单。委外件的物料类型为FMaterialType=3。"
-        "委外入库通过STK_InStock表的bill_type_number='RKD02_SYS'入库。",
+        "委外入库通过STK_InStock表的bill_type_number='RKD03_SYS'入库。",
         "tags": "委外订单,SUB_POORDER,委外,外包,加工",
     },
     {
@@ -77,8 +77,8 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "category": "concept",
         "title": "采购入库单 (STK_InStock)",
         "content": "采购入库单记录外购件和委外件的入库。通过bill_type_number区分："
-        "RKD01_SYS=外购入库，RKD02_SYS=委外入库。查询时必须过滤文档状态B/C/D。",
-        "tags": "采购入库,STK_InStock,外购入库,委外入库,RKD01_SYS,RKD02_SYS",
+        "RKD01_SYS=外购入库，RKD03_SYS=委外入库。查询时必须过滤文档状态B/C/D。",
+        "tags": "采购入库,STK_InStock,外购入库,委外入库,RKD01_SYS,RKD03_SYS",
     },
     {
         "concept_id": "picking",
@@ -295,9 +295,9 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "category": "field",
         "title": "FBillTypeID — 单据类型",
         "content": "STK_InStock.FBillTypeID.FNumber用于区分入库类型：RKD01_SYS=外购入库，"
-        "RKD02_SYS=委外入库。查询采购入库时需要添加此过滤条件。"
+        "RKD03_SYS=委外入库。查询采购入库时需要添加此过滤条件。"
         "缓存表中映射为bill_type_number。",
-        "tags": "FBillTypeID,单据类型,RKD01_SYS,RKD02_SYS,bill_type_number",
+        "tags": "FBillTypeID,单据类型,RKD01_SYS,RKD03_SYS,bill_type_number",
     },
     {
         "concept_id": "field_customer_delivery",
@@ -394,9 +394,9 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "title": "入库类型映射规则",
         "content": "入库类型通过bill_type_number区分："
         "RKD01_SYS = 外购入库（对应FMaterialType=2）；"
-        "RKD02_SYS = 委外入库（对应FMaterialType=3）。"
+        "RKD03_SYS = 委外入库（对应FMaterialType=3）。"
         "查询特定类型入库时需要加此条件。",
-        "tags": "入库类型,RKD01_SYS,RKD02_SYS,映射,bill_type_number",
+        "tags": "入库类型,RKD01_SYS,RKD03_SYS,映射,bill_type_number",
     },
     {
         "concept_id": "rule_variant_matching",
@@ -590,7 +590,7 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "FROM cached_purchase_receipts "
         "WHERE mto_number = 'AK2510034' "
         "GROUP BY bill_type_number, material_code LIMIT 100;",
-        "tags": "采购入库,类型,RKD01_SYS,RKD02_SYS,分组,查询",
+        "tags": "采购入库,类型,RKD01_SYS,RKD03_SYS,分组,查询",
     },
     {
         "concept_id": "query_material_search",
@@ -686,7 +686,7 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "title": "cached_subcontracting_orders — 委外订单缓存表",
         "content": "委外订单缓存表，存储从金蝶SUB_POORDER同步的委外数据。"
         "关键字段：bill_no, mto_number, material_code, order_qty, stock_in_qty, no_stock_in_qty。"
-        "委外件的入库通过cached_purchase_receipts（RKD02_SYS）追踪。",
+        "委外件的入库通过cached_purchase_receipts（RKD03_SYS）追踪。",
         "tags": "cached_subcontracting_orders,委外订单,表,结构,SUB_POORDER",
     },
     {
@@ -704,7 +704,7 @@ SEED_ENTRIES: List[Dict[str, Any]] = [
         "title": "cached_purchase_receipts — 采购入库缓存表",
         "content": "采购入库单缓存表，存储从金蝶STK_InStock同步的入库数据。"
         "关键字段：bill_no, mto_number, material_code, real_qty, must_qty, bill_type_number。"
-        "bill_type_number区分外购入库（RKD01_SYS）和委外入库（RKD02_SYS）。",
+        "bill_type_number区分外购入库（RKD01_SYS）和委外入库（RKD03_SYS）。",
         "tags": "cached_purchase_receipts,采购入库,表,结构,STK_InStock",
     },
     {

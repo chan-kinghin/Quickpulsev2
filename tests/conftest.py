@@ -276,13 +276,13 @@ def sample_purchase_receipts():
             must_qty=Decimal("100"),
             bill_type_number="RKD01_SYS",
         ),
-        # Subcontracting receipt (RKD02_SYS)
+        # Subcontracting receipt (RKD03_SYS)
         PurchaseReceiptModel(
             mto_number="AK2510034",
             material_code="C003",
             real_qty=Decimal("25"),
             must_qty=Decimal("25"),
-            bill_type_number="RKD02_SYS",
+            bill_type_number="RKD03_SYS",
         ),
     ]
 

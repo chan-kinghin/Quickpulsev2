@@ -297,7 +297,11 @@ class SyncService:
         return count
 
     async def _fetch_all_bom_entries(self, bill_nos: list[str]) -> list:
-        """Fetch BOM entries using batched queries with retry logic."""
+        """Fetch BOM entries using batched queries with parallel execution.
+
+        Uses asyncio.Semaphore(4) to limit concurrency and avoid
+        overwhelming the Kingdee API with too many simultaneous requests.
+        """
         if not bill_nos:
             return []
 
@@ -306,17 +310,44 @@ class SyncService:
             for i in range(0, len(bill_nos), BOM_BATCH_SIZE)
         ]
 
+        total_batches = len(batches)
         all_entries = []
-        for batch_idx, batch in enumerate(batches, start=1):
-            self.progress.update(
-                "prd_ppbom",
-                f"Fetching BOM batch {batch_idx}/{len(batches)} ({len(batch)} orders)",
-                bom_batch=batch_idx,
-                bom_total_batches=len(batches),
-            )
-            batch_entries = await self._fetch_bom_batch_with_retry(batch)
-            if batch_entries:
-                all_entries.extend(batch_entries)
+        completed = 0
+        progress_lock = asyncio.Lock()
+        semaphore = asyncio.Semaphore(4)
+
+        async def fetch_with_semaphore(batch_idx: int, batch: list[str]) -> list:
+            nonlocal completed
+            async with semaphore:
+                self.progress.update(
+                    "prd_ppbom",
+                    f"Fetching BOM batch {batch_idx}/{total_batches} ({len(batch)} orders)",
+                    bom_batch=batch_idx,
+                    bom_total_batches=total_batches,
+                )
+                result = await self._fetch_bom_batch_with_retry(batch)
+                async with progress_lock:
+                    completed += 1
+                    self.progress.update(
+                        "prd_ppbom",
+                        f"Completed BOM batch {completed}/{total_batches}",
+                        bom_batch=completed,
+                        bom_total_batches=total_batches,
+                    )
+                return result or []
+
+        tasks = [
+            fetch_with_semaphore(idx, batch)
+            for idx, batch in enumerate(batches, start=1)
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning("BOM batch %d failed in parallel fetch: %s", i + 1, result)
+            elif result:
+                all_entries.extend(result)
 
         return all_entries
 

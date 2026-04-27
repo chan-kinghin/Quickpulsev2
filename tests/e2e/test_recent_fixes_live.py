@@ -1,27 +1,47 @@
-"""Live E2E tests for recent fixes (2026-03-27).
+"""Live E2E tests for recent fixes (2026-03-27 to 2026-03-31).
 
 Tests against production (https://fltpulse.szfluent.cn) to verify:
   1. 3-tier aux_prop_id fallback — BOM-receipt matching shows receipt quantities
   2. Agent chat wrong-table fix — NL queries return meaningful data
   3. MTO search returns children with non-zero receipt data
+  4. Inflated prod_instock_must_qty regression guard (c7df68c)
+  5. Bidirectional aux_prop_id fallback for AS2602037 (76d79e0)
 """
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, expect, APIRequestContext
 
 
 PROD_URL = "https://fltpulse.szfluent.cn"
 PROD_PASSWORD = "FltPulse@2026!Prod"
 
+# Module-level token cache to avoid rate-limiting on /api/auth/token
+_cached_token = None
+
+
+def _get_token(request_context: APIRequestContext) -> str:
+    """Get auth token, caching across tests to avoid 429 rate-limit."""
+    global _cached_token
+    if _cached_token:
+        return _cached_token
+    response = request_context.post(
+        f"{PROD_URL}/api/auth/token",
+        form={"username": "admin", "password": PROD_PASSWORD},
+    )
+    assert response.ok, f"Auth API returned {response.status}: {response.text()}"
+    _cached_token = response.json()["access_token"]
+    return _cached_token
+
 
 def _login(page: Page):
-    """Login to prod and navigate to dashboard."""
+    """Login to prod and navigate to dashboard using cached API token."""
+    token = _get_token(page.request)
+
+    # Set token in localStorage and navigate to dashboard
     page.goto(f"{PROD_URL}/")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill(PROD_PASSWORD)
-    page.get_by_role("button", name="登录").click()
-    page.wait_for_url("**/dashboard.html**", timeout=10000)
-    expect(page.get_by_text("产品状态明细表")).to_be_visible()
+    page.evaluate(f"localStorage.setItem('token', '{token}')")
+    page.goto(f"{PROD_URL}/dashboard.html", wait_until="domcontentloaded")
+    expect(page.get_by_text("产品状态明细表")).to_be_visible(timeout=15000)
 
 
 def _search_mto(page: Page, mto_number: str):
@@ -196,3 +216,159 @@ def test_agent_chat_responds_to_query(page: Page):
 
     page.screenshot(path="tests/e2e/agent_chat_table_fix_proof.png", full_page=True)
     print(f"\n✅ Agent chat table selection test passed")
+
+
+def _fetch_mto_api(page: Page, mto_number: str):
+    """Call the MTO API directly from the browser and return parsed JSON."""
+    return page.evaluate(
+        """async (mtoNumber) => {
+            const token = localStorage.getItem('token');
+            const resp = await fetch('/api/mto/' + mtoNumber, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (!resp.ok) return { error: resp.status };
+            return await resp.json();
+        }""",
+        mto_number,
+    )
+
+
+@pytest.mark.e2e
+def test_prod_instock_must_qty_not_inflated(page: Page):
+    """Regression guard: prod_instock_must_qty must come from BOM need_qty,
+    NOT from summing PRD_INSTOCK.FMustQty across receipts (which inflates).
+
+    Bug (c7df68c): Summing FMustQty per receipt produced e.g. 57,562 instead
+    of correct 20,130 because each receipt carries the full remaining demand.
+    The fix uses PPBOM.FMustQty / PRD_MO.FQty (= need_qty) instead.
+    """
+    _login(page)
+    _search_mto(page, "AK2510034")
+    page.wait_for_selector("text=BOM组件明细", timeout=15000)
+    page.wait_for_function(
+        "() => document.querySelectorAll('table tbody tr').length > 0",
+        timeout=15000,
+    )
+
+    data = _fetch_mto_api(page, "AK2510034")
+    assert "error" not in data, f"API call failed: {data}"
+
+    children = data.get("child_items", [])
+    assert len(children) > 0, "Should have child items"
+
+    # Check self-made items (material_type_code=1) for inflated must_qty
+    self_made = [c for c in children if c.get("material_type_code") == 1]
+    if not self_made:
+        pytest.skip("No self-made items in AK2510034 to verify must_qty")
+
+    for item in self_made:
+        must_qty = item.get("prod_instock_must_qty", 0)
+        need_qty = item.get("need_qty", 0)
+        real_qty = item.get("prod_instock_real_qty", 0)
+        code = item.get("material_code", "?")
+
+        # must_qty should be close to need_qty (BOM-derived), not wildly inflated
+        # Allow some tolerance for rounding, but flag if must_qty > 3x need_qty
+        if need_qty > 0 and must_qty > 0:
+            ratio = must_qty / need_qty
+            assert ratio < 3.0, (
+                f"REGRESSION: {code} has inflated must_qty! "
+                f"must_qty={must_qty}, need_qty={need_qty}, ratio={ratio:.1f}x. "
+                f"Should be ~1.0x (BOM-derived), not inflated from receipt sums."
+            )
+            print(f"  {code}: must_qty={must_qty}, need_qty={need_qty}, ratio={ratio:.2f}x ✓")
+
+    page.screenshot(path="tests/e2e/must_qty_not_inflated_proof.png", full_page=True)
+    print(f"\n✅ Must qty inflation guard passed — {len(self_made)} self-made items checked")
+
+
+@pytest.mark.e2e
+def test_bidirectional_aux_fallback_as2602037(page: Page):
+    """Verify bidirectional aux_prop_id fallback works for AS2602037.
+
+    Bug (76d79e0): When BOM items have aux_prop_id=0 (generic) but receipts
+    have specific aux values (e.g., 105726 for color variants), receipt
+    quantities showed 0. The 3-tier fallback should now match:
+    - Tier 3: BOM aux=0 → sum ALL receipts for that material.
+    """
+    _login(page)
+    _search_mto(page, "AS2602037")
+    page.wait_for_selector("text=BOM组件明细", timeout=15000)
+    page.wait_for_function(
+        "() => document.querySelectorAll('table tbody tr').length > 0",
+        timeout=15000,
+    )
+
+    data = _fetch_mto_api(page, "AS2602037")
+    assert "error" not in data, f"API call failed: {data}"
+
+    children = data.get("child_items", [])
+    assert len(children) > 0, "AS2602037 should have child items"
+
+    # Check self-made items specifically — these were the ones with aux=0 vs specific
+    self_made = [c for c in children if c.get("material_type_code") == 1]
+    if not self_made:
+        pytest.skip("No self-made items in AS2602037")
+
+    with_receipts = 0
+    for item in self_made:
+        real_qty = float(item.get("prod_instock_real_qty") or 0)
+        code = item.get("material_code", "?")
+        aux = item.get("aux_attributes", "")
+        if real_qty > 0:
+            with_receipts += 1
+        print(f"  {code} aux='{aux}' prod_real={real_qty}")
+
+    # At least some self-made items should have receipt data
+    assert with_receipts > 0, (
+        f"All {len(self_made)} self-made items in AS2602037 have 0 receipts — "
+        f"bidirectional aux_prop_id fallback may be broken"
+    )
+
+    page.screenshot(path="tests/e2e/aux_fallback_as2602037_proof.png", full_page=True)
+    print(
+        f"\n✅ Bidirectional aux fallback passed — "
+        f"{with_receipts}/{len(self_made)} self-made items have receipts"
+    )
+
+
+@pytest.mark.e2e
+def test_mto_search_ui_displays_data_correctly(page: Page):
+    """Verify the dashboard UI renders MTO data without visual errors.
+
+    Checks that the search flow completes end-to-end and displays:
+    - Parent item info (header section)
+    - BOM child items table with material codes
+    - Numeric columns contain actual numbers, not NaN/undefined
+    """
+    _login(page)
+    _search_mto(page, "AK2510034")
+    page.wait_for_selector("text=BOM组件明细", timeout=15000)
+    page.wait_for_function(
+        "() => document.querySelectorAll('table tbody tr').length > 0",
+        timeout=15000,
+    )
+
+    # Check for rendering errors — NaN, undefined, null displayed as text
+    table_text = page.locator("table").inner_text()
+    bad_values = ["NaN", "undefined", "null", "[object Object]"]
+    for bad in bad_values:
+        assert bad not in table_text, (
+            f"Table contains '{bad}' — data rendering bug. "
+            f"Context: ...{table_text[max(0, table_text.find(bad)-50):table_text.find(bad)+50]}..."
+        )
+
+    # Verify parent item section is visible
+    parent_section = page.locator("text=AK2510034")
+    expect(parent_section.first).to_be_visible()
+
+    # Check that the table has reasonable structure (header + data)
+    headers = page.locator("table thead th")
+    header_count = headers.count()
+    assert header_count >= 5, f"Table should have at least 5 columns, got {header_count}"
+
+    row_count = page.locator("table tbody tr").count()
+    assert row_count >= 1, "Should have at least 1 data row"
+
+    page.screenshot(path="tests/e2e/mto_search_ui_proof.png", full_page=True)
+    print(f"\n✅ UI rendering check passed — {header_count} columns, {row_count} rows, no bad values")

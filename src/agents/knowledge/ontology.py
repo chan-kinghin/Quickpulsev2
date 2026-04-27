@@ -126,7 +126,7 @@ DOMAIN_CONCEPTS: List[DomainConcept] = [
         name_zh="采购入库单",
         name_en="Purchase Receipt",
         description="采购入库单（STK_InStock）记录外购件和委外件的入库。"
-        "通过bill_type_number区分：RKD01_SYS=外购入库，RKD02_SYS=委外入库。"
+        "通过bill_type_number区分：RKD01_SYS=外购入库，RKD03_SYS=委外入库。"
         "文档状态必须是B（已审核）、C（已确认）或D（重新审核）才有效。",
         category="document",
         related_concepts=["purchase_order", "document_status"],

@@ -54,20 +54,25 @@ class TestCreateAccessToken:
 
     def test_create_access_token_default_expiry(self):
         """Test token uses default expiry when not specified."""
-        from datetime import datetime
+        from datetime import datetime, timezone
+        from unittest.mock import patch
 
-        token = create_access_token(data={"sub": "testuser"})
+        frozen_now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        with patch("src.api.routers.auth.datetime") as mock_dt:
+            mock_dt.now.return_value = frozen_now
+            # Keep timedelta usable
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            token = create_access_token(data={"sub": "testuser"})
+
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM],
+            options={"verify_exp": False},
+        )
         exp_timestamp = payload["exp"]
 
-        # Expiry should be roughly 24 hours from now (default)
-        exp_datetime = datetime.utcfromtimestamp(exp_timestamp)
-        now = datetime.utcnow()
-        diff = exp_datetime - now
-
-        # Should be between 1439 and 1441 minutes (accounting for test execution time)
-        assert timedelta(minutes=1439) < diff < timedelta(minutes=1441)
+        expected_exp = frozen_now + timedelta(minutes=1440)
+        assert exp_timestamp == int(expected_exp.timestamp())
 
 
 class TestGetCurrentUser:

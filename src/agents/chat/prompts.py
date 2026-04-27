@@ -71,7 +71,7 @@ RETRIEVAL_AGENT_PROMPT = """\
 - 领料/发料 → cached_material_picking（actual_qty = 已领料数量）
 - 成品入库/生产入库 → cached_production_receipts（real_qty = 已入库数量）
 - 采购入库 → cached_purchase_receipts（bill_type_number='RKD01_SYS'）
-- 委外入库 → cached_purchase_receipts（bill_type_number='RKD02_SYS'）
+- 委外入库 → cached_purchase_receipts（bill_type_number='RKD03_SYS'）
 - 委外订单 → cached_subcontracting_orders（order_qty = 委外订单数量, no_stock_in_qty = 未入库数量）
 """
 
@@ -123,7 +123,7 @@ real_qty REAL, must_qty REAL
 ### cached_purchase_receipts（采购/委外入库单）
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
 real_qty REAL, must_qty REAL, bill_type_number TEXT
-(bill_type_number: 'RKD01_SYS'=采购入库, 'RKD02_SYS'=委外入库)
+(bill_type_number: 'RKD01_SYS'=采购入库, 'RKD03_SYS'=委外入库)
 
 ### cached_purchase_orders（采购订单）
 mto_number TEXT, bill_no TEXT, material_code TEXT, material_name TEXT,
@@ -190,7 +190,7 @@ customer_name TEXT, delivery_date TEXT, qty REAL, bom_short_name TEXT
 - ⚠️ **成品(07.xx)没有领料数据** — cached_material_picking 只适用于自制件和外购件，不适用于成品
 - **成品入库/生产入库** → cached_production_receipts.real_qty（PRD_INSTOCK 生产入库单）
 - **采购入库** → cached_purchase_receipts.real_qty WHERE bill_type_number='RKD01_SYS'
-- **委外入库** → cached_purchase_receipts.real_qty WHERE bill_type_number='RKD02_SYS'
+- **委外入库** → cached_purchase_receipts.real_qty WHERE bill_type_number='RKD03_SYS'
 - **委外订单/委外数量** → cached_subcontracting_orders.order_qty（SUB_SUBREQORDER 委外订单）
 - **采购订单数量** → cached_purchase_orders.order_qty
 - **销售订单/客户/交期** → cached_sales_orders

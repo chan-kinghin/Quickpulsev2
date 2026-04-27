@@ -180,14 +180,14 @@
 | `FMaterialId.FNumber` | 物料编码 | 03.01.001 | 物料匹配 |
 | `FMustQty` | **应收数量** | 100.0 | 应入库数量 |
 | `FRealQty` | **实收数量** | 100.0 | 实际入库数量 |
-| `FBillTypeID.FNumber` | **单据类型编码** | RKD01_SYS / RKD02_SYS | 区分外购/委外 |
+| `FBillTypeID.FNumber` | **单据类型编码** | RKD01_SYS / RKD03_SYS | 区分外购/委外 |
 | `FPOOrderNo` | 采购订单号 | F2501001 | 关联采购订单 |
 
 **单据类型说明:**
 | 类型编码 | 说明 |
 |---------|------|
 | `RKD01_SYS` | 外购入库 (采购入库) |
-| `RKD02_SYS` | 委外入库 (委外加工入库) |
+| `RKD03_SYS` | 委外入库 (委外加工入库) ⚠️ 注意：不是 RKD02_SYS — 该编码在本租户返回零行 |
 
 ---
 
@@ -250,7 +250,7 @@
 |----|------|-------------|-------------|
 | 1 | 自制件 | `PRD_INSTOCK` | - |
 | 2 | 外购件 | `STK_InStock` | `FBillTypeID.FNumber='RKD01_SYS'` |
-| 3 | 委外件 | `STK_InStock` | `FBillTypeID.FNumber='RKD02_SYS'` |
+| 3 | 委外件 | `STK_InStock` | `FBillTypeID.FNumber='RKD03_SYS'` |
 
 ---
 
@@ -589,7 +589,7 @@ MTO 查询触发 (L3 实时)
 | `material_code` | `FMaterialId.FNumber` | str | 物料编码 |
 | `real_qty` | `FRealQty` | Decimal | 实收数量 |
 | `must_qty` | `FMustQty` | Decimal | 应收数量 |
-| `bill_type_number` | `FBillTypeID.FNumber` | str | 单据类型 (RKD01_SYS/RKD02_SYS) |
+| `bill_type_number` | `FBillTypeID.FNumber` | str | 单据类型 (RKD01_SYS=外购/RKD03_SYS=委外) |
 
 ### 11.6 委外订单 SUBCONTRACTING_ORDER_CONFIG
 

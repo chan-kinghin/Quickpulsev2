@@ -29,21 +29,34 @@ User Input: MTO Number (e.g., AK2510034)
 PRD_MO (生产订单) → Get parent item info + FBillNo
     │
     ▼ Link via FMOBillNO
-PRD_PPBOM (生产用料清单) → Get child items + FMaterialType
+PRD_PPBOM (生产用料清单) → Get child items
     │
-    ▼ Parallel queries by material type:
-    ├─ FMaterialType=1 (自制) → PRD_INSTOCK receipts
-    ├─ FMaterialType=2 (外购) → STK_InStock (RKD01_SYS)
-    └─ FMaterialType=3 (委外) → STK_InStock (RKD02_SYS)
+    ▼ Parallel queries — always union all three sources per material:
+    ├─ PRD_INSTOCK (FBillType.FNumber='SCRKD02_SYS', 生产入库)
+    ├─ STK_InStock (FBillTypeID.FNumber='RKD01_SYS',  标准采购入库)
+    └─ STK_InStock (FBillTypeID.FNumber='RKD03_SYS',  委外入库单)
     │
     ▼
-Aggregate and return MTOStatusResponse
+Aggregate (sum FRealQty across forms) and return MTOStatusResponse
 ```
 
-### Key Material Type Logic
-- `FMaterialType=1` (自制件): Query `PRD_INSTOCK` for receipts
-- `FMaterialType=2` (外购件): Query `STK_InStock` with `FBillTypeID.FNumber='RKD01_SYS'`
-- `FMaterialType=3` (委外件): Query `STK_InStock` with `FBillTypeID.FNumber='RKD02_SYS'`
+### Material Routing Logic (corrected 2026-04-20 — verified against live Kingdee)
+
+**Authoritative classifier**: `BD_MATERIAL.FErpClsID` on the material master.
+
+| `FErpClsID` | Label | Primary receipt form | Secondary (also check) |
+|---|---|---|---|
+| `1` | 外购 | `STK_InStock` `FBillTypeID=RKD01_SYS` | `PRD_INSTOCK` (sometimes assembled in-house) |
+| `2` | 自制 | `PRD_INSTOCK` `FBillType=SCRKD02_SYS` | `STK_InStock RKD01` (when bought-out), `RKD03` (when outsourced) |
+| `3` | 委外 | `STK_InStock` `FBillTypeID=RKD03_SYS` (**not RKD02_SYS — that returns zero rows**) | `PRD_INSTOCK` (when pulled in-house) |
+| `4` | 虚拟件 | (no receipt) | — |
+| `9` | 成品 (Fluent custom) | `PRD_INSTOCK` `SCRKD02_SYS` | `STK_InStock RKD01` (trading/sister-plant supply) |
+
+**Anti-patterns to avoid**:
+- ❌ Routing by code prefix (07/06/05/03/08/01) — wrong for 30-67% in 02/03/06/08
+- ❌ Routing by `PRD_PPBOM.FMaterialType` — essentially always `1` in this tenant; carries no routing info
+- ❌ Single-source assumption — same material code can have receipts in PRD_INSTOCK + STK_RKD01 + STK_RKD03 within one MTO
+- ❌ Adding `STK_InStock RKD03` + `SUB_SUBREQORDER.FStockInQty` for 委外 fulfillment → double counts the same physical receipt
 
 ## Commands
 

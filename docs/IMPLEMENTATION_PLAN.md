@@ -51,7 +51,7 @@ When user searches by MTO Number (e.g., `AK2510034`), display a hierarchical vie
 |--------------|---------|-----------------|
 | 1 (自制) | 生产入库 | PRD_INSTOCK `FEntity_FRealQty` |
 | 2 (外购) | 采购入库 | STK_InStock `FInStockEntry_FRealQty` (FBillTypeID=RKD01_SYS) |
-| 3 (委外) | 委外入库 | STK_InStock `FInStockEntry_FRealQty` (FBillTypeID=RKD02_SYS) |
+| 3 (委外) | 委外入库 | STK_InStock `FInStockEntry_FRealQty` (FBillTypeID=RKD03_SYS) |
 
 ---
 
@@ -108,7 +108,7 @@ User Input: 计划跟踪号 (MTO Number)
 ├─────────────────────────────────────────────────────────────┤
 │ Step 3e: STK_InStock (委外入库) - 委外加工 Receipts         │
 │   Filter: FInStockEntry_FMtoNo='AK2510034'                 │
-│          AND FBillTypeID.FNumber='RKD02_SYS'               │
+│          AND FBillTypeID.FNumber='RKD03_SYS'               │
 │   Get: FRealQty for subcontracted items                    │
 ├─────────────────────────────────────────────────────────────┤
 │ Step 3f: PRD_PickMtrl (生产领料) - 领料跟踪                 │
@@ -214,7 +214,7 @@ Filter example:
 FilterString: "FInStockEntry_FMtoNo='AK2510034' AND FBillTypeID.FNumber='RKD01_SYS'"
 
 # For subcontracting receipts only
-FilterString: "FInStockEntry_FMtoNo='AK2510034' AND FBillTypeID.FNumber='RKD02_SYS'"
+FilterString: "FInStockEntry_FMtoNo='AK2510034' AND FBillTypeID.FNumber='RKD03_SYS'"
 ```
 
 ---
@@ -1989,7 +1989,7 @@ tests/
 {
     "FormId": "STK_InStock",
     "FieldKeys": "FInStockEntry_FMaterialId.FNumber,FInStockEntry_FRealQty,FInStockEntry_FMustQty",
-    "FilterString": "FInStockEntry_FMtoNo='AK2510034' AND FBillTypeID.FNumber='RKD02_SYS'"
+    "FilterString": "FInStockEntry_FMtoNo='AK2510034' AND FBillTypeID.FNumber='RKD03_SYS'"
 }
 ```
 
@@ -2052,7 +2052,7 @@ tests/
 2. **Material Type Determines Receipt Source**:
    - `FMaterialType = 1` (自制件) → Query PRD_INSTOCK
    - `FMaterialType = 2` (外购件) → Query STK_InStock with FBillTypeID='RKD01_SYS'
-   - `FMaterialType = 3` (委外件) → Query STK_InStock with FBillTypeID='RKD02_SYS'
+   - `FMaterialType = 3` (委外件) → Query STK_InStock with FBillTypeID='RKD03_SYS'
 
 3. **入库数量 Sources**:
    - 自制品: PRD_INSTOCK `FEntity_FRealQty`
@@ -2072,7 +2072,7 @@ tests/
 
 8. **STK_InStock Document Types**:
    - `RKD01_SYS` = 标准采购入库单 (Standard Purchase Receipt)
-   - `RKD02_SYS` = 委外入库单 (Subcontracting Receipt)
+   - `RKD03_SYS` = 委外入库单 (Subcontracting Receipt)
 
 9. **Confirmed Settings**:
    | Setting | Value | Notes |

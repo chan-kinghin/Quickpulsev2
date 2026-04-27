@@ -35,7 +35,7 @@ SYSTEM_PROMPT_ANALYTICS = """\
 ### cached_purchase_receipts（采购入库单）
 - bill_no TEXT, mto_number TEXT, material_code TEXT
 - real_qty REAL, must_qty REAL
-- bill_type_number TEXT (RKD01_SYS=外购入库, RKD02_SYS=委外入库)
+- bill_type_number TEXT (RKD01_SYS=外购入库, RKD03_SYS=委外入库)
 
 ### cached_material_picking（生产领料单）
 - mto_number TEXT, material_code TEXT
