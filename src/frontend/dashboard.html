@@ -1121,16 +1121,10 @@
                 </div>
                 <!-- Body -->
                 <div class="flex-1 flex items-center justify-center bg-slate-950 overflow-auto p-4 min-h-[300px]">
-                    <template x-if="photoModalFileIds.length > 0 && getPhotoUrl(photoModalFileIds[photoModalIndex])">
-                        <img :src="getPhotoUrl(photoModalFileIds[photoModalIndex])"
+                    <template x-if="photoModalFileIds.length > 0">
+                        <img :src="photoUrl(photoModalFileIds[photoModalIndex])"
                              class="max-w-full max-h-[70vh] object-contain"
                              :alt="`照片 ${photoModalIndex + 1}`" />
-                    </template>
-                    <template x-if="photoModalFileIds.length > 0 && !getPhotoUrl(photoModalFileIds[photoModalIndex]) && !getPhotoError(photoModalFileIds[photoModalIndex])">
-                        <div class="text-slate-500 text-sm">正在加载...</div>
-                    </template>
-                    <template x-if="photoModalFileIds.length > 0 && getPhotoError(photoModalFileIds[photoModalIndex])">
-                        <div class="text-rose-400 text-sm" x-text="`加载失败: ${getPhotoError(photoModalFileIds[photoModalIndex])}`"></div>
                     </template>
                 </div>
                 <!-- Footer / Nav -->
@@ -1142,15 +1136,12 @@
                     </button>
                     <div class="flex gap-2 overflow-x-auto">
                         <template x-for="(fid, idx) in photoModalFileIds" :key="fid">
-                            <button @click="photoModalIndex = idx; ensurePhotoLoaded(fid)"
+                            <button @click="photoModalIndex = idx"
                                     :class="idx === photoModalIndex ? 'ring-2 ring-emerald-500' : 'opacity-60 hover:opacity-100'"
                                     class="w-12 h-12 rounded overflow-hidden bg-slate-800 flex-shrink-0">
-                                <img x-show="getPhotoUrl(fid)"
-                                     :src="getPhotoUrl(fid)"
+                                <img :src="photoUrl(fid)"
                                      class="w-full h-full object-cover"
                                      :alt="`缩略图 ${idx + 1}`" />
-                                <div x-show="!getPhotoUrl(fid)" class="w-full h-full flex items-center justify-center text-xs text-slate-500"
-                                     x-text="idx + 1"></div>
                             </button>
                         </template>
                     </div>

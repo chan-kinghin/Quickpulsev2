@@ -73,6 +73,35 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
     return username
 
 
+async def get_current_user_cookie_or_bearer(request: Request) -> str:
+    """Auth dependency that accepts either the Authorization Bearer header OR
+    the `access_token` cookie. Used for endpoints that browsers fetch via
+    <img>/<a>/<link> tags, which cannot send custom headers.
+    The cookie is the same one set by the frontend after login (see
+    src/frontend/static/js/auth.js); main.py already reads it for HTML guards.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+    )
+    auth_header = request.headers.get("Authorization", "")
+    token: Optional[str] = None
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip() or None
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise credentials_exception
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: Optional[str] = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError as exc:
+        raise credentials_exception from exc
+    return username
+
+
 @router.post("/token", response_model=Token)
 @limiter.limit("5/minute")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):

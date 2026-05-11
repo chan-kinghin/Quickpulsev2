@@ -99,8 +99,6 @@ function mtoSearch() {
         photoModalFileIds: [],
         photoModalIndex: 0,
         photoModalMaterialName: '',
-        photoBlobUrls: {},      // fileId -> object URL (cached for the session)
-        photoLoadErrors: {},    // fileId -> error message
 
         // === Preferences ===
         STORAGE_KEY: 'quickpulse_preferences',
@@ -963,16 +961,15 @@ function mtoSearch() {
         },
 
         // === Photo Lightbox Methods ===
+        // /api/photo/{file_id} accepts the access_token cookie set on login,
+        // so plain <img src="/api/photo/{id}"> works and benefits from the
+        // browser's HTTP cache (backend returns immutable, max-age=1y).
         openPhotoModal(child) {
             if (!child.photo_file_ids || child.photo_file_ids.length === 0) return;
             this.photoModalFileIds = child.photo_file_ids;
             this.photoModalIndex = 0;
             this.photoModalMaterialName = child.material_name || '';
             this.photoModalOpen = true;
-            // Prefetch all (max 3) so the main image + thumbnails render together
-            for (const fid of this.photoModalFileIds) {
-                this.ensurePhotoLoaded(fid);
-            }
         },
 
         closePhotoModal() {
@@ -985,47 +982,17 @@ function mtoSearch() {
         photoModalNext() {
             if (this.photoModalIndex < this.photoModalFileIds.length - 1) {
                 this.photoModalIndex++;
-                this.ensurePhotoLoaded(this.photoModalFileIds[this.photoModalIndex]);
             }
         },
 
         photoModalPrev() {
             if (this.photoModalIndex > 0) {
                 this.photoModalIndex--;
-                this.ensurePhotoLoaded(this.photoModalFileIds[this.photoModalIndex]);
             }
         },
 
-        // The /api/photo/{file_id} endpoint requires a Bearer token, which an
-        // <img> tag cannot send. Fetch the bytes with the token, then surface
-        // them as an object URL. The backend's immutable Cache-Control still
-        // serves cached bytes on subsequent fetches within the session.
-        async ensurePhotoLoaded(fileId) {
-            if (!fileId) return;
-            if (this.photoBlobUrls[fileId]) return;
-            if (this.photoLoadErrors[fileId]) return;
-            try {
-                const token = localStorage.getItem('token');
-                const resp = await fetch(`/api/photo/${fileId}`, {
-                    headers: token ? { Authorization: `Bearer ${token}` } : {}
-                });
-                if (!resp.ok) {
-                    this.photoLoadErrors[fileId] = `HTTP ${resp.status}`;
-                    return;
-                }
-                const blob = await resp.blob();
-                this.photoBlobUrls[fileId] = URL.createObjectURL(blob);
-            } catch (err) {
-                this.photoLoadErrors[fileId] = err.message || '加载失败';
-            }
-        },
-
-        getPhotoUrl(fileId) {
-            return this.photoBlobUrls[fileId] || '';
-        },
-
-        getPhotoError(fileId) {
-            return this.photoLoadErrors[fileId] || '';
+        photoUrl(fileId) {
+            return fileId ? `/api/photo/${fileId}` : '';
         },
 
         // === Chat Methods ===

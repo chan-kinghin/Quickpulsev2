@@ -14,7 +14,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import Response
 
-from src.api.routers.auth import get_current_user
+from src.api.routers.auth import get_current_user_cookie_or_bearer
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ async def _download_all_chunks(sdk, file_id: str) -> bytes:
 async def get_photo(
     request: Request,
     file_id: str = Path(..., min_length=32, max_length=32),
-    current_user: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user_cookie_or_bearer),
 ):
     """Stream a Kingdee attachment's bytes with a 1-year immutable cache."""
     if not _FILE_ID_RE.match(file_id):

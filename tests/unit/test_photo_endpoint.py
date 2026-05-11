@@ -142,6 +142,34 @@ class TestPhotoValidation:
 
         assert resp.status_code == 401
 
+    @pytest.mark.asyncio
+    async def test_cookie_auth_works_for_img_tag_use_case(self):
+        """<img src='/api/photo/...'> cannot send Authorization headers; the
+        endpoint must accept the access_token cookie set on login."""
+        app, _ = _build_app()
+        token = create_access_token(data={"sub": "tester"})
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+            cookies={"access_token": token},
+        ) as client:
+            resp = await client.get(f"/api/photo/{_VALID_FILE_ID}")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+
+    @pytest.mark.asyncio
+    async def test_invalid_cookie_returns_401(self):
+        app, _ = _build_app()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+            cookies={"access_token": "not-a-real-jwt"},
+        ) as client:
+            resp = await client.get(f"/api/photo/{_VALID_FILE_ID}")
+
+        assert resp.status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Upstream errors
