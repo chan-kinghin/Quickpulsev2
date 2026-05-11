@@ -31,6 +31,7 @@ function mtoSearch() {
             { key: 'index', label: '序号', width: 60, defaultWidth: 60, minWidth: 40, maxWidth: 120, resizable: false, visible: true, sortable: false, locked: true },
             { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true },
             { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true },
+            { key: 'photo', label: '照片', width: 80, defaultWidth: 80, minWidth: 60, maxWidth: 150, resizable: true, visible: true, sortable: false, locked: false },
             { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
@@ -92,9 +93,17 @@ function mtoSearch() {
         _errorTimer: null,
         _successTimer: null,
 
+        // === Photo Lightbox State ===
+        photoModalOpen: false,
+        photoModalFileIds: [],
+        photoModalIndex: 0,
+        photoModalMaterialName: '',
+        photoBlobUrls: {},      // fileId -> object URL (cached for the session)
+        photoLoadErrors: {},    // fileId -> error message
+
         // === Preferences ===
         STORAGE_KEY: 'quickpulse_preferences',
-        STORAGE_VERSION: 2,
+        STORAGE_VERSION: 3,
 
         // === Lifecycle ===
         init() {
@@ -127,6 +136,24 @@ function mtoSearch() {
         setupKeyboardListeners() {
             const signal = this._abortController.signal;
             document.addEventListener('keydown', (event) => {
+                // Photo modal owns arrow keys + Escape while open
+                if (this.photoModalOpen) {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        this.closePhotoModal();
+                        return;
+                    }
+                    if (event.key === 'ArrowLeft') {
+                        event.preventDefault();
+                        this.photoModalPrev();
+                        return;
+                    }
+                    if (event.key === 'ArrowRight') {
+                        event.preventDefault();
+                        this.photoModalNext();
+                        return;
+                    }
+                }
                 if (event.key === 'F11' && this.childItems.length > 0) {
                     event.preventDefault();
                     this.toggleFullScreen();
@@ -932,6 +959,72 @@ function mtoSearch() {
             if (mins < 60) return `${mins}分钟前`;
             const hours = Math.floor(mins / 60);
             return `${hours}小时前`;
+        },
+
+        // === Photo Lightbox Methods ===
+        openPhotoModal(child) {
+            if (!child.photo_file_ids || child.photo_file_ids.length === 0) return;
+            this.photoModalFileIds = child.photo_file_ids;
+            this.photoModalIndex = 0;
+            this.photoModalMaterialName = child.material_name || '';
+            this.photoModalOpen = true;
+            // Prefetch all (max 3) so the main image + thumbnails render together
+            for (const fid of this.photoModalFileIds) {
+                this.ensurePhotoLoaded(fid);
+            }
+        },
+
+        closePhotoModal() {
+            this.photoModalOpen = false;
+            this.photoModalFileIds = [];
+            this.photoModalIndex = 0;
+            this.photoModalMaterialName = '';
+        },
+
+        photoModalNext() {
+            if (this.photoModalIndex < this.photoModalFileIds.length - 1) {
+                this.photoModalIndex++;
+                this.ensurePhotoLoaded(this.photoModalFileIds[this.photoModalIndex]);
+            }
+        },
+
+        photoModalPrev() {
+            if (this.photoModalIndex > 0) {
+                this.photoModalIndex--;
+                this.ensurePhotoLoaded(this.photoModalFileIds[this.photoModalIndex]);
+            }
+        },
+
+        // The /api/photo/{file_id} endpoint requires a Bearer token, which an
+        // <img> tag cannot send. Fetch the bytes with the token, then surface
+        // them as an object URL. The backend's immutable Cache-Control still
+        // serves cached bytes on subsequent fetches within the session.
+        async ensurePhotoLoaded(fileId) {
+            if (!fileId) return;
+            if (this.photoBlobUrls[fileId]) return;
+            if (this.photoLoadErrors[fileId]) return;
+            try {
+                const token = localStorage.getItem('token');
+                const resp = await fetch(`/api/photo/${fileId}`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {}
+                });
+                if (!resp.ok) {
+                    this.photoLoadErrors[fileId] = `HTTP ${resp.status}`;
+                    return;
+                }
+                const blob = await resp.blob();
+                this.photoBlobUrls[fileId] = URL.createObjectURL(blob);
+            } catch (err) {
+                this.photoLoadErrors[fileId] = err.message || '加载失败';
+            }
+        },
+
+        getPhotoUrl(fileId) {
+            return this.photoBlobUrls[fileId] || '';
+        },
+
+        getPhotoError(fileId) {
+            return this.photoLoadErrors[fileId] || '';
         },
 
         // === Chat Methods ===
