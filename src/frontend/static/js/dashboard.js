@@ -27,7 +27,6 @@ function mtoSearch() {
             { key: 'index', label: '序号', width: 60, defaultWidth: 60, minWidth: 40, maxWidth: 120, resizable: false, visible: true, sortable: false, locked: true },
             { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true },
             { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true },
-            { key: 'photo', label: '照片', width: 80, defaultWidth: 80, minWidth: 60, maxWidth: 150, resizable: true, visible: true, sortable: false, locked: false },
             { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
@@ -928,6 +927,41 @@ function mtoSearch() {
         // /api/photo/{file_id} accepts the access_token cookie set on login,
         // so plain <img src="/api/photo/{id}"> works and benefits from the
         // browser's HTTP cache (backend returns immutable, max-age=1y).
+        //
+        // Photos live on PRD_MO.TreeEntity.F_QWJI_YSTP1/2/3 — production-order
+        // level, not material level. In single-parent MTOs every BOM row carries
+        // the same set, so showing a per-row badge is visual noise. Surface
+        // photos once at the MTO/parent header instead. This getter deduplicates
+        // across the union of children for the multi-parent edge case where
+        // different PRD_MOs in one MTO contribute different photos.
+        get parentPhotoFileIds() {
+            if (!this.childItems || this.childItems.length === 0) return [];
+            const seen = new Set();
+            for (const c of this.childItems) {
+                const ids = c.photo_file_ids;
+                if (!Array.isArray(ids)) continue;
+                for (const id of ids) {
+                    if (id) seen.add(id);
+                }
+            }
+            return [...seen];
+        },
+
+        // Triggered from the photo button in the parent info bar.
+        openParentPhotoPanel() {
+            const ids = this.parentPhotoFileIds;
+            if (ids.length === 0) return;
+            this.inlinePhotoFileIds = ids;
+            this.inlinePhotoIndex = 0;
+            this.inlinePhotoMaterialName = `MTO ${this.parentItem?.mto_number || ''}`;
+            this.inlinePhotoMaterialCode = '';
+            this.inlinePhotoOpen = true;
+            this.$nextTick(() => {
+                document.querySelector('[data-testid="photo-inline-panel"]')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+        },
+
         openPhotoPanel(child) {
             if (!child.photo_file_ids || child.photo_file_ids.length === 0) return;
             this.inlinePhotoFileIds = child.photo_file_ids;

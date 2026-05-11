@@ -165,6 +165,16 @@
                                       :class="dataSource === 'cache' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400'"
                                       x-text="dataSource === 'cache' ? ('缓存 · ' + formatCacheAge()) : '实时'"></span>
                             </div>
+                            <!-- Photos are PRD_MO-level (shared across all BOM rows in this MTO) — show once here -->
+                            <button type="button"
+                                    x-show="parentPhotoFileIds.length > 0"
+                                    @click="openParentPhotoPanel()"
+                                    data-testid="parent-photo-button"
+                                    class="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+                                    :title="`查看 ${parentPhotoFileIds.length} 张照片`">
+                                <span>📷</span>
+                                <span x-text="`照片 ×${parentPhotoFileIds.length}`"></span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -365,14 +375,6 @@
                                         <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_name' && sort.direction === 'desc'"></i>
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_name')" @dblclick.stop="autoFitColumn('material_name')"></div>
-                                </th>
-                                <!-- 照片 - not sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('photo') }"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'photo')"
-                                    class="px-4 py-3 text-center font-medium text-slate-400 bg-slate-900 relative resizable"
-                                    :style="getColumnStyle('photo')">
-                                    照片
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'photo')" @dblclick.stop="autoFitColumn('photo')"></div>
                                 </th>
                                 <!-- 规格型号 - sortable -->
                                 <th scope="col" :class="{ 'col-hidden': !colVisible('specification') }"
@@ -580,17 +582,6 @@
                                               aria-label="辅助属性回落">⚠</span>
                                     </td>
                                     <td :class="{ 'col-hidden': !colVisible('material_name') }" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
-                                    <td :class="{ 'col-hidden': !colVisible('photo') }" role="cell" class="px-4 py-3 text-center">
-                                        <button type="button"
-                                                x-show="(item.photo_file_ids?.length || 0) > 0"
-                                                @click="openPhotoPanel(item)"
-                                                class="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
-                                                :title="`查看 ${item.photo_file_ids?.length || 0} 张照片`">
-                                            <span>📷</span>
-                                            <span x-text="`×${item.photo_file_ids?.length || 0}`"></span>
-                                        </button>
-                                        <span x-show="!item.photo_file_ids || item.photo_file_ids.length === 0" class="text-slate-600">—</span>
-                                    </td>
                                     <td :class="{ 'col-hidden': !colVisible('specification') }" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
                                     <!-- BOM简称 - only for 成品 (is_finished_goods) -->
                                     <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" role="cell" class="px-4 py-3 text-slate-400"
@@ -637,7 +628,6 @@
                                 <td :class="{ 'col-hidden': !colVisible('index') }" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
                                 <td :class="{ 'col-hidden': !colVisible('material_code') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('material_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
-                                <td :class="{ 'col-hidden': !colVisible('photo') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('specification') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>

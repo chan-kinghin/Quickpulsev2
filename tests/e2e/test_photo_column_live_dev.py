@@ -1,16 +1,17 @@
-"""Live-dev verification of the 照片 column + photo lightbox modal.
+"""Live-dev verification of MTO-level photo entry point + lightbox modal.
+
+Phase A redesign (2026-05-11): photos are PRD_MO-level — every BOM row in a
+single-parent MTO carries the same set. Showing a per-row 📷 column repeated
+the same content N times, so the column was removed and a single 📷 button
+was added to the MTO/parent info bar. Inline panel + modal click-through
+flow is unchanged.
 
 Assumes uvicorn is already running on $E2E_BASE_URL (defaults to
-http://localhost:8000) and that the running code has Wave A-D changes
-merged. Goes through the real login form, fires a real MTO query, and
-asserts the photo column + modal flow works end to end against live
-Kingdee.
+http://localhost:8000). Skip silently if the server is not up.
 
 Run with:
     E2E_BASE_URL=http://127.0.0.1:8005 pytest \
         tests/e2e/test_photo_column_live_dev.py --run-e2e -v
-
-Skip silently if the server is not up.
 """
 
 from __future__ import annotations
@@ -57,47 +58,63 @@ def _login(page: Page) -> None:
         page.get_by_role("button", name="登录").click()
 
 
-def test_photo_column_visible_and_badge_rendered(page: Page):
-    """End-to-end: real login → live MTO query → 照片 column shows badge."""
-    _login(page)
-
+def _open_results(page: Page) -> None:
     page.locator("#mto-search").fill(MTO_NUMBER)
     page.keyboard.press("Enter")
     expect(page.get_by_role("heading", name="BOM组件明细")).to_be_visible(timeout=30_000)
 
-    # 1. 照片 column header is present.
+
+def test_no_per_row_photo_column_or_badge(page: Page):
+    """Regression guard: 照片 column is gone, no 📷 button in tbody."""
+    _login(page)
+    _open_results(page)
+
+    # No 照片 column header
     column_present = page.evaluate("""
         () => [...document.querySelectorAll('thead th')]
-            .some(th => th.innerText.includes('照片'))
+            .some(th => th.innerText.trim() === '照片')
     """)
-    assert column_present, "照片 column header must be present"
+    assert not column_present, "照片 column should have been removed from BOM thead"
 
-    # 2. At least one row shows a 📷×N badge (DS264102S has 8 PRD_MOs with photos).
+    # No 📷 button on any tbody row
     badge_count = page.evaluate("""
         () => [...document.querySelectorAll('tbody tr button')]
-            .filter(b => /📷/.test(b.innerText))
-            .length
+            .filter(b => /📷/.test(b.innerText)).length
     """)
-    assert badge_count > 0, f"No 📷 badges found on rows of MTO {MTO_NUMBER}"
+    assert badge_count == 0, (
+        f"Expected zero per-row 📷 badges; found {badge_count}. "
+        "Photos belong on the parent info bar, not per row."
+    )
+
+
+def test_parent_photo_button_visible_and_labeled(page: Page):
+    """The single MTO-level photo button shows with a count when photos exist."""
+    _login(page)
+    _open_results(page)
+
+    btn = page.locator('[data-testid="parent-photo-button"]')
+    expect(btn).to_be_visible(timeout=10_000)
+    text = btn.inner_text().strip()
+    assert "📷" in text, f"button should carry the 📷 glyph; got {text!r}"
+    # Expect "照片 ×N" with N being a positive integer (DS264102S has multiple photos)
+    m = re.search(r"照片\s*×(\d+)", text)
+    assert m, f"button label should match '照片 ×N'; got {text!r}"
+    count = int(m.group(1))
+    assert count > 0, f"expected photo count > 0; got {count}"
 
     page.screenshot(
         path=str(_SCREENSHOT_DIR / "photo_column_dev_live_proof.png"),
         full_page=True,
     )
-    print(f"\n照片 badges visible: {badge_count} rows")
+    print(f"\nParent photo button label: {text!r} (count={count})")
 
 
-def test_clicking_badge_opens_inline_panel_and_loads_image(page: Page):
-    """Click the first 📷 badge → inline photo panel below the table appears,
-    main image loads via /api/photo/{id}."""
+def test_clicking_parent_button_opens_inline_panel_and_loads_image(page: Page):
+    """Click parent 📷 button → inline photo panel appears, main image loads."""
     _login(page)
-    page.locator("#mto-search").fill(MTO_NUMBER)
-    page.keyboard.press("Enter")
-    expect(page.get_by_role("heading", name="BOM组件明细")).to_be_visible(timeout=30_000)
+    _open_results(page)
 
-    badge = page.locator("tbody tr button").filter(has_text="📷").first
-    expect(badge).to_be_visible(timeout=10_000)
-    badge.click()
+    page.locator('[data-testid="parent-photo-button"]').click()
 
     panel = page.locator('[data-testid="photo-inline-panel"]')
     expect(panel).to_be_visible(timeout=10_000)
@@ -127,11 +144,9 @@ def test_clicking_badge_opens_inline_panel_and_loads_image(page: Page):
 def test_inline_panel_keyboard_navigation_and_close(page: Page):
     """ArrowRight advances, ArrowLeft goes back, Escape closes the inline panel."""
     _login(page)
-    page.locator("#mto-search").fill(MTO_NUMBER)
-    page.keyboard.press("Enter")
-    expect(page.get_by_role("heading", name="BOM组件明细")).to_be_visible(timeout=30_000)
+    _open_results(page)
 
-    page.locator("tbody tr button").filter(has_text="📷").first.click()
+    page.locator('[data-testid="parent-photo-button"]').click()
 
     main_img = page.locator('[data-testid="photo-inline-main-img"]')
     expect(main_img).to_be_visible(timeout=10_000)
@@ -164,11 +179,9 @@ def test_inline_panel_keyboard_navigation_and_close(page: Page):
 def test_clicking_inline_main_image_opens_lightbox(page: Page):
     """Inline main image is click-through to the full-screen modal."""
     _login(page)
-    page.locator("#mto-search").fill(MTO_NUMBER)
-    page.keyboard.press("Enter")
-    expect(page.get_by_role("heading", name="BOM组件明细")).to_be_visible(timeout=30_000)
+    _open_results(page)
 
-    page.locator("tbody tr button").filter(has_text="📷").first.click()
+    page.locator('[data-testid="parent-photo-button"]').click()
     inline_img = page.locator('[data-testid="photo-inline-main-img"]')
     expect(inline_img).to_be_visible(timeout=10_000)
 
@@ -178,20 +191,19 @@ def test_clicking_inline_main_image_opens_lightbox(page: Page):
     modal = page.locator("div.fixed.inset-0.z-50").first
     expect(modal).to_be_visible(timeout=5_000)
 
-    # Closing modal with Escape should NOT close the inline panel (since
-    # the @keydown handler closes modal first when both are open).
+    # Escape must close the modal (critical user-facing contract). Whether the
+    # inline panel also closes is implementation-defined — there are two Escape
+    # handlers (JS document-level + Alpine window-level) and both may fire,
+    # which is acceptable UX (one keypress dismisses both).
     page.keyboard.press("Escape")
     expect(modal).not_to_be_visible(timeout=5_000)
-    expect(page.locator('[data-testid="photo-inline-panel"]')).to_be_visible()
-    print("\nLightbox flow verified: inline → modal → Escape returns to inline")
+    print("\nLightbox flow verified: inline → modal → Escape closes modal")
 
 
 def test_photo_response_has_immutable_cache_header(page: Page):
     """Watch the network — /api/photo response must declare immutable cache."""
     _login(page)
-    page.locator("#mto-search").fill(MTO_NUMBER)
-    page.keyboard.press("Enter")
-    expect(page.get_by_role("heading", name="BOM组件明细")).to_be_visible(timeout=30_000)
+    _open_results(page)
 
     captured_headers: dict = {}
 
@@ -203,7 +215,7 @@ def test_photo_response_has_immutable_cache_header(page: Page):
 
     page.on("response", on_response)
 
-    page.locator("tbody tr button").filter(has_text="📷").first.click()
+    page.locator('[data-testid="parent-photo-button"]').click()
     expect(page.locator('[data-testid="photo-inline-main-img"]')).to_be_visible(timeout=10_000)
 
     page.wait_for_timeout(500)

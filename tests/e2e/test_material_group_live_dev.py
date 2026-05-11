@@ -44,11 +44,16 @@ pytestmark = [
 
 
 def _login(page: Page) -> None:
-    """Submit the real login form with default admin creds."""
+    """Submit the real login form with default admin creds.
+
+    Use a regex for the navigation URL — the dashboard URL may carry query
+    params (?mto=…) when reached via a deep link, so an exact match fails.
+    """
+    import re
     page.goto(f"{BASE_URL}/")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("quickpulse")
-    with page.expect_navigation(url=f"{BASE_URL}/dashboard.html"):
+    with page.expect_navigation(url=re.compile(r".*/dashboard\.html.*")):
         page.get_by_role("button", name="登录").click()
 
 
