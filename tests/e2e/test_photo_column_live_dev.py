@@ -25,6 +25,8 @@ from playwright.sync_api import Page, expect
 
 
 BASE_URL = os.environ.get("E2E_BASE_URL", "http://localhost:8000")
+AUTH_USERNAME = os.environ.get("E2E_AUTH_USERNAME", "admin")
+AUTH_PASSWORD = os.environ.get("E2E_AUTH_PASSWORD", "quickpulse")
 # DS264102S has 8 production orders with photos populated (verified
 # against live Kingdee on 2026-05-11 — see scripts/_probe_output/).
 MTO_NUMBER = "DS264102S"
@@ -49,8 +51,8 @@ pytestmark = [
 
 def _login(page: Page) -> None:
     page.goto(f"{BASE_URL}/")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill("quickpulse")
+    page.locator("#username").fill(AUTH_USERNAME)
+    page.locator("#password").fill(AUTH_PASSWORD)
     with page.expect_navigation(url=re.compile(r".*/dashboard\.html.*")):
         page.get_by_role("button", name="登录").click()
 
