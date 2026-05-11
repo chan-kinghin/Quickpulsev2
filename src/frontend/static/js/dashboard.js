@@ -10,10 +10,6 @@ function mtoSearch() {
         searchPerformed: false,
         error: '',
         successMessage: '',
-        relatedOrders: null,
-        relatedOrdersExpanded: true,
-        relatedOrdersLoading: false,
-        relatedOrdersError: '',
         isFullScreen: false,
         isCollapsed: false,
 
@@ -94,7 +90,13 @@ function mtoSearch() {
         _errorTimer: null,
         _successTimer: null,
 
-        // === Photo Lightbox State ===
+        // === Photo Inline Panel State === (shown below the BOM table)
+        inlinePhotoOpen: false,
+        inlinePhotoFileIds: [],
+        inlinePhotoIndex: 0,
+        inlinePhotoMaterialName: '',
+        inlinePhotoMaterialCode: '',
+        // === Photo Lightbox State === (full-screen modal, opened from inline panel)
         photoModalOpen: false,
         photoModalFileIds: [],
         photoModalIndex: 0,
@@ -661,10 +663,7 @@ function mtoSearch() {
             this.childItems = [];
             this.dataSource = null;
             this.cacheAgeSeconds = null;
-            this.relatedOrders = null;
-            this.relatedOrdersExpanded = true;
-            this.relatedOrdersLoading = false;
-            this.relatedOrdersError = '';
+            this.closePhotoPanel();
             this.loading = true;
 
             try {
@@ -691,7 +690,6 @@ function mtoSearch() {
                     window.history.pushState({}, '', newUrl);
                 }
 
-                this.fetchRelatedOrders();
             } catch (err) {
                 console.error('Search error:', err);
                 const msg = typeof err.message === 'string' ? err.message : JSON.stringify(err.message);
@@ -793,30 +791,6 @@ function mtoSearch() {
             }
         },
 
-        // === Related Orders ===
-        async fetchRelatedOrders() {
-            if (!this.mtoNumber?.trim()) return;
-
-            this.relatedOrdersLoading = true;
-            this.relatedOrdersError = '';
-
-            try {
-                const data = await api.get(`/mto/${encodeURIComponent(this.mtoNumber.trim())}/related-orders`);
-                this.relatedOrders = data;
-
-                // Refresh icons after related orders load
-                if (typeof refreshIcons === 'function') {
-                    setTimeout(refreshIcons, 50);
-                }
-            } catch (err) {
-                console.error('Related orders error:', err);
-                this.relatedOrdersError = err.message || '关联单据加载失败';
-                this.relatedOrders = null;
-            } finally {
-                this.relatedOrdersLoading = false;
-            }
-        },
-
         // === Semantic Metric Helpers ===
         getFulfillmentRate(item) {
             const rate = item.metrics?.fulfillment_rate?.value;
@@ -913,16 +887,6 @@ function mtoSearch() {
             return '⚠ 数量按辅助属性回落估算：\n' + lines.join('\n');
         },
 
-        hasRelatedOrders() {
-            if (!this.relatedOrders) return false;
-
-            const orders = Object.values(this.relatedOrders.orders || {});
-            const documents = Object.values(this.relatedOrders.documents || {});
-            const orderCount = orders.reduce((sum, items) => sum + (items?.length || 0), 0);
-            const docCount = documents.reduce((sum, items) => sum + (items?.length || 0), 0);
-            return orderCount + docCount > 0;
-        },
-
         showError(message) {
             this.error = message;
             this.successMessage = '';
@@ -960,18 +924,54 @@ function mtoSearch() {
             return `${hours}小时前`;
         },
 
-        // === Photo Lightbox Methods ===
+        // === Photo Inline Panel Methods === (shown below the BOM table)
         // /api/photo/{file_id} accepts the access_token cookie set on login,
         // so plain <img src="/api/photo/{id}"> works and benefits from the
         // browser's HTTP cache (backend returns immutable, max-age=1y).
-        openPhotoModal(child) {
+        openPhotoPanel(child) {
             if (!child.photo_file_ids || child.photo_file_ids.length === 0) return;
-            this.photoModalFileIds = child.photo_file_ids;
-            this.photoModalIndex = 0;
-            this.photoModalMaterialName = child.material_name || '';
+            this.inlinePhotoFileIds = child.photo_file_ids;
+            this.inlinePhotoIndex = 0;
+            this.inlinePhotoMaterialName = child.material_name || '';
+            this.inlinePhotoMaterialCode = child.material_code || '';
+            this.inlinePhotoOpen = true;
+            this.$nextTick(() => {
+                document.querySelector('[data-testid="photo-inline-panel"]')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+        },
+
+        closePhotoPanel() {
+            this.inlinePhotoOpen = false;
+            this.inlinePhotoFileIds = [];
+            this.inlinePhotoIndex = 0;
+            this.inlinePhotoMaterialName = '';
+            this.inlinePhotoMaterialCode = '';
+        },
+
+        inlinePhotoNext() {
+            if (this.inlinePhotoIndex < this.inlinePhotoFileIds.length - 1) {
+                this.inlinePhotoIndex++;
+            }
+        },
+
+        inlinePhotoPrev() {
+            if (this.inlinePhotoIndex > 0) {
+                this.inlinePhotoIndex--;
+            }
+        },
+
+        // Open the full-screen lightbox from the inline panel, starting at the
+        // currently-displayed photo.
+        openPhotoLightboxFromInline() {
+            if (this.inlinePhotoFileIds.length === 0) return;
+            this.photoModalFileIds = this.inlinePhotoFileIds;
+            this.photoModalIndex = this.inlinePhotoIndex;
+            this.photoModalMaterialName = this.inlinePhotoMaterialName;
             this.photoModalOpen = true;
         },
 
+        // === Photo Lightbox (full-screen modal) Methods ===
         closePhotoModal() {
             this.photoModalOpen = false;
             this.photoModalFileIds = [];

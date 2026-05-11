@@ -22,7 +22,7 @@
         跳转到主要内容
     </a>
 
-    <div x-data="mtoSearch()" x-init="init()" x-cloak @keydown.escape.window="photoModalOpen ? closePhotoModal() : (chatOpen ? (chatOpen = false) : exitFullScreen())">
+    <div x-data="mtoSearch()" x-init="init()" x-cloak @keydown.escape.window="photoModalOpen ? closePhotoModal() : (inlinePhotoOpen ? closePhotoPanel() : (chatOpen ? (chatOpen = false) : exitFullScreen()))">
         <div class="chat-content-push" :style="chatOpen ? 'margin-right: 384px' : ''" >
         <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 no-print"
                 :class="isFullScreen && isCollapsed ? 'hidden' : ''">
@@ -583,7 +583,7 @@
                                     <td :class="{ 'col-hidden': !colVisible('photo') }" role="cell" class="px-4 py-3 text-center">
                                         <button type="button"
                                                 x-show="(item.photo_file_ids?.length || 0) > 0"
-                                                @click="openPhotoModal(item)"
+                                                @click="openPhotoPanel(item)"
                                                 class="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
                                                 :title="`查看 ${item.photo_file_ids?.length || 0} 张照片`">
                                             <span>📷</span>
@@ -760,104 +760,59 @@
                 </div>
             </div>
 
-            <div x-show="childItems.length > 0" x-transition
+            <!-- Inline Photo Panel — populated when a photo badge in the BOM table is clicked. -->
+            <div x-show="inlinePhotoOpen" x-transition x-cloak
+                 data-testid="photo-inline-panel"
+                 @keydown.arrow-left.window="inlinePhotoOpen && !photoModalOpen && inlinePhotoPrev()"
+                 @keydown.arrow-right.window="inlinePhotoOpen && !photoModalOpen && inlinePhotoNext()"
                  class="mt-6 bg-slate-900 border border-slate-800 rounded overflow-hidden">
-                <div class="bg-slate-800 px-6 py-4 flex items-center justify-between cursor-pointer"
-                     @click="relatedOrdersExpanded = !relatedOrdersExpanded">
-                    <h2 class="text-lg font-semibold text-slate-50 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                        订单关联图
+                <div class="bg-slate-800 px-6 py-3 flex items-center justify-between">
+                    <h2 class="text-base font-semibold text-slate-50 flex items-center gap-3">
+                        <span>📷</span>
+                        <span x-text="inlinePhotoMaterialCode || ''" class="text-slate-400 font-mono text-sm"></span>
+                        <span x-text="inlinePhotoMaterialName || '照片'"></span>
+                        <span x-text="`${inlinePhotoIndex + 1} / ${inlinePhotoFileIds.length}`"
+                              class="text-sm text-slate-500 font-normal"></span>
                     </h2>
-                    <div class="flex items-center gap-2 text-sm text-slate-400">
-                        <span x-text="relatedOrdersExpanded ? '收起' : '展开'"></span>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-show="relatedOrdersExpanded"><polyline points="18 15 12 9 6 15"/></svg>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-show="!relatedOrdersExpanded"><polyline points="6 9 12 15 18 9"/></svg>
-                    </div>
+                    <button @click="closePhotoPanel()"
+                            aria-label="关闭照片面板"
+                            class="text-slate-400 hover:text-slate-200 text-xl leading-none px-2">×</button>
                 </div>
-
-                <div x-show="relatedOrdersExpanded" class="p-6 space-y-4">
-                    <div x-show="relatedOrdersLoading" class="text-slate-400 text-sm">
-                        正在加载关联单据...
+                <div class="p-4 flex flex-col gap-3">
+                    <!-- Big image — clicking opens the full-screen lightbox -->
+                    <div class="flex items-center justify-center bg-slate-950 rounded min-h-[400px] max-h-[60vh] overflow-hidden cursor-zoom-in"
+                         @click="openPhotoLightboxFromInline()"
+                         title="点击放大查看">
+                        <template x-if="inlinePhotoFileIds.length > 0">
+                            <img :src="photoUrl(inlinePhotoFileIds[inlinePhotoIndex])"
+                                 data-testid="photo-inline-main-img"
+                                 class="max-w-full max-h-[60vh] object-contain"
+                                 :alt="`${inlinePhotoMaterialName} 照片 ${inlinePhotoIndex + 1}`" />
+                        </template>
                     </div>
-                    <div x-show="relatedOrdersError" class="text-rose-400 text-sm" x-text="relatedOrdersError"></div>
-
-                    <template x-if="!relatedOrdersLoading && hasRelatedOrders()">
-                        <div class="tree-container">
-                            <div class="tree-node tree-root">
-                                <span class="tree-label">MTO号</span>
-                                <span class="tree-value" x-text="mtoNumber"></span>
-                            </div>
-                            <div class="tree-children">
-                                <div class="space-y-3">
-                                    <template x-for="order in relatedOrders.orders.sales_orders" :key="`so-${order.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-sales">
-                                                <span class="tree-label" x-text="order.label"></span>
-                                                <span class="tree-value" x-text="order.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-for="doc in relatedOrders.documents.sales_deliveries" :key="`sd-${doc.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-sales tree-doc">
-                                                <span class="tree-label" x-text="doc.label"></span>
-                                                <span class="tree-value" x-text="doc.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-
-                                <div class="space-y-3">
-                                    <template x-for="order in relatedOrders.orders.production_orders" :key="`po-${order.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-production">
-                                                <span class="tree-label" x-text="order.label"></span>
-                                                <span class="tree-value" x-text="order.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-for="doc in relatedOrders.documents.production_receipts" :key="`pr-${doc.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-production tree-doc">
-                                                <span class="tree-label" x-text="doc.label"></span>
-                                                <span class="tree-value" x-text="doc.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-for="doc in relatedOrders.documents.material_pickings" :key="`mp-${doc.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-production tree-doc">
-                                                <span class="tree-label" x-text="doc.label"></span>
-                                                <span class="tree-value" x-text="doc.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-
-                                <div class="space-y-3">
-                                    <template x-for="order in relatedOrders.orders.purchase_orders" :key="`pu-${order.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-purchase">
-                                                <span class="tree-label" x-text="order.label"></span>
-                                                <span class="tree-value" x-text="order.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-for="doc in relatedOrders.documents.purchase_receipts" :key="`prc-${doc.bill_no}`">
-                                        <div class="tree-branch">
-                                            <div class="tree-node tree-purchase tree-doc">
-                                                <span class="tree-label" x-text="doc.label"></span>
-                                                <span class="tree-value" x-text="doc.bill_no"></span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
+                    <!-- Nav + thumbnails -->
+                    <div class="flex items-center gap-2">
+                        <button @click="inlinePhotoPrev()"
+                                :disabled="inlinePhotoIndex === 0"
+                                class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0">
+                            ← 上一张
+                        </button>
+                        <div class="flex gap-2 overflow-x-auto flex-1">
+                            <template x-for="(fid, idx) in inlinePhotoFileIds" :key="fid">
+                                <button @click="inlinePhotoIndex = idx"
+                                        :class="idx === inlinePhotoIndex ? 'ring-2 ring-emerald-500' : 'opacity-60 hover:opacity-100'"
+                                        class="w-16 h-16 rounded overflow-hidden bg-slate-800 flex-shrink-0 transition-opacity">
+                                    <img :src="photoUrl(fid)"
+                                         class="w-full h-full object-cover"
+                                         :alt="`缩略图 ${idx + 1}`" />
+                                </button>
+                            </template>
                         </div>
-                    </template>
-
-                    <div x-show="!relatedOrdersLoading && !relatedOrdersError && !hasRelatedOrders()" class="text-slate-500 text-sm">
-                        暂无关联单据
+                        <button @click="inlinePhotoNext()"
+                                :disabled="inlinePhotoIndex >= inlinePhotoFileIds.length - 1"
+                                class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0">
+                            下一张 →
+                        </button>
                     </div>
                 </div>
             </div>
