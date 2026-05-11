@@ -48,6 +48,11 @@ class ChildItem(BaseModel):
     bom_short_name: str = Field(default="", description="BOM简称")
     material_type: int = Field(..., serialization_alias="material_type_code")
     material_type_name: str = Field(..., serialization_alias="material_type")
+    material_group_name: str = Field(
+        default="",
+        description="BD_MATERIAL.MaterialGroup.FName (物料分组中文名, e.g. '硅胶防水袋'). "
+                    "Empty for synthetic rows or finished goods without a group.",
+    )
     is_finished_goods: bool = Field(default=False, description="True only for 07.xx items routed via SAL_SaleOrder")
 
     # 金蝶原始字段 - 数量类（根据物料类型，只有一个有值）

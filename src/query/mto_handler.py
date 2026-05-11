@@ -815,7 +815,8 @@ class MTOQueryHandler:
         def _make_row(code: str, aux: int, material_name: str, specification: str,
                       aux_attributes: str, material_type: int, need_qty: Decimal,
                       picked_qty: Decimal, no_picked_qty: Decimal,
-                      mo_bill_no: str = "", mto_number: str = "") -> BOMJoinedRow:
+                      mo_bill_no: str = "", mto_number: str = "",
+                      material_group_name: str = "") -> BOMJoinedRow:
             return BOMJoinedRow(
                 mo_bill_no=mo_bill_no,
                 mto_number=mto_number,
@@ -838,6 +839,7 @@ class MTOQueryHandler:
                 subcontract_order_qty=_get(sub_order, "sub_order", code, aux),
                 subcontract_stock_in_qty=_get(sub_stock_in, "sub_stock_in", code, aux),
                 delivery_real_qty=_get(del_real, "del_real", code, aux),
+                material_group_name=material_group_name,
                 match_quality_breakdown={
                     # Use the receipt_real lookup as the canonical signal for
                     # prod_receipt — receipt_must is BOM-sourced now (see
@@ -1126,6 +1128,7 @@ class MTOQueryHandler:
                 no_picked_qty=sum(getattr(b, "no_picked_qty", ZERO) for b in bom_list),
                 mo_bill_no=getattr(first, "mo_bill_no", ""),
                 mto_number=getattr(first, "mto_number", ""),
+                material_group_name=getattr(first, "material_group_name", ""),
             ))
             covered_keys.add((code, aux))
 
@@ -1361,6 +1364,7 @@ class MTOQueryHandler:
             bom_short_name=bom_short_name,
             material_type=1,  # 成品
             material_type_name="成品",
+            material_group_name=getattr(first, "material_group_name", "") or "",
             is_finished_goods=True,
             # 金蝶原始字段
             sales_order_qty=sales_order_qty,
@@ -1523,6 +1527,7 @@ class MTOQueryHandler:
         # Photo IDs are MTO-level (every PRD_MO under the MTO contributes its
         # photos to the union), so the same list applies to every BOM child.
         photos = list(photo_file_ids or [])
+        group_name = getattr(row, "material_group_name", "") or ""
 
         if effective_type == 1:  # 自制
             # Use BOM need_qty as demand — it's correctly scoped per production order.
@@ -1534,6 +1539,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SELF_MADE,
                 material_type_name="自制",
+                material_group_name=group_name,
                 # REGRESSION GUARD (bug-patterns.md #10): MUST use row.need_qty here.
                 # Two known inflation variants — both forbidden:
                 #   (a) row.prod_receipt_must_qty — receipt FMustQty values overlap
@@ -1560,6 +1566,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.PURCHASED,
                 material_type_name="包材",
+                material_group_name=group_name,
                 purchase_order_qty=row.purchase_order_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
@@ -1574,6 +1581,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SUBCONTRACTED,
                 material_type_name="委外",
+                material_group_name=group_name,
                 purchase_order_qty=row.subcontract_order_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
@@ -1589,6 +1597,7 @@ class MTOQueryHandler:
                 aux_attributes=aux_attrs,
                 material_type=effective_type,
                 material_type_name="未知",
+                material_group_name=group_name,
                 # REGRESSION GUARD (bug-patterns.md #10): same as self-made above
                 # — both inflation variants (receipt FMustQty sum, BOM-rollup sum)
                 # are forbidden. Use row.need_qty.

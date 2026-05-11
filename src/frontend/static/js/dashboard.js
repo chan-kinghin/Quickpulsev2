@@ -35,6 +35,7 @@ function mtoSearch() {
             { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
             { key: 'material_type', label: '物料类型', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false },
+            { key: 'material_group_name', label: '物料分组', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false },
             // 数量列：根据物料类型显示不同来源
             { key: 'sales_order_qty', label: '销售订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
             { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },

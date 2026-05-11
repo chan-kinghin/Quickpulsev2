@@ -292,6 +292,10 @@ PRODUCTION_BOM_CONFIG = ReaderConfig(
         "specification": FieldMapping("FMaterialId.FSpecification"),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),  # Reference to BD_FLEXSITEMDETAILV
         "material_type": FieldMapping("FMaterialType", _int),  # Corrected: no prefix
+        # BD_MATERIAL.MaterialGroup.FName (e.g. "硅胶防水袋"); the single-chain
+        # `FMaterialId.FMaterialGroup` returns the localised group name directly.
+        # Phase 1 of PLAN_material_category_display_2026-05-09.md.
+        "material_group_name": FieldMapping("FMaterialId.FMaterialGroup"),
         "need_qty": FieldMapping("FMustQty", _decimal),  # FNeedQty doesn't exist, use FMustQty
         "picked_qty": FieldMapping("FPickedQty", _decimal),  # Corrected: no prefix
         "no_picked_qty": FieldMapping("FNoPickedQty", _decimal),  # Corrected: no prefix
@@ -426,6 +430,8 @@ SALES_ORDER_CONFIG = ReaderConfig(
         "delivery_date": FieldMapping("FDeliveryDate", _optional_str),
         "qty": FieldMapping("FQty", _decimal),
         "bom_short_name": FieldMapping("FBomId.FName", _str),  # BOM简称
+        # See PRODUCTION_BOM_CONFIG; same single-chain trick for 07.xx 成品.
+        "material_group_name": FieldMapping("FMaterialId.FMaterialGroup"),
     },
 )
 

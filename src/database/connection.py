@@ -75,6 +75,10 @@ class Database:
                 ("cached_purchase_receipts", "aux_prop_id"),
             "007_add_aux_prop_id_to_production_orders.sql":
                 ("cached_production_orders", "aux_prop_id"),
+            "011_add_material_group_to_bom.sql":
+                ("cached_production_bom", "material_group_name"),
+            "012_add_material_group_to_sales_orders.sql":
+                ("cached_sales_orders", "material_group_name"),
         }
 
         # Apply new migrations in sorted order

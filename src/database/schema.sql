@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS cached_production_bom (
     aux_attributes TEXT,     -- Denormalized from raw_data
     aux_prop_id INTEGER DEFAULT 0,  -- Denormalized from raw_data
     material_type INTEGER,   -- 1=自制, 2=外购, 3=委外
+    material_group_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialGroup.FName (e.g. "硅胶防水袋")
     need_qty REAL,
     picked_qty REAL,
     no_picked_qty REAL,
@@ -183,6 +184,7 @@ CREATE TABLE IF NOT EXISTS cached_sales_orders (
     delivery_date TEXT,
     qty REAL DEFAULT 0,
     bom_short_name TEXT DEFAULT '',  -- BOM简称
+    material_group_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialGroup.FName (e.g. "护目镜")
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bill_no, mto_number, material_code, aux_prop_id)

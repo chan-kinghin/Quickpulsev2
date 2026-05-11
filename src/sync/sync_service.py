@@ -545,6 +545,7 @@ class SyncService:
                 getattr(e, 'aux_attributes', ''),  # Denormalized
                 getattr(e, 'aux_prop_id', 0),  # Denormalized
                 e.material_type,
+                getattr(e, 'material_group_name', ''),  # BD_MATERIAL group name
                 str(e.need_qty), str(e.picked_qty), str(e.no_picked_qty),
                 model_to_json(e),
             )
@@ -556,15 +557,17 @@ class SyncService:
             INSERT INTO {TABLE_BOM} (
                 mo_bill_no, mto_number, material_code, material_name,
                 specification, aux_attributes, aux_prop_id, material_type,
+                material_group_name,
                 need_qty, picked_qty, no_picked_qty, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(mo_bill_no, material_code, aux_prop_id) DO UPDATE SET
                 mto_number=excluded.mto_number,
                 material_name=excluded.material_name,
                 specification=excluded.specification,
                 aux_attributes=excluded.aux_attributes,
                 material_type=excluded.material_type,
+                material_group_name=excluded.material_group_name,
                 need_qty=excluded.need_qty,
                 picked_qty=excluded.picked_qty,
                 no_picked_qty=excluded.no_picked_qty,
@@ -942,6 +945,7 @@ class SyncService:
              r.specification, r.aux_attributes, r.aux_prop_id,
              r.customer_name, r.delivery_date, str(r.qty),
              getattr(r, "bom_short_name", "") or "",  # BOM简称
+             getattr(r, "material_group_name", "") or "",  # 物料分组
              model_to_json(r))
             for r in records_list
         ]
@@ -949,13 +953,14 @@ class SyncService:
             f"""INSERT INTO {TABLE_SALES_ORDERS} (
                 bill_no, mto_number, material_code, material_name, specification,
                 aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
-                bom_short_name, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                bom_short_name, material_group_name, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
                 material_name=excluded.material_name, specification=excluded.specification,
                 aux_attributes=excluded.aux_attributes,
                 customer_name=excluded.customer_name, delivery_date=excluded.delivery_date,
                 qty=excluded.qty, bom_short_name=excluded.bom_short_name,
+                material_group_name=excluded.material_group_name,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
             rows,

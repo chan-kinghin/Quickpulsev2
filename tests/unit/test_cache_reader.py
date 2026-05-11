@@ -389,6 +389,7 @@ class TestCacheReaderRowConversion:
             50,  # need_qty
             30,  # picked_qty
             20,  # no_picked_qty
+            "硅胶防水袋",  # material_group_name (column 11)
         )
 
         model = reader._row_to_bom(row)
@@ -400,6 +401,7 @@ class TestCacheReaderRowConversion:
         assert model.mto_number == "AK001"
         assert model.aux_attributes == "Blue"
         assert model.aux_prop_id == 1001
+        assert model.material_group_name == "硅胶防水袋"
 
     def test_row_to_bom_with_null_values(self):
         """Test _row_to_bom with null values."""
@@ -418,6 +420,7 @@ class TestCacheReaderRowConversion:
             50,  # need_qty
             30,  # picked_qty
             20,  # no_picked_qty
+            None,  # material_group_name (column 11)
         )
 
         model = reader._row_to_bom(row)
@@ -426,6 +429,7 @@ class TestCacheReaderRowConversion:
         assert model.mto_number == ""
         assert model.specification == ""
         assert model.aux_prop_id == 0
+        assert model.material_group_name == ""
 
     def test_row_to_purchase_order_happy_path(self):
         """Test _row_to_purchase_order with all fields populated."""
@@ -839,8 +843,9 @@ class TestCacheReaderRowConversion:
             "2026-02-28",       # 8: delivery_date
             Decimal("1000.00"), # 9: qty
             "BOM-A1",           # 10: bom_short_name
-            '{"raw": "data"}',  # 11: raw_data
-            "2026-01-01 08:00:00",  # 12: synced_at
+            "护目镜",            # 11: material_group_name
+            '{"raw": "data"}',  # 12: raw_data
+            "2026-01-01 08:00:00",  # 13: synced_at
         )
 
         model = reader._row_to_sales_order(row)
@@ -856,6 +861,7 @@ class TestCacheReaderRowConversion:
         assert model.delivery_date == "2026-02-28"
         assert model.qty == Decimal("1000.00")
         assert model.bom_short_name == "BOM-A1"
+        assert model.material_group_name == "护目镜"
 
     def test_row_to_sales_order_with_nones(self):
         """Test _row_to_sales_order with None values."""
@@ -874,8 +880,9 @@ class TestCacheReaderRowConversion:
             None,          # 8: delivery_date
             None,          # 9: qty
             None,          # 10: bom_short_name
-            None,          # 11: raw_data
-            None,          # 12: synced_at
+            None,          # 11: material_group_name
+            None,          # 12: raw_data
+            None,          # 13: synced_at
         )
 
         model = reader._row_to_sales_order(row)
@@ -889,6 +896,7 @@ class TestCacheReaderRowConversion:
         assert model.delivery_date is None
         assert model.qty == Decimal("0")
         assert model.bom_short_name == ""
+        assert model.material_group_name == ""
 
 
 class TestFallbackTelemetry:

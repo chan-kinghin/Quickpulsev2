@@ -43,6 +43,7 @@ class ProductionBOMModel(BaseModel):
     aux_attributes: str = ""  # Populated from BD_FLEXSITEMDETAILV lookup
     aux_prop_id: int = 0  # FAuxPropId - reference to BD_FLEXSITEMDETAILV
     material_type: int
+    material_group_name: str = ""  # BD_MATERIAL.MaterialGroup.FName, e.g. "硅胶防水袋"
     need_qty: Decimal
     picked_qty: Decimal
     no_picked_qty: Decimal
@@ -146,3 +147,4 @@ class SalesOrderModel(BaseModel):
     delivery_date: Optional[str] = None
     qty: Decimal = Decimal("0")  # 销售数量
     bom_short_name: str = ""  # BOM简称
+    material_group_name: str = ""  # BD_MATERIAL.MaterialGroup.FName, e.g. "护目镜"
