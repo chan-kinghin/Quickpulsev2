@@ -382,8 +382,55 @@ async def health():
     except Exception as e:
         components["database"] = f"error: {e}"
 
-    overall = "healthy" if all(v == "ok" for v in components.values()) else "unhealthy"
-    payload = {"status": overall, "components": components}
+    # Sync freshness — silent sync failures (e.g. the migration-008 ON CONFLICT
+    # incident, 2026-03-20 through 2026-05-11 on legacy dev DBs) are the worst
+    # kind of failure: dashboard keeps serving stale cache, scheduler keeps
+    # retrying without alerting. Surface the gap here so any prober wired to
+    # /health will catch a >24h sync drought regardless of root cause.
+    sync_info: dict = {"status": "ok"}
+    try:
+        rows = await app.state.db.execute_read(
+            "SELECT started_at, status, error_message FROM sync_history "
+            "WHERE status = 'success' ORDER BY started_at DESC LIMIT 1"
+        )
+        last_failed = await app.state.db.execute_read(
+            "SELECT started_at, error_message FROM sync_history "
+            "WHERE status = 'error' ORDER BY started_at DESC LIMIT 1"
+        )
+        if rows:
+            from datetime import datetime
+            ts = rows[0][0]
+            # sync_history.started_at is written via `datetime.now().isoformat()`
+            # — naive local time. Parse naive and compare with naive now().
+            try:
+                last_success_dt = datetime.fromisoformat(ts)
+                if last_success_dt.tzinfo is not None:
+                    last_success_dt = last_success_dt.replace(tzinfo=None)
+                age = (datetime.now() - last_success_dt).total_seconds()
+            except (ValueError, AttributeError):
+                age = None
+            if age is not None:
+                sync_info["last_success_at"] = ts
+                sync_info["last_success_age_seconds"] = int(age)
+                # 24h drought = unhealthy. With 4x/day scheduler, anything over
+                # 12h already means at least 2 misses in a row.
+                if age > 86_400:
+                    sync_info["status"] = f"stale: last success {int(age // 3600)}h ago"
+        else:
+            sync_info["status"] = "never_succeeded"
+
+        if last_failed:
+            sync_info["last_error_at"] = last_failed[0][0]
+            err = last_failed[0][1] or ""
+            sync_info["last_error_message"] = err[:200]
+    except Exception as e:
+        sync_info["status"] = f"probe_error: {e}"
+    components["sync"] = sync_info["status"]
+
+    overall = "healthy" if all(
+        (v == "ok" if isinstance(v, str) else False) for v in components.values()
+    ) else "unhealthy"
+    payload = {"status": overall, "components": components, "sync": sync_info}
 
     # Backward compatibility: include top-level database field
     payload["database"] = "connected" if components["database"] == "ok" else components["database"]
