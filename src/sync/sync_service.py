@@ -484,6 +484,9 @@ class SyncService:
                 str(o.qty),
                 getattr(o, 'status', ''),  # Denormalized
                 getattr(o, 'create_date', None),  # Denormalized
+                getattr(o, 'photo_file_id_1', None),
+                getattr(o, 'photo_file_id_2', None),
+                getattr(o, 'photo_file_id_3', None),
                 model_to_json(o),
             )
             for o in orders_list
@@ -493,14 +496,19 @@ class SyncService:
             f"""
             INSERT INTO {TABLE_ORDERS} (
                 mto_number, bill_no, workshop, material_code, material_name,
-                specification, aux_attributes, aux_prop_id, qty, status, create_date, raw_data, synced_at
+                specification, aux_attributes, aux_prop_id, qty, status, create_date,
+                photo_file_id_1, photo_file_id_2, photo_file_id_3,
+                raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
                 workshop=excluded.workshop,
                 material_name=excluded.material_name,
                 specification=excluded.specification, aux_attributes=excluded.aux_attributes,
                 qty=excluded.qty, status=excluded.status, create_date=excluded.create_date,
+                photo_file_id_1=excluded.photo_file_id_1,
+                photo_file_id_2=excluded.photo_file_id_2,
+                photo_file_id_3=excluded.photo_file_id_3,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
             rows,
