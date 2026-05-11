@@ -270,6 +270,12 @@ PRODUCTION_ORDER_CONFIG = ReaderConfig(
         "qty": FieldMapping("FQty", _decimal),
         "status": FieldMapping("FStatus"),
         "create_date": FieldMapping("FCreateDate", _optional_str),
+        # TreeEntity-level photo FileIDs (Fluent custom). ExecuteBillQuery
+        # flattens these into top-level columns. Empty slots arrive as '' or
+        # None → _optional_str normalises both to None.
+        "photo_file_id_1": FieldMapping("F_QWJI_YSTP1", _optional_str),
+        "photo_file_id_2": FieldMapping("F_QWJI_YSTP2", _optional_str),
+        "photo_file_id_3": FieldMapping("F_QWJI_YSTP3", _optional_str),
     },
 )
 

@@ -7,7 +7,14 @@ from pydantic import BaseModel
 
 
 class ProductionOrderModel(BaseModel):
-    """Production Order Model (PRD_MO) - Parent Item."""
+    """Production Order Model (PRD_MO) - Parent Item.
+
+    photo_file_id_1/2/3 are Kingdee FileIDs from
+    ``PRD_MO.TreeEntity.F_QWJI_YSTP1/2/3`` — three Fluent-custom photo slots
+    per row. Each is a 32-char hex GUID; resolve to bytes via
+    ``sdk.attachmentDownLoad({"FileID": <id>})``. Empty slots come back as
+    ``''`` or ``None`` from Kingdee.
+    """
 
     bill_no: str
     mto_number: str
@@ -20,6 +27,9 @@ class ProductionOrderModel(BaseModel):
     qty: Decimal
     status: str
     create_date: Optional[str] = None
+    photo_file_id_1: Optional[str] = None
+    photo_file_id_2: Optional[str] = None
+    photo_file_id_3: Optional[str] = None
 
 
 class ProductionBOMModel(BaseModel):
