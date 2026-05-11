@@ -107,6 +107,13 @@ class TestCollectPhotoFileIds:
         pos = [_po("MO1", p1="", p2="abc", p3="")]
         assert MTOQueryHandler._collect_photo_file_ids(pos) == ["abc"]
 
+    def test_whitespace_only_slots_filtered(self):
+        # Live regression: Kingdee returns ' ' (single space) for empty slots
+        # on some paths (e.g. PRD_MO 07.18.463 in MTO DS264102S on 2026-05-11).
+        # Bare `not fid` lets that through because " " is truthy. Must strip.
+        pos = [_po("MO1", p1=" ", p2="abc", p3="   ")]
+        assert MTOQueryHandler._collect_photo_file_ids(pos) == ["abc"]
+
     def test_dedup_across_prd_mos(self):
         # Two PRD_MOs both carry the same FileID — appears once in output.
         pos = [

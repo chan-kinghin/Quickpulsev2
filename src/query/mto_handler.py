@@ -1302,6 +1302,9 @@ class MTOQueryHandler:
         for po in prod_orders or []:
             for attr in ("photo_file_id_1", "photo_file_id_2", "photo_file_id_3"):
                 fid = getattr(po, attr, None)
+                # Kingdee uses both "" and " " (single space) for empty slots,
+                # so strip before truthiness check — " " is truthy but garbage.
+                fid = fid.strip() if isinstance(fid, str) else fid
                 if not fid or fid in seen:
                     continue
                 seen.add(fid)
