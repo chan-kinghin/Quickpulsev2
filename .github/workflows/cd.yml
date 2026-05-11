@@ -27,6 +27,21 @@ jobs:
             echo "env=dev" >> $GITHUB_OUTPUT
           fi
 
+      - name: Verify deploy script exists on CVM
+        # Guard against the 2026-05-11 incident: deploy.sh got renamed on CVM
+        # without updating this workflow, and every CD run silently 404'd for
+        # ~2 weeks. This step fails fast with a clear error if the path moves
+        # again. See docs/CVM_DEPLOY_SCRIPTS.md.
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.CVM_HOST }}
+          username: ${{ secrets.CVM_USER }}
+          key: ${{ secrets.CVM_SSH_KEY }}
+          timeout: 30s
+          script: |
+            test -x /opt/ops/scripts/deploy.sh \
+              || { echo "FATAL: /opt/ops/scripts/deploy.sh missing or not executable on CVM"; exit 1; }
+
       - name: Deploy to CVM
         uses: appleboy/ssh-action@v1
         with:

@@ -508,7 +508,7 @@ GitHub Actions CD workflow (`.github/workflows/cd.yml`):
 - **Push to `develop`** → auto-deploys to dev
 - **Manual dispatch** → choose prod or dev
 
-The workflow SSHes into the CVM using an ed25519 key (stored in GitHub Secrets as `CVM_SSH_KEY`) and runs the universal deploy script.
+The workflow SSHes into the CVM using an ed25519 key (stored in GitHub Secrets as `CVM_SSH_KEY`) and runs the universal `deploy.sh` dispatcher. Full deploy-script architecture is documented in [`docs/CVM_DEPLOY_SCRIPTS.md`](docs/CVM_DEPLOY_SCRIPTS.md).
 
 #### Manual Deploy
 
@@ -520,14 +520,16 @@ ssh root@121.41.81.36 '/opt/ops/scripts/deploy.sh quickpulse prod'
 ssh root@121.41.81.36 '/opt/ops/scripts/deploy.sh quickpulse dev'
 ```
 
-The deploy script (`/opt/ops/scripts/deploy.sh quickpulse <env>`):
+`deploy.sh` is a 20-line dispatcher (added 2026-05-11). For quickpulse it routes to `deploy-build.sh`, which:
 1. Backs up data (prod only)
 2. `git fetch && git reset --hard origin/<branch>`
-3. `docker compose build --no-cache`
+3. `docker compose build`
 4. `docker compose up -d`
 5. Health check with retries (5 attempts, 30s interval)
 6. Auto-rollback on failure
 7. Image cleanup
+
+See `docs/CVM_DEPLOY_SCRIPTS.md` for the full per-app strategy + rollback semantics.
 
 #### Quick SSH Access
 
