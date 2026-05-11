@@ -22,7 +22,7 @@
         跳转到主要内容
     </a>
 
-    <div x-data="mtoSearch()" x-init="init()" x-cloak @keydown.escape.window="chatOpen ? (chatOpen = false) : exitFullScreen()">
+    <div x-data="mtoSearch()" x-init="init()" x-cloak @keydown.escape.window="photoModalOpen ? closePhotoModal() : (chatOpen ? (chatOpen = false) : exitFullScreen())">
         <div class="chat-content-push" :style="chatOpen ? 'margin-right: 384px' : ''" >
         <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 no-print"
                 :class="isFullScreen && isCollapsed ? 'hidden' : ''">
@@ -366,6 +366,14 @@
                                     </div>
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'material_name')" @dblclick.stop="autoFitColumn('material_name')"></div>
                                 </th>
+                                <!-- 照片 - not sortable -->
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('photo') }"
+                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'photo')"
+                                    class="px-4 py-3 text-center font-medium text-slate-400 bg-slate-900 relative resizable"
+                                    :style="getColumnStyle('photo')">
+                                    照片
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'photo')" @dblclick.stop="autoFitColumn('photo')"></div>
+                                </th>
                                 <!-- 规格型号 - sortable -->
                                 <th scope="col" :class="{ 'col-hidden': !colVisible('specification') }"
                                     @click="toggleSort('specification')"
@@ -572,6 +580,17 @@
                                               aria-label="辅助属性回落">⚠</span>
                                     </td>
                                     <td :class="{ 'col-hidden': !colVisible('material_name') }" role="cell" class="px-4 py-3 text-slate-200" x-text="item.material_name"></td>
+                                    <td :class="{ 'col-hidden': !colVisible('photo') }" role="cell" class="px-4 py-3 text-center">
+                                        <button type="button"
+                                                x-show="(item.photo_file_ids?.length || 0) > 0"
+                                                @click="openPhotoModal(item)"
+                                                class="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+                                                :title="`查看 ${item.photo_file_ids?.length || 0} 张照片`">
+                                            <span>📷</span>
+                                            <span x-text="`×${item.photo_file_ids?.length || 0}`"></span>
+                                        </button>
+                                        <span x-show="!item.photo_file_ids || item.photo_file_ids.length === 0" class="text-slate-600">—</span>
+                                    </td>
                                     <td :class="{ 'col-hidden': !colVisible('specification') }" role="cell" class="px-4 py-3 text-slate-400" x-text="item.specification || '-'"></td>
                                     <!-- BOM简称 - only for 成品 (is_finished_goods) -->
                                     <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" role="cell" class="px-4 py-3 text-slate-400"
@@ -618,6 +637,7 @@
                                 <td :class="{ 'col-hidden': !colVisible('index') }" class="px-4 py-3 text-slate-400 bg-slate-800 sticky left-0 z-20">合计</td>
                                 <td :class="{ 'col-hidden': !colVisible('material_code') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('material_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('photo') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('specification') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
@@ -1080,6 +1100,68 @@
                 </div>
             </div>
         </template>
+
+        <!-- Photo Lightbox Modal -->
+        <div x-show="photoModalOpen"
+             x-cloak
+             @click.self="closePhotoModal()"
+             class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 no-print"
+             style="display: none;">
+            <div class="bg-slate-900 rounded-lg shadow-xl border border-slate-700 max-w-4xl w-full max-h-[90vh] flex flex-col">
+                <!-- Header -->
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <h3 class="text-base font-medium text-slate-200 truncate" x-text="photoModalMaterialName || '照片'"></h3>
+                        <span class="text-sm text-slate-500 flex-shrink-0"
+                              x-text="`${photoModalIndex + 1} / ${photoModalFileIds.length}`"></span>
+                    </div>
+                    <button @click="closePhotoModal()"
+                            aria-label="Close photo viewer"
+                            class="text-slate-400 hover:text-slate-200 text-2xl leading-none px-2">×</button>
+                </div>
+                <!-- Body -->
+                <div class="flex-1 flex items-center justify-center bg-slate-950 overflow-auto p-4 min-h-[300px]">
+                    <template x-if="photoModalFileIds.length > 0 && getPhotoUrl(photoModalFileIds[photoModalIndex])">
+                        <img :src="getPhotoUrl(photoModalFileIds[photoModalIndex])"
+                             class="max-w-full max-h-[70vh] object-contain"
+                             :alt="`照片 ${photoModalIndex + 1}`" />
+                    </template>
+                    <template x-if="photoModalFileIds.length > 0 && !getPhotoUrl(photoModalFileIds[photoModalIndex]) && !getPhotoError(photoModalFileIds[photoModalIndex])">
+                        <div class="text-slate-500 text-sm">正在加载...</div>
+                    </template>
+                    <template x-if="photoModalFileIds.length > 0 && getPhotoError(photoModalFileIds[photoModalIndex])">
+                        <div class="text-rose-400 text-sm" x-text="`加载失败: ${getPhotoError(photoModalFileIds[photoModalIndex])}`"></div>
+                    </template>
+                </div>
+                <!-- Footer / Nav -->
+                <div class="flex items-center justify-between px-4 py-2 border-t border-slate-700 gap-2">
+                    <button @click="photoModalPrev()"
+                            :disabled="photoModalIndex === 0"
+                            class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+                        ← 上一张
+                    </button>
+                    <div class="flex gap-2 overflow-x-auto">
+                        <template x-for="(fid, idx) in photoModalFileIds" :key="fid">
+                            <button @click="photoModalIndex = idx; ensurePhotoLoaded(fid)"
+                                    :class="idx === photoModalIndex ? 'ring-2 ring-emerald-500' : 'opacity-60 hover:opacity-100'"
+                                    class="w-12 h-12 rounded overflow-hidden bg-slate-800 flex-shrink-0">
+                                <img x-show="getPhotoUrl(fid)"
+                                     :src="getPhotoUrl(fid)"
+                                     class="w-full h-full object-cover"
+                                     :alt="`缩略图 ${idx + 1}`" />
+                                <div x-show="!getPhotoUrl(fid)" class="w-full h-full flex items-center justify-center text-xs text-slate-500"
+                                     x-text="idx + 1"></div>
+                            </button>
+                        </template>
+                    </div>
+                    <button @click="photoModalNext()"
+                            :disabled="photoModalIndex >= photoModalFileIds.length - 1"
+                            class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+                        下一张 →
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/api.js?v=20260320b"></script>
