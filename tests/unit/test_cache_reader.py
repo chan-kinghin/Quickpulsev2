@@ -292,6 +292,9 @@ class TestCacheReaderRowConversion:
             "Approved",  # status
             "2025-01-15",  # create_date
             12345,  # aux_prop_id
+            None,  # photo_file_id_1
+            None,  # photo_file_id_2
+            None,  # photo_file_id_3
             "2025-01-15 12:00:00",  # synced_at
         )
 
@@ -303,6 +306,9 @@ class TestCacheReaderRowConversion:
         assert model.status == "Approved"
         assert model.create_date == "2025-01-15"
         assert model.aux_prop_id == 12345
+        assert model.photo_file_id_1 is None
+        assert model.photo_file_id_2 is None
+        assert model.photo_file_id_3 is None
 
     def test_row_to_order_null_values(self):
         """Test _row_to_order with null values."""
@@ -321,6 +327,9 @@ class TestCacheReaderRowConversion:
             None,  # status
             None,  # create_date
             None,  # aux_prop_id
+            None,  # photo_file_id_1
+            None,  # photo_file_id_2
+            None,  # photo_file_id_3
             None,  # synced_at
         )
 
@@ -330,6 +339,38 @@ class TestCacheReaderRowConversion:
         assert model.material_name == ""
         assert model.qty == Decimal("0")
         assert model.aux_prop_id == 0
+        assert model.photo_file_id_1 is None
+        assert model.photo_file_id_2 is None
+        assert model.photo_file_id_3 is None
+
+    def test_row_to_order_with_photo_file_ids(self):
+        """Test _row_to_order surfaces photo FileIDs from the cache row."""
+        mock_db = MagicMock()
+        reader = CacheReader(mock_db, ttl_minutes=60)
+
+        row = (
+            "MO0002",  # bill_no
+            "AK2510099",  # mto_number
+            "WS",  # workshop
+            "M999",  # material_code
+            "Name",  # material_name
+            "Spec",  # specification
+            "",  # aux_attributes
+            42,  # qty
+            "B",  # status
+            "2026-05-11",  # create_date
+            0,  # aux_prop_id
+            "a" * 32,  # photo_file_id_1
+            "",  # photo_file_id_2 (empty slot — preserved as-is)
+            "c" * 32,  # photo_file_id_3
+            "2026-05-11 12:00:00",  # synced_at
+        )
+
+        model = reader._row_to_order(row)
+
+        assert model.photo_file_id_1 == "a" * 32
+        assert model.photo_file_id_2 == ""
+        assert model.photo_file_id_3 == "c" * 32
 
     def test_row_to_bom_basic(self):
         """Test _row_to_bom with basic data."""

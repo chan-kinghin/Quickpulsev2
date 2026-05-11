@@ -88,7 +88,9 @@ class CacheReader:
             """
             SELECT bill_no, mto_number, workshop, material_code,
                    material_name, specification, aux_attributes, qty,
-                   status, create_date, aux_prop_id, synced_at
+                   status, create_date, aux_prop_id,
+                   photo_file_id_1, photo_file_id_2, photo_file_id_3,
+                   synced_at
             FROM cached_production_orders
             WHERE mto_number LIKE ?
             ORDER BY synced_at DESC
@@ -99,8 +101,8 @@ class CacheReader:
         if not rows:
             return CacheResult(data=[], synced_at=None, is_fresh=False)
 
-        # Parse synced_at from first row (now at index 11)
-        synced_at = self._parse_timestamp(rows[0][11])
+        # Parse synced_at from first row (index 14 after photo_file_id_1/2/3).
+        synced_at = self._parse_timestamp(rows[0][14])
         is_fresh = self._is_fresh(synced_at)
 
         # Convert rows to ProductionOrderModel (no JSON parsing needed)
@@ -1080,7 +1082,9 @@ class CacheReader:
         Row columns (after schema optimization):
         0: bill_no, 1: mto_number, 2: workshop, 3: material_code,
         4: material_name, 5: specification, 6: aux_attributes, 7: qty,
-        8: status, 9: create_date, 10: aux_prop_id, 11: synced_at
+        8: status, 9: create_date, 10: aux_prop_id,
+        11: photo_file_id_1, 12: photo_file_id_2, 13: photo_file_id_3,
+        14: synced_at
         """
         return ProductionOrderModel(
             bill_no=row[0] or "",
@@ -1094,6 +1098,9 @@ class CacheReader:
             status=row[8] or "",  # Now read directly from column
             create_date=row[9],  # Now read directly from column
             aux_prop_id=int(row[10] or 0),
+            photo_file_id_1=row[11],
+            photo_file_id_2=row[12],
+            photo_file_id_3=row[13],
         )
 
     def _row_to_bom(self, row: tuple) -> ProductionBOMModel:
