@@ -35,7 +35,7 @@ _STATUS_ERROR_CODES = {
     502: "erp_unavailable",
     503: "service_unavailable",
 }
-from src.api.routers import admin, agent_chat, auth, cache, chat, mto, sync
+from src.api.routers import admin, agent_chat, auth, cache, chat, mto, photo, sync
 from src.chat.client import LLMClient
 from src.config import Config
 from src.database.connection import Database
@@ -322,6 +322,7 @@ app.include_router(cache.router)
 app.include_router(chat.router)
 app.include_router(agent_chat.router)
 app.include_router(admin.router)
+app.include_router(photo.router)
 
 
 @app.get("/")
