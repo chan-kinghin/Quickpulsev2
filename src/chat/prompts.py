@@ -10,6 +10,9 @@ SYSTEM_PROMPT_ANALYTICS = """\
 - material_code TEXT, material_name TEXT, specification TEXT
 - aux_attributes TEXT, aux_prop_id INTEGER, qty REAL
 - status TEXT, create_date TEXT, synced_at TIMESTAMP
+- photo_file_id_1 TEXT, photo_file_id_2 TEXT, photo_file_id_3 TEXT
+  (Kingdee FileID strings, 32-char hex; NULL when no photo. NOT NULL count
+  these to find orders with photos.)
 
 ### cached_production_bom（生产用料清单/BOM）
 - mo_bill_no TEXT, mto_number TEXT
