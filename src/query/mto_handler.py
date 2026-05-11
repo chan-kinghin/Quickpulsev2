@@ -475,18 +475,21 @@ class MTOQueryHandler:
             sales_by_key, receipt_by_material, purchase_receipt_by_material
         )
 
+        photo_file_ids = self._collect_photo_file_ids(prod_orders)
+
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
                 aux_descriptions,
                 purchase_receipt_by_material=purchase_receipt_by_material,
                 receipt_dedup_state=receipt_dedup_state,
+                photo_file_ids=photo_file_ids,
             )
             children.append(child)
 
         # --- BOM children: convert each BOMJoinedRow to ChildItem ---
         for row in bom_rows:
-            child = self._bom_row_to_child(row, aux_descriptions)
+            child = self._bom_row_to_child(row, aux_descriptions, photo_file_ids=photo_file_ids)
             children.append(child)
 
         # Build parent from first available sales order
@@ -593,12 +596,15 @@ class MTOQueryHandler:
             sales_by_key, receipt_by_material, purchase_receipt_by_material
         )
 
+        photo_file_ids = self._collect_photo_file_ids(prod_orders)
+
         for key, so_list in sales_by_key.items():
             child = self._build_aggregated_sales_child(
                 so_list, receipt_by_material, delivered_by_material,
                 aux_descriptions,
                 purchase_receipt_by_material=purchase_receipt_by_material,
                 receipt_dedup_state=receipt_dedup_state,
+                photo_file_ids=photo_file_ids,
             )
             children.append(child)
 
@@ -613,7 +619,7 @@ class MTOQueryHandler:
             bom_rows = self._apply_strict_aux_filter(bom_rows)
 
         for row in bom_rows:
-            child = self._bom_row_to_child(row, aux_descriptions)
+            child = self._bom_row_to_child(row, aux_descriptions, photo_file_ids=photo_file_ids)
             children.append(child)
 
         # Build parent from first available sales order
@@ -1277,6 +1283,28 @@ class MTOQueryHandler:
 
         return rows
 
+    @staticmethod
+    def _collect_photo_file_ids(prod_orders: list) -> list[str]:
+        """Union all 3 photo slots across every PRD_MO under one MTO, deduped.
+
+        Each PRD_MO row carries up to 3 reference photos (FileID strings) on
+        ``F_QWJI_YSTP1/2/3``. Photos describe the parent material on that
+        production order; under one MTO they describe the same finished good
+        from different angles, so every BOM child in the MTO inherits the same
+        union set. Empty / None slots are filtered out. Insertion order is
+        preserved so callers get deterministic ordering.
+        """
+        seen: set[str] = set()
+        out: list[str] = []
+        for po in prod_orders or []:
+            for attr in ("photo_file_id_1", "photo_file_id_2", "photo_file_id_3"):
+                fid = getattr(po, attr, None)
+                if not fid or fid in seen:
+                    continue
+                seen.add(fid)
+                out.append(fid)
+        return out
+
     def _build_aggregated_sales_child(
         self,
         sales_orders: list,
@@ -1285,6 +1313,7 @@ class MTOQueryHandler:
         aux_descriptions: dict[int, str],
         purchase_receipt_by_material: dict[tuple[str, int], Decimal] | None = None,
         receipt_dedup_state: dict[tuple[str, str], dict] | None = None,
+        photo_file_ids: Optional[list[str]] = None,
     ) -> ChildItem:
         """Build aggregated ChildItem for 07.xx.xxx (成品) from multiple SAL_SaleOrder records.
 
@@ -1337,6 +1366,7 @@ class MTOQueryHandler:
             sales_order_qty=sales_order_qty,
             prod_instock_real_qty=prod_instock_real_qty,
             purchase_stock_in_qty=purchase_stock_in_qty,
+            photo_file_ids=list(photo_file_ids or []),
         )
 
     @staticmethod
@@ -1470,6 +1500,7 @@ class MTOQueryHandler:
         self,
         row: BOMJoinedRow,
         aux_descriptions: dict,
+        photo_file_ids: Optional[list[str]] = None,
     ) -> ChildItem:
         """Convert a pre-joined BOM row into a ChildItem based on material_type.
 
@@ -1488,6 +1519,10 @@ class MTOQueryHandler:
 
         # Aux match quality flows through unchanged from the cache JOIN (or live builder).
         match_quality = dict(row.match_quality_breakdown or {})
+
+        # Photo IDs are MTO-level (every PRD_MO under the MTO contributes its
+        # photos to the union), so the same list applies to every BOM child.
+        photos = list(photo_file_ids or [])
 
         if effective_type == 1:  # 自制
             # Use BOM need_qty as demand — it's correctly scoped per production order.
@@ -1515,6 +1550,7 @@ class MTOQueryHandler:
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
+                photo_file_ids=photos,
             )
         elif effective_type == 2:  # 外购/包材
             return ChildItem(
@@ -1528,6 +1564,7 @@ class MTOQueryHandler:
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
+                photo_file_ids=photos,
             )
         elif effective_type == 3:  # 委外
             return ChildItem(
@@ -1541,6 +1578,7 @@ class MTOQueryHandler:
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
+                photo_file_ids=photos,
             )
         else:
             # Unknown type — still show it with BOM demand data
@@ -1556,6 +1594,7 @@ class MTOQueryHandler:
                 # are forbidden. Use row.need_qty.
                 prod_instock_must_qty=row.need_qty,
                 match_quality_breakdown=match_quality,
+                photo_file_ids=photos,
             )
 
     def _build_parent_from_sales(self, sales_order, mto_number: str) -> ParentItem:

@@ -75,6 +75,11 @@ class ChildItem(BaseModel):
         description="Per-source aux match quality (exact / aux_zero_fallback / all_aux_rollup / no_match)",
     )
 
+    photo_file_ids: list[str] = Field(
+        default_factory=list,
+        description="Kingdee photo FileIDs for this row (deduplicated union across all matching PRD_MO orders). Empty list when no photos. Resolve via GET /api/photo/{file_id}.",
+    )
+
 
 class MTOStatusResponse(BaseModel):
     """Complete MTO status response."""
