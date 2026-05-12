@@ -770,13 +770,16 @@
                 </div>
                 <div class="p-4 flex flex-col gap-3">
                     <!-- Big image — clicking opens the full-screen lightbox -->
-                    <div class="flex items-center justify-center bg-slate-950 rounded min-h-[400px] max-h-[60vh] overflow-hidden cursor-zoom-in"
+                    <!-- Inline styles for min/max-height because tailwind.min.css is pre-built (commit a297bba) and arbitrary-value classes added after that build are silent no-ops. -->
+                    <div class="flex items-center justify-center bg-slate-950 rounded overflow-hidden cursor-zoom-in"
+                         style="min-height: 400px; max-height: 60vh;"
                          @click="openPhotoLightboxFromInline()"
                          title="点击放大查看">
                         <template x-if="inlinePhotoFileIds.length > 0">
                             <img :src="photoUrl(inlinePhotoFileIds[inlinePhotoIndex])"
                                  data-testid="photo-inline-main-img"
-                                 class="max-w-full max-h-[60vh] object-contain"
+                                 class="max-w-full object-contain"
+                                 style="max-height: 60vh;"
                                  :alt="`${inlinePhotoMaterialName} 照片 ${inlinePhotoIndex + 1}`" />
                         </template>
                     </div>
@@ -789,9 +792,11 @@
                         </button>
                         <div class="flex gap-2 overflow-x-auto flex-1">
                             <template x-for="(fid, idx) in inlinePhotoFileIds" :key="fid">
-                                <button @click="inlinePhotoIndex = idx"
+                                <!-- Clicking a thumbnail jumps to that photo AND opens the full-screen lightbox (matches user expectation of "click to enlarge"). -->
+                                <button @click="inlinePhotoIndex = idx; openPhotoLightboxFromInline()"
                                         :class="idx === inlinePhotoIndex ? 'ring-2 ring-emerald-500' : 'opacity-60 hover:opacity-100'"
-                                        class="w-16 h-16 rounded overflow-hidden bg-slate-800 flex-shrink-0 transition-opacity">
+                                        class="w-16 h-16 rounded overflow-hidden bg-slate-800 flex-shrink-0 transition-opacity cursor-zoom-in"
+                                        title="点击放大查看">
                                     <img :src="photoUrl(fid)"
                                          class="w-full h-full object-cover"
                                          :alt="`缩略图 ${idx + 1}`" />
@@ -1052,7 +1057,9 @@
              @click.self="closePhotoModal()"
              class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 no-print"
              style="display: none;">
-            <div class="bg-slate-900 rounded-lg shadow-xl border border-slate-700 max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <!-- max-height inline because tailwind.min.css is pre-built; arbitrary-value classes added after that build are silent no-ops. -->
+            <div class="bg-slate-900 rounded-lg shadow-xl border border-slate-700 max-w-4xl w-full flex flex-col"
+                 style="max-height: 90vh;">
                 <!-- Header -->
                 <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
                     <div class="flex items-center gap-2 min-w-0">
@@ -1065,10 +1072,12 @@
                             class="text-slate-400 hover:text-slate-200 text-2xl leading-none px-2">×</button>
                 </div>
                 <!-- Body -->
-                <div class="flex-1 flex items-center justify-center bg-slate-950 overflow-auto p-4 min-h-[300px]">
+                <div class="flex-1 flex items-center justify-center bg-slate-950 overflow-auto p-4"
+                     style="min-height: 300px;">
                     <template x-if="photoModalFileIds.length > 0">
                         <img :src="photoUrl(photoModalFileIds[photoModalIndex])"
-                             class="max-w-full max-h-[70vh] object-contain"
+                             class="max-w-full object-contain"
+                             style="max-height: 70vh;"
                              :alt="`照片 ${photoModalIndex + 1}`" />
                     </template>
                 </div>
@@ -1100,9 +1109,9 @@
         </div>
     </div>
 
-    <script src="/static/js/api.js?v=20260320b"></script>
-    <script src="/static/js/auth.js?v=20260320b"></script>
-    <script src="/static/js/dashboard.js?v=20260320b"></script>
+    <script src="/static/js/api.js?v=20260512"></script>
+    <script src="/static/js/auth.js?v=20260512"></script>
+    <script src="/static/js/dashboard.js?v=20260512"></script>
     <script>
         // Initialize Lucide icons once on page load
         lucide.createIcons();
