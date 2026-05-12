@@ -9,7 +9,7 @@ All `/api/*` responses include the header `X-API-Version: 1`.
 ## Table of Contents
 
 1. [Authentication](#authentication)
-2. [MTO Endpoints](#mto-endpoints)
+2. [计划跟踪号 Endpoints](#mto-endpoints)
 3. [Search](#search)
 4. [Export](#export)
 5. [Sync Management](#sync-management)
@@ -107,11 +107,11 @@ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
 
 ---
 
-## MTO Endpoints
+## 计划跟踪号 Endpoints
 
 ### GET /api/mto/{mto_number}
 
-Retrieve the full MTO status including parent order info, child BOM items, and semantic metrics.
+Retrieve the full 计划跟踪号 status including parent order info, child BOM items, and semantic metrics.
 
 **Rate limit:** 30 requests/minute
 
@@ -119,7 +119,7 @@ Retrieve the full MTO status including parent order info, child BOM items, and s
 
 | Parameter    | Type   | Validation                         | Description          |
 |--------------|--------|------------------------------------|----------------------|
-| `mto_number` | string | Alphanumeric + hyphens, 2-50 chars | The MTO tracking number |
+| `mto_number` | string | Alphanumeric + hyphens, 2-50 chars | The 计划跟踪号 (plan tracking number) |
 
 **Query parameters:**
 
@@ -189,14 +189,14 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ```json
 {
-  "detail": "MTO number AK0000000 not found",
+  "detail": "计划跟踪号 AK0000000 not found",
   "error_code": "not_found"
 }
 ```
 
 ### GET /api/mto/{mto_number}/related-orders
 
-Get all related order bill numbers for a given MTO number, organized by order type.
+Get all related order bill numbers for a given 计划跟踪号, organized by order type.
 
 **Rate limit:** 30 requests/minute
 
@@ -238,7 +238,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ### GET /api/search
 
-Search for MTO numbers or material names in the cached data. Supports pagination.
+Search for 计划跟踪号 or material names in the cached data. Supports pagination.
 
 **Rate limit:** 60 requests/minute
 
@@ -246,7 +246,7 @@ Search for MTO numbers or material names in the cached data. Supports pagination
 
 | Parameter | Type   | Default | Validation | Description                              |
 |-----------|--------|---------|------------|------------------------------------------|
-| `q`       | string | (required) | min 2 chars | Search term (matches MTO number or material name) |
+| `q`       | string | (required) | min 2 chars | Search term (matches 计划跟踪号 or material name) |
 | `limit`   | int    | `20`    | 1-100      | Maximum results per page                 |
 | `offset`  | int    | `0`     | >= 0       | Number of results to skip                |
 
@@ -288,7 +288,7 @@ X-Total-Count: 42
 
 ### GET /api/export/mto/{mto_number}
 
-Export MTO status data as a CSV file.
+Export 计划跟踪号 status data as a CSV file.
 
 **Rate limit:** 20 requests/minute
 
@@ -296,7 +296,7 @@ Export MTO status data as a CSV file.
 
 | Parameter    | Type   | Description            |
 |--------------|--------|------------------------|
-| `mto_number` | string | The MTO tracking number |
+| `mto_number` | string | The 计划跟踪号 (plan tracking number) |
 
 **Query parameters:**
 
@@ -549,7 +549,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ### POST /api/cache/warm
 
-Pre-load MTO data into the memory cache.
+Pre-load 计划跟踪号 data into the memory cache.
 
 **Rate limit:** 5 requests/minute
 
@@ -557,7 +557,7 @@ Pre-load MTO data into the memory cache.
 
 | Parameter  | Type | Default | Validation | Description                                  |
 |------------|------|---------|------------|----------------------------------------------|
-| `count`    | int  | `100`   | 1-500      | Number of MTOs to warm                       |
+| `count`    | int  | `100`   | 1-500      | Number of 计划跟踪号 to warm                 |
 | `use_hot`  | bool | `false` | --         | Use query history (true) or recent synced (false) |
 
 **Request:**
@@ -581,7 +581,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ### DELETE /api/cache/{mto_number}
 
-Invalidate a specific MTO from the memory cache.
+Invalidate a specific 计划跟踪号 from the memory cache.
 
 **Request:**
 
@@ -599,7 +599,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 }
 ```
 
-If the MTO was not in cache:
+If the 计划跟踪号 was not in cache:
 
 ```json
 {
@@ -629,13 +629,13 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ### GET /api/cache/hot-mtos
 
-Get the most frequently queried MTOs.
+Get the most frequently queried 计划跟踪号.
 
 **Query parameters:**
 
 | Parameter | Type | Default | Validation | Description                      |
 |-----------|------|---------|------------|----------------------------------|
-| `top_n`   | int  | `20`    | 1-100      | Number of hot MTOs to return     |
+| `top_n`   | int  | `20`    | 1-100      | Number of hot 计划跟踪号 to return |
 
 **Request:**
 
@@ -658,7 +658,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ## Chat (AI Assistant)
 
-The chat feature uses DeepSeek LLM for conversational queries about MTO data and analytics.
+The chat feature uses DeepSeek LLM for conversational queries about 计划跟踪号 data and analytics.
 
 ### GET /api/chat/status
 
@@ -714,7 +714,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 |---------------|--------|---------|------------------|----------------------------------------------|
 | `messages`    | array  | (required) | --            | Chat message history (`role` + `content`)    |
 | `mode`        | string | `"mto"` | `mto` or `analytics` | Chat mode                              |
-| `mto_context` | object | `null`  | --               | Current MTO data for context (mto mode only) |
+| `mto_context` | object | `null`  | --               | Current 计划跟踪号 data for context (mto mode only) |
 
 **SSE event types:**
 
@@ -786,7 +786,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   -N \
   -d '{
     "messages": [
-      {"role": "user", "content": "哪些MTO的完成率最低？"}
+      {"role": "user", "content": "哪些计划跟踪号的完成率最低？"}
     ]
   }' \
   "https://fltpulse.szfluent.cn/api/agent-chat/stream"
@@ -873,7 +873,7 @@ All API errors return a consistent JSON structure:
 |------|-----------------------|--------------------------------------------|
 | 400  | Bad Request           | Invalid input, validation failure          |
 | 401  | Unauthorized          | Missing or invalid Bearer token            |
-| 404  | Not Found             | MTO number not found                       |
+| 404  | Not Found             | 计划跟踪号 not found                       |
 | 409  | Conflict              | Sync already running                       |
 | 422  | Unprocessable Entity  | Request body validation error (FastAPI)     |
 | 429  | Too Many Requests     | Rate limit exceeded                        |
@@ -885,7 +885,7 @@ All API errors return a consistent JSON structure:
 | Error Code             | HTTP Status | Description                         |
 |------------------------|-------------|-------------------------------------|
 | `unauthorized`         | 401         | Missing, expired, or invalid token  |
-| `not_found`            | 404         | MTO number not found                |
+| `not_found`            | 404         | 计划跟踪号 not found                |
 | `bad_request`          | 400         | Invalid request                     |
 | `validation_error`     | 422         | Input validation failure            |
 | `conflict`             | 409         | Sync already in progress            |
@@ -963,11 +963,11 @@ Complete workflow from authentication to querying:
 TOKEN=$(curl -s -X POST https://fltpulse.szfluent.cn/api/auth/token \
   -d "username=admin&password=YOUR_PASSWORD" | jq -r '.access_token')
 
-# 2. Search for an MTO
+# 2. Search for a 计划跟踪号
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://fltpulse.szfluent.cn/api/search?q=AK25&limit=5"
 
-# 3. Get full MTO status
+# 3. Get full 计划跟踪号 status
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://fltpulse.szfluent.cn/api/mto/AK2510034"
 

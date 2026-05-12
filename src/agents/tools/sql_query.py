@@ -11,8 +11,8 @@ import logging
 from typing import Any, Dict
 
 from src.agents.base import ToolDefinition
-from src.chat.context import build_sql_result_context
-from src.chat.sql_guard import validate_sql
+from src.agents.tools.context import build_sql_result_context
+from src.agents.tools.sql_guard import validate_sql
 from src.database.connection import Database
 from src.exceptions import ChatSQLError
 

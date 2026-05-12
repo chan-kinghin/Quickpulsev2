@@ -11,7 +11,7 @@ import re
 from typing import List, Optional
 
 from src.agents.base import ToolDefinition
-from src.chat.sql_guard import ALLOWED_TABLES
+from src.agents.tools.sql_guard import ALLOWED_TABLES
 from src.database.connection import Database
 
 logger = logging.getLogger(__name__)

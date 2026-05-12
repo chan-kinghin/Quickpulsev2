@@ -16,7 +16,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 from openai import AsyncOpenAI, APIConnectionError, RateLimitError, APITimeoutError
 from openai.types.chat import ChatCompletionMessageToolCall
 
-from src.config import DeepSeekConfig
+from src.config import AgentLLMConfig
 from src.exceptions import ChatConnectionError, ChatRateLimitError
 
 logger = logging.getLogger(__name__)
@@ -114,11 +114,11 @@ class AgentConfig:
 class AgentLLMClient:
     """Async LLM client with function-calling support.
 
-    Composes AsyncOpenAI (same config as DeepSeekClient) but adds the
-    ``tools`` parameter for structured tool use.
+    Composes AsyncOpenAI with an OpenAI-compatible endpoint (e.g. Qwen
+    DashScope) and adds the ``tools`` parameter for structured tool use.
     """
 
-    def __init__(self, config: DeepSeekConfig) -> None:
+    def __init__(self, config: AgentLLMConfig) -> None:
         self._client = AsyncOpenAI(
             api_key=config.api_key,
             base_url=config.base_url,

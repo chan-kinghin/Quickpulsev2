@@ -201,3 +201,56 @@ class TestPromptSchemaSync:
             f"Transaction tables missing from semantic mapping: {missing}. "
             f"Without mapping, agent may confuse these tables."
         )
+
+
+# --- FStatus enum guards (Pattern 9, 2026-05-12) ---
+
+def test_status_enum_documented_in_retrieval_agent_prompt():
+    """RETRIEVAL_AGENT_PROMPT must list all 6 FStatus codes so the LLM
+    doesn't hallucinate filter values like '已审核' or 'in_production'."""
+    from src.agents.chat.prompts import RETRIEVAL_AGENT_PROMPT
+    for code in ["'1'", "'2'", "'3'", "'4'", "'5'", "'6'"]:
+        assert code in RETRIEVAL_AGENT_PROMPT, (
+            f"FStatus code {code} missing from RETRIEVAL_AGENT_PROMPT — "
+            f"LLM will guess and hallucinate (see bug-patterns.md Pattern 9 "
+            f"2026-05-12 occurrence)."
+        )
+
+
+def test_status_enum_documented_in_reasoning_agent_prompt():
+    """REASONING_AGENT_PROMPT (the one that actually writes SQL) must
+    list all 6 FStatus codes."""
+    from src.agents.chat.prompts import REASONING_AGENT_PROMPT
+    for code in ["'1'", "'2'", "'3'", "'4'", "'5'", "'6'"]:
+        assert code in REASONING_AGENT_PROMPT, (
+            f"FStatus code {code} missing from REASONING_AGENT_PROMPT."
+        )
+
+
+def test_business_phrase_in_production_maps_to_status_4():
+    """The reasoning prompt must associate the user phrase '在生产'
+    with the canonical status value '4' so it doesn't get translated
+    to a hallucinated label like 'in_production'."""
+    from src.agents.chat.prompts import REASONING_AGENT_PROMPT
+    # Look for '在生产' within 200 chars of "'4'"
+    idx_phrase = REASONING_AGENT_PROMPT.find("在生产")
+    idx_code = REASONING_AGENT_PROMPT.find("'4'")
+    assert idx_phrase != -1, "'在生产' missing from REASONING_AGENT_PROMPT"
+    assert idx_code != -1, "'4' missing from REASONING_AGENT_PROMPT"
+    assert abs(idx_phrase - idx_code) < 400, (
+        "'在生产' and '4' must appear close enough in REASONING_AGENT_PROMPT "
+        "for the LLM to associate them."
+    )
+
+
+def test_simple_chat_module_removed():
+    """src/chat/ was deleted in 2026-05-12 — single chat path now goes
+    through src/agents/. This test fails if the module is re-introduced."""
+    import os
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    assert not os.path.exists(os.path.join(repo_root, "src", "chat")), (
+        "src/chat/ should not exist — simple chat mode was retired. "
+        "If you need to re-introduce it, update bug-patterns.md Pattern 9 "
+        "with the new mitigation plan."
+    )

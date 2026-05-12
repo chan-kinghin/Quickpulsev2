@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from src.api.middleware.rate_limit import setup_rate_limiting
 from src.api.routers.auth import create_access_token, router as auth_router
 from src.api.routers.agent_chat import router as agent_chat_router, _sse_event, _build_mto_context_str
-from src.config import DeepSeekConfig
+from src.config import AgentLLMConfig
 
 
 # ---------------------------------------------------------------------------
@@ -26,13 +26,13 @@ def auth_headers():
 
 @pytest.fixture
 def mock_deepseek_config():
-    return DeepSeekConfig(api_key="test-key", model="test-model")
+    return AgentLLMConfig(api_key="test-key", model="test-model")
 
 
 @pytest.fixture
 def unavailable_deepseek_config():
-    """DeepSeekConfig with no API key — explicitly set to empty string."""
-    return DeepSeekConfig(api_key="", model="deepseek-chat")
+    """AgentLLMConfig with no API key — explicitly set to empty string."""
+    return AgentLLMConfig(api_key="", model="deepseek-chat")
 
 
 @pytest.fixture
@@ -147,7 +147,7 @@ class TestAgentChatStatus:
     async def test_status_available(self, app_with_agent_chat, auth_headers):
         mock_agent_config = MagicMock()
         mock_agent_config.is_available.return_value = True
-        mock_agent_config.resolve.return_value = DeepSeekConfig(
+        mock_agent_config.resolve.return_value = AgentLLMConfig(
             api_key="test-key", model="test-model"
         )
         with patch(
@@ -209,7 +209,7 @@ class TestAgentChatStream:
     @pytest.mark.asyncio
     async def test_503_when_not_configured(self, app_without_deepseek, auth_headers):
         mock_agent_config = MagicMock()
-        mock_agent_config.resolve.return_value = DeepSeekConfig(api_key="", model="")
+        mock_agent_config.resolve.return_value = AgentLLMConfig(api_key="", model="")
         with patch("src.config.AgentLLMConfig", return_value=mock_agent_config):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app_without_deepseek),

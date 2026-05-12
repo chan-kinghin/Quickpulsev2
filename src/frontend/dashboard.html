@@ -59,7 +59,7 @@
             <section :class="isFullScreen && isCollapsed ? 'hidden' : 'mb-8'" class="transition-all">
                 <div class="flex gap-4 items-end">
                     <div class="flex-1 max-w-md relative">
-                        <label for="mto-search" class="block text-sm text-slate-400 mb-2">MTO单号</label>
+                        <label for="mto-search" class="block text-sm text-slate-400 mb-2">计划跟踪号</label>
                         <input type="text" id="mto-search" x-model="mtoNumber"
                                @keydown.enter="showSearchResults = false; search()"
                                @input="performSearch()"
@@ -70,7 +70,7 @@
                                class="w-full bg-slate-800 border border-slate-700 text-slate-50 px-4 py-3 rounded focus:outline-none glow-emerald transition font-mono"
                                :disabled="loading"
                                autocomplete="off">
-                        <p id="mto-help" class="sr-only">输入MTO跟踪号进行搜索，例如 AK2510034</p>
+                        <p id="mto-help" class="sr-only">输入计划跟踪号进行搜索，例如 AK2510034</p>
 
                         <!-- Search History Dropdown -->
                         <div x-show="showSearchHistory && searchHistory.length > 0 && !showSearchResults" x-transition
@@ -123,7 +123,7 @@
                         </div>
                     </div>
                     <button @click="search()" :disabled="loading || !mtoNumber"
-                            aria-label="搜索MTO单号"
+                            aria-label="搜索计划跟踪号"
                             class="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-slate-950 font-medium rounded transition flex items-center gap-2">
                         <span x-show="loading"
                               class="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
@@ -147,7 +147,7 @@
                 <div class="bg-slate-900 border border-slate-800 rounded px-6 py-4">
                     <div class="flex items-center justify-between gap-6 text-sm">
                         <div class="flex items-center gap-2">
-                            <span class="text-slate-500">MTO</span>
+                            <span class="text-slate-500">计划</span>
                             <span class="text-slate-50 font-mono font-medium" x-text="parentItem?.mto_number"></span>
                         </div>
                         <div class="flex items-center gap-6">
@@ -843,7 +843,7 @@
             <div x-show="!loading && childItems.length === 0 && !error && !searchPerformed" class="text-center py-20">
                 <i data-lucide="inbox" class="w-16 h-16 text-slate-700 mx-auto mb-4"></i>
                 <h3 class="text-lg text-slate-400 mb-2">暂无数据</h3>
-                <p class="text-slate-600 text-sm">请输入MTO单号进行查询</p>
+                <p class="text-slate-600 text-sm">请输入计划跟踪号进行查询</p>
             </div>
             <!-- Empty results: search completed but no data found -->
             <div x-show="!loading && childItems.length === 0 && !error && searchPerformed" class="text-center py-20">
@@ -851,8 +851,8 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
                 </svg>
                 <h3 class="text-lg text-slate-400 mb-2">未找到结果</h3>
-                <p class="text-slate-600 text-sm mb-4">MTO单号 "<span class="text-slate-400 font-mono" x-text="mtoNumber"></span>" 没有匹配的BOM组件记录</p>
-                <p class="text-slate-700 text-xs">请检查单号是否正确，或尝试其他MTO单号</p>
+                <p class="text-slate-600 text-sm mb-4">计划跟踪号 "<span class="text-slate-400 font-mono" x-text="mtoNumber"></span>" 没有匹配的BOM组件记录</p>
+                <p class="text-slate-700 text-xs">请检查单号是否正确，或尝试其他计划跟踪号</p>
             </div>
         </main>
 
@@ -864,7 +864,7 @@
         </div>
 
         <div aria-live="polite" aria-atomic="true" class="sr-only"
-             x-text="loading ? '正在加载...' : (error ? '发生错误: ' + error : (parentItem ? '已加载MTO单号 ' + mtoNumber + ' 的数据' : ''))">
+             x-text="loading ? '正在加载...' : (error ? '发生错误: ' + error : (parentItem ? '已加载计划跟踪号 ' + mtoNumber + ' 的数据' : ''))">
         </div>
         </div><!-- /.chat-content-push -->
 
@@ -894,33 +894,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
                         </svg>
                         <span class="text-sm font-medium text-slate-200">AI 助手</span>
-                        <!-- Mode toggle (only when agent mode is available) -->
-                        <template x-if="agentChatAvailable">
-                            <div class="flex items-center rounded overflow-hidden border border-slate-600 ml-1">
-                                <button @click="switchChatMode('simple')"
-                                        class="px-2 py-0.5 text-xs transition"
-                                        :class="chatMode === 'simple' ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-slate-300'">
-                                    简单
-                                </button>
-                                <button @click="switchChatMode('agent')"
-                                        class="px-2 py-0.5 text-xs transition"
-                                        title="使用多Agent协作进行更深入的分析"
-                                        :class="chatMode === 'agent' ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-slate-300'">
-                                    智能
-                                </button>
-                            </div>
-                        </template>
-                        <!-- Provider selector (only when multiple providers available) -->
-                        <template x-if="chatProviders.length > 1 && chatMode !== 'agent'">
-                            <select @change="switchProvider($event.target.value)"
-                                    class="text-xs bg-slate-700 text-slate-300 border border-slate-600 rounded px-1.5 py-0.5 ml-1 focus:outline-none focus:border-emerald-500"
-                                    :value="activeProvider">
-                                <template x-for="p in chatProviders" :key="p.name">
-                                    <option :value="p.name" x-text="p.label" :selected="p.name === activeProvider"></option>
-                                </template>
-                            </select>
-                        </template>
-                        <span class="text-xs text-slate-500" x-text="chatMode === 'agent' ? '多Agent协作分析' : (chatModel || '')"></span>
+                        <span class="text-xs text-slate-500">多Agent协作分析</span>
                     </div>
                     <div class="flex items-center gap-1">
                         <button @click="clearChat()" aria-label="Clear chat" class="p-1.5 text-slate-400 hover:text-slate-200 rounded transition" title="清空对话">
@@ -946,17 +920,17 @@
                             </div>
                             <div class="space-y-2">
                                 <div class="space-y-1">
-                                    <button @click="chatInput = '最近一周有多少个MTO在生产？'; sendChat()"
+                                    <button @click="chatInput = '最近一周有多少个计划跟踪号在生产？'; sendChat()"
                                             class="block w-full text-left text-xs text-slate-400 hover:text-emerald-400 bg-slate-800/50 rounded px-3 py-2 transition">
-                                        最近一周有多少个MTO在生产？
+                                        最近一周有多少个计划跟踪号在生产？
                                     </button>
                                     <button @click="chatInput = '哪些物料采购入库率最低？'; sendChat()"
                                             class="block w-full text-left text-xs text-slate-400 hover:text-emerald-400 bg-slate-800/50 rounded px-3 py-2 transition">
                                         哪些物料采购入库率最低？
                                     </button>
-                                    <button @click="chatInput = '本月交货的MTO有哪些？'; sendChat()"
+                                    <button @click="chatInput = '本月交货的计划跟踪号有哪些？'; sendChat()"
                                             class="block w-full text-left text-xs text-slate-400 hover:text-emerald-400 bg-slate-800/50 rounded px-3 py-2 transition">
-                                        本月交货的MTO有哪些？
+                                        本月交货的计划跟踪号有哪些？
                                     </button>
                                 </div>
                             </div>

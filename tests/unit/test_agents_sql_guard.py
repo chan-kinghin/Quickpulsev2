@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.chat.sql_guard import validate_sql, ALLOWED_TABLES
+from src.agents.tools.sql_guard import validate_sql, ALLOWED_TABLES
 from src.exceptions import ChatSQLError
 
 

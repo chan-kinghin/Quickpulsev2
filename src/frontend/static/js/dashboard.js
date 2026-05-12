@@ -81,10 +81,6 @@ function mtoSearch() {
         chatInput: '',
         chatLoading: false,
         chatModel: '',
-        chatProviders: [],           // [{name, label, model}]
-        activeProvider: '',
-        chatMode: 'simple',          // 'simple' or 'agent'
-        agentChatAvailable: false,
         _chatAbort: null,    // AbortController for active stream
         _errorTimer: null,
         _successTimer: null,
@@ -646,7 +642,6 @@ function mtoSearch() {
             if (!isMtoNumber) {
                 // Route to chat panel with the NL query
                 if (!this.chatOpen) this.chatOpen = true;
-                this.chatMode = 'agent';
                 this.chatInput = input;
                 this.mtoNumber = '';
                 await this.$nextTick();
@@ -1040,51 +1035,14 @@ function mtoSearch() {
             const token = localStorage.getItem('token');
             const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
             try {
-                const resp = await fetch('/api/chat/status', { headers: authHeaders });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    this.chatAvailable = data.available;
-                    this.chatModel = data.model || '';
-                    this.chatProviders = data.providers || [];
-                    this.activeProvider = data.active || '';
-                }
-            } catch (e) {
-                this.chatAvailable = false;
-            }
-            // Also check agent chat availability
-            try {
                 const agentResp = await fetch('/api/agent-chat/status', { headers: authHeaders });
                 if (agentResp.ok) {
                     const agentData = await agentResp.json();
-                    this.agentChatAvailable = agentData.available;
+                    this.chatAvailable = !!agentData.available;
+                    this.chatModel = agentData.model || '';
                 }
             } catch (e) {
-                this.agentChatAvailable = false;
-            }
-        },
-
-        switchChatMode(mode) {
-            if (this.chatMode === mode) return;
-            this.chatMode = mode;
-            this.clearChat();
-        },
-
-        async switchProvider(name) {
-            if (this.activeProvider === name) return;
-            try {
-                const resp = await fetch('/api/chat/provider', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('token') },
-                    body: JSON.stringify({ provider: name }),
-                });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    this.activeProvider = data.active;
-                    this.chatModel = data.model || '';
-                    this.clearChat();
-                }
-            } catch (e) {
-                console.error('Failed to switch provider:', e);
+                this.chatAvailable = false;
             }
         },
 
@@ -1169,8 +1127,7 @@ function mtoSearch() {
             try {
                 const token = localStorage.getItem('token');
                 this._chatAbort = new AbortController();
-                const chatEndpoint = this.chatMode === 'agent' ? '/api/agent-chat/stream' : '/api/chat/stream';
-                const resp = await fetch(chatEndpoint, {
+                const resp = await fetch('/api/agent-chat/stream', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

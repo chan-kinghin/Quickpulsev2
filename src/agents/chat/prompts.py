@@ -15,7 +15,7 @@ RETRIEVAL_AGENT_PROMPT = """\
    - 不传参数：返回所有可用表
    - 传入 table_name：返回该表的列名和类型
 
-2. **config_lookup** — 查询MTO配置信息
+2. **config_lookup** — 查询计划跟踪号配置信息
    - 'overview'：总览（物料类别、数据源列表）
    - 'material_classes'：物料类别路由详情
    - 'receipt_sources'：入库数据源配置
@@ -44,6 +44,9 @@ RETRIEVAL_AGENT_PROMPT = """\
 
 以下是常用表，可以直接引用无需查询：
 - cached_production_orders: mto_number, bill_no, material_code, material_name, qty, status
+- cached_production_orders.status 取值（金蝶 FStatus 数字字符串）:
+  '1'=计划, '2'=计划确认, '3'=下达, '4'=开工(在生产/进行中), '5'=完工(已完工), '6'=结案(已结案)
+  ⚠️ "在生产" 默认 status='4'; "活跃" 通常 status IN ('3','4','5')
 - cached_production_bom: mto_number, mo_bill_no, material_code, material_name, material_type, need_qty, picked_qty
 - cached_production_receipts: mto_number, material_code, real_qty, must_qty
 - cached_purchase_receipts: mto_number, material_code, real_qty, must_qty, bill_type_number
@@ -86,14 +89,14 @@ REASONING_AGENT_PROMPT = """\
    - 自动添加 LIMIT 100
    - 返回查询结果
 
-2. **mto_lookup** — 查询特定MTO的完整生产状态
-   - 输入MTO编号（如 AK2510034）
+2. **mto_lookup** — 查询特定计划跟踪号的完整生产状态
+   - 输入计划跟踪号（如 AK2510034）
    - 返回父项、子件、入库完成率等结构化数据
-   - 当用户问特定MTO的状态时，**优先使用此工具**
+   - 当用户问特定计划跟踪号的状态时，**优先使用此工具**
 
 ## 重要：效率要求（必须严格遵守）
 
-- 对于MTO相关问题，**直接使用 mto_lookup**，不要写SQL
+- 对于计划跟踪号相关问题，**直接使用 mto_lookup**，不要写SQL
 - 如果 mto_lookup 失败或返回空，尝试1次SQL查询，然后直接回答
 - 写SQL时，直接使用下面的表结构，**不要调用 schema_lookup**
 - 如果SQL出错，最多重试1次，然后用已有信息回答
@@ -111,6 +114,19 @@ REASONING_AGENT_PROMPT = """\
 ### cached_production_orders（生产订单）
 mto_number TEXT, bill_no TEXT, workshop TEXT, material_code TEXT, material_name TEXT,
 specification TEXT, qty REAL, status TEXT, create_date TEXT
+
+**status 取值枚举（金蝶 FStatus 数字字符串，必须用单引号）:**
+| 值 | 业务含义 | 用户常见说法 |
+|----|---------|--------------|
+| '1' | 计划 | "已计划" |
+| '2' | 计划确认 | "已确认" |
+| '3' | 下达 | "已下达" |
+| '4' | **开工** | **"在生产" / "进行中"** |
+| '5' | 完工 | "已完工" |
+| '6' | 结案 | "已结案" |
+
+⚠️ 必须用字符串值: `status='4'` 不要写 `status=4`（列是 TEXT）
+⚠️ "在生产" → `status='4'`；"已完成" → `status='5'`；"活跃订单（下达至完工）" → `status IN ('3','4','5')`
 
 ### cached_production_bom（生产用料清单）
 mto_number TEXT, mo_bill_no TEXT, material_code TEXT, material_name TEXT,

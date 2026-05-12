@@ -115,37 +115,6 @@ class KingdeeConfig(BaseSettings):
         return bool(self.server_url and self.acct_id and self.user_name and self.app_id and self.app_sec)
 
 
-class DeepSeekConfig(BaseSettings):
-    """DeepSeek LLM API Configuration.
-
-    Loaded from DEEPSEEK_* environment variables.
-    Feature is disabled when api_key is empty.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="DEEPSEEK_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    api_key: str = Field(default="", description="DeepSeek API key")
-    base_url: str = Field(
-        default="https://api.deepseek.com", description="OpenAI-compatible endpoint"
-    )
-    model: str = Field(default="deepseek-chat", description="Model name")
-    max_tokens: int = Field(default=1024, description="Max response tokens")
-    temperature: float = Field(default=0.3, description="Sampling temperature")
-    timeout_seconds: int = Field(default=30, description="Request timeout")
-    max_history_messages: int = Field(
-        default=20, description="Max conversation messages to send"
-    )
-
-    def is_available(self) -> bool:
-        """Check if DeepSeek API is configured."""
-        return bool(self.api_key)
-
-
 class QwenConfig(BaseSettings):
     """Qwen (通义千问) LLM API Configuration.
 
@@ -182,14 +151,12 @@ class QwenConfig(BaseSettings):
 class AgentLLMConfig(BaseSettings):
     """LLM configuration for the agent pipeline.
 
-    Falls back to DEEPSEEK_* values when AGENT_* env vars are not set.
-    This allows using a different model (e.g. Qwen 3.5) for agents
-    while keeping DeepSeek for the simple chat pipeline.
+    Falls back to QWEN_* values when AGENT_* env vars are not set.
 
     Environment variables:
-        AGENT_API_KEY     - API key (falls back to DEEPSEEK_API_KEY)
-        AGENT_BASE_URL    - Base URL (falls back to DEEPSEEK_BASE_URL)
-        AGENT_MODEL       - Model name (falls back to DEEPSEEK_MODEL)
+        AGENT_API_KEY     - API key (falls back to QWEN_API_KEY)
+        AGENT_BASE_URL    - Base URL (falls back to QWEN_BASE_URL)
+        AGENT_MODEL       - Model name (falls back to QWEN_MODEL)
         AGENT_MAX_TOKENS  - Max response tokens (default: 2048)
         AGENT_TEMPERATURE - Temperature (default: 0.1)
         AGENT_TIMEOUT     - Timeout seconds (default: 60)
@@ -209,14 +176,13 @@ class AgentLLMConfig(BaseSettings):
     temperature: float = Field(default=0.1, description="Sampling temperature")
     timeout_seconds: int = Field(default=60, description="Request timeout")
 
-    def resolve(self) -> "DeepSeekConfig":
-        """Resolve to a DeepSeekConfig, falling back to Qwen then DeepSeek values."""
+    def resolve(self) -> "AgentLLMConfig":
+        """Resolve to a fully-populated AgentLLMConfig, falling back to Qwen values."""
         qwen = QwenConfig()
-        ds = DeepSeekConfig()
-        return DeepSeekConfig(
-            api_key=self.api_key or qwen.api_key or ds.api_key,
-            base_url=self.base_url or qwen.base_url or ds.base_url,
-            model=self.model or qwen.model or ds.model,
+        return AgentLLMConfig(
+            api_key=self.api_key or qwen.api_key,
+            base_url=self.base_url or qwen.base_url,
+            model=self.model or qwen.model,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             timeout_seconds=self.timeout_seconds,
@@ -224,7 +190,7 @@ class AgentLLMConfig(BaseSettings):
 
     def is_available(self) -> bool:
         """Check if agent LLM is configured (either directly or via fallback)."""
-        return bool(self.api_key or QwenConfig().api_key or DeepSeekConfig().api_key)
+        return bool(self.api_key or QwenConfig().api_key)
 
 
 class AutoSyncConfig(BaseSettings):
@@ -338,14 +304,12 @@ class Config:
         sync: SyncConfig,
         db_path: Path = Path("data/quickpulse.db"),
         reports_dir: Path = Path("reports"),
-        deepseek: Optional[DeepSeekConfig] = None,
         qwen: Optional[QwenConfig] = None,
     ):
         self.kingdee = kingdee
         self.sync = sync
         self.db_path = db_path
         self.reports_dir = reports_dir
-        self.deepseek = deepseek or DeepSeekConfig()
         self.qwen = qwen or QwenConfig()
 
     @classmethod
@@ -363,7 +327,6 @@ class Config:
         return cls(
             kingdee=kingdee,
             sync=SyncConfig.load(sync_path),
-            deepseek=DeepSeekConfig(),
             qwen=QwenConfig(),
         )
 

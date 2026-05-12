@@ -14,7 +14,7 @@ from src.agents.base import (
     ToolDefinition,
     extract_tool_calls_from_content,
 )
-from src.config import DeepSeekConfig
+from src.config import AgentLLMConfig
 from src.exceptions import ChatConnectionError, ChatRateLimitError
 
 
@@ -204,7 +204,7 @@ class TestAgentLLMClient:
 
     @pytest.fixture
     def deepseek_config(self):
-        return DeepSeekConfig(
+        return AgentLLMConfig(
             api_key="test-key",
             base_url="https://api.test.com",
             model="test-model",
