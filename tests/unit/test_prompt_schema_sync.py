@@ -254,3 +254,22 @@ def test_simple_chat_module_removed():
         "If you need to re-introduce it, update bug-patterns.md Pattern 9 "
         "with the new mitigation plan."
     )
+
+
+def test_count_distinct_rule_for_entity_counts():
+    """REASONING_AGENT_PROMPT must teach COUNT(DISTINCT entity_id) for
+    questions like '有多少个计划跟踪号' — otherwise the agent uses COUNT(*)
+    and counts row-level production-order lines (~1346) instead of distinct
+    tracking numbers (~48). Verified live 2026-05-12 with the FStatus fix."""
+    from src.agents.chat.prompts import REASONING_AGENT_PROMPT
+    assert "COUNT(DISTINCT" in REASONING_AGENT_PROMPT, (
+        "REASONING_AGENT_PROMPT must mention COUNT(DISTINCT ...) "
+        "to guide entity-count questions away from COUNT(*)."
+    )
+    assert "mto_number" in REASONING_AGENT_PROMPT, (
+        "REASONING_AGENT_PROMPT must show a concrete COUNT(DISTINCT mto_number) "
+        "example — the canonical reproducer is '有多少个计划跟踪号'."
+    )
+    # The rule must reference the reproducer entity by Chinese name so the LLM
+    # can match it to user wording.
+    assert "计划跟踪号" in REASONING_AGENT_PROMPT

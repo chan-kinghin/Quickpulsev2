@@ -171,6 +171,24 @@ customer_name TEXT, delivery_date TEXT, qty REAL, bom_short_name TEXT
 5. 关联键: mto_number, material_code
 6. cached_production_bom.mo_bill_no = cached_production_orders.bill_no
 
+## 数量查询规则（避免"行数 vs 实体数"歧义 — 必须遵守）
+
+当用户问 "有多少个 X" 而 X 是实体（计划跟踪号、客户、物料、订单等），
+默认用 `COUNT(DISTINCT X编号)`，**不要**用 `COUNT(*)`：
+
+| 用户问法 | 正确 SQL |
+|---------|---------|
+| "有多少个计划跟踪号在生产" | `COUNT(DISTINCT mto_number)` |
+| "本月有多少客户下单" | `COUNT(DISTINCT customer_name)` |
+| "采购了多少种物料" | `COUNT(DISTINCT material_code)` |
+| "今天接了多少订单" | `COUNT(DISTINCT bill_no)` |
+
+⚠️ 反例: "有多少个计划跟踪号在生产" 用 `COUNT(*)` 会数到生产订单行数
+（如 1346 行），而真实计划跟踪号数只有 ~48 个。差 20+ 倍。
+
+例外：用户明确说 "多少行 / 多少条记录 / 多少笔 / 多少次" → 用 `COUNT(*)`。
+不确定时优先 DISTINCT（更接近用户直觉）。
+
 ## 回答规则
 
 1. 使用中文回复
