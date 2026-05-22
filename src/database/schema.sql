@@ -56,7 +56,8 @@ CREATE INDEX IF NOT EXISTS idx_bom_mo ON cached_production_bom(mo_bill_no);
 CREATE INDEX IF NOT EXISTS idx_bom_mto ON cached_production_bom(mto_number);
 CREATE INDEX IF NOT EXISTS idx_bom_material ON cached_production_bom(material_code);
 CREATE INDEX IF NOT EXISTS idx_bom_type ON cached_production_bom(material_type);
-CREATE INDEX IF NOT EXISTS idx_bom_category ON cached_production_bom(category_name);
+-- idx_bom_category lives in migration 015; on a fresh DB the column is inline
+-- above so the migration is skipped via the column_guard in connection.py.
 -- Compound index for common query pattern
 CREATE INDEX IF NOT EXISTS idx_bom_mo_synced ON cached_production_bom(mo_bill_no, synced_at DESC);
 
