@@ -1537,12 +1537,14 @@ class TestBomRowToChild:
         assert child.purchase_order_qty == Decimal("100")
         assert child.purchase_stock_in_qty == Decimal("60")
 
-    def test_category_baocai_with_is_purchase_false_routes_as_selfmade(self):
-        """外销包材 + IsPurchase=False → 自制 (吸塑/跟型件 Fluent makes them).
+    def test_category_baocai_with_is_purchase_false_still_routes_as_baocai(self):
+        """外销包材 + IsPurchase=False → 包材 (Fluent's self-made plastic parts).
 
-        Regression guard for the 2026-05-22 second-round fix: the CategoryID
-        "外销包材" alone is too coarse — it covers both purchased boxes AND
-        Fluent's self-made plastic packaging parts. IsPurchase distinguishes.
+        Per colleague's 2026-05-22 clarification: 包材 is a category, not a
+        sourcing flag. Self-made plastic packaging (吸塑/跟型件) belongs
+        in the 包材 chip alongside purchased packaging (外箱/纸卡). The
+        IsPurchase field stays on the row for downstream filtering, but
+        DOES NOT affect chip routing.
         """
         row = BOMJoinedRow(
             mo_bill_no="MO_XISU",
@@ -1571,10 +1573,8 @@ class TestBomRowToChild:
         )
         child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
 
-        assert child.material_type == MaterialType.SELF_MADE
-        assert child.material_type_name == "自制"
-        assert child.prod_instock_must_qty == Decimal("200")
-        assert child.prod_instock_real_qty == Decimal("150")
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "包材"
 
     def test_category_weiwai_routes_as_subcontracted(self):
         """category_name=委外加工 → 委外, regardless of FMaterialType.

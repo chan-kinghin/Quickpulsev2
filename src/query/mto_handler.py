@@ -1551,18 +1551,21 @@ class MTOQueryHandler:
         return state
 
     # BD_MATERIAL.CategoryID.FName → (MaterialType enum value, display label).
-    # CategoryID is the Kingdee 存货类别 system enum — the only routing field with
-    # real signal in this Fluent tenant (PPBOM.FMaterialType and ErpClsID are both
-    # essentially flat). See docs/PLAN_fix_baocai_routing_2026-05-22.md.
+    # CategoryID is the Kingdee 存货类别 system enum — the only routing field
+    # with real signal in this Fluent tenant (PPBOM.FMaterialType and ErpClsID
+    # are both essentially flat). See docs/PLAN_fix_baocai_routing_2026-05-22.md.
     #
-    # NOTE: "外销包材" is intentionally absent here — it's split by IsPurchase
-    # because the category lumps Fluent's self-made plastic parts (吸塑/跟型件,
-    # IsPurchase=False) together with truly-purchased packaging (外箱/纸卡,
-    # IsPurchase=True). See _classify_packaging in _bom_row_to_child.
+    # Note on 外销包材: this category includes BOTH purchased packaging
+    # (外箱/内盒/纸卡, IsPurchase=True) AND Fluent's own self-made plastic
+    # packaging parts (吸塑/跟型件, IsPurchase=False). Per the colleague's
+    # 2026-05-22 clarification, all of them belong in the 包材 chip — 包材
+    # is a category, not a sourcing flag. IsPurchase is still stored on the
+    # row (`is_purchase`) for downstream filtering, just not for routing.
     _CATEGORY_TO_TYPE: dict[str, tuple[int, str]] = {
         "主料": (1, "自制"),
         "辅料": (1, "自制"),
         "半成品": (1, "自制"),
+        "外销包材": (2, "包材"),
         "委外加工": (3, "委外"),
         "包装成品": (1, "成品"),  # 07.xx handled separately; this is a safety net
     }
@@ -1575,25 +1578,14 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Convert a pre-joined BOM row into a ChildItem.
 
-        Routing rules — derive (effective_type, label) from `category_name`
-        and `is_purchase`:
-          * 外销包材 + IsPurchase=True  → 包材  (外箱/内盒/纸卡, truly purchased)
-          * 外销包材 + IsPurchase=False → 自制  (吸塑/跟型件, Fluent makes them)
-          * 委外加工 → 委外
-          * 主料/辅料/半成品 → 自制
-          * 包装成品 → 成品 (07.xx finished goods go through a different path)
-          * empty/unknown → fallback to legacy material_type + warn
+        Routing rules — derive (effective_type, label) from `category_name`.
+        When category_name is missing/unknown, fall back to legacy material_type
+        with a warning so sync gaps surface.
         """
         aux_attrs = aux_descriptions.get(row.aux_prop_id, "") or row.aux_attributes
 
         category = getattr(row, "category_name", "") or ""
-        is_purchase = bool(getattr(row, "is_purchase", False))
-        if category == "外销包材":
-            if is_purchase:
-                effective_type, type_label = 2, "包材"
-            else:
-                effective_type, type_label = 1, "自制"
-        elif category in self._CATEGORY_TO_TYPE:
+        if category in self._CATEGORY_TO_TYPE:
             effective_type, type_label = self._CATEGORY_TO_TYPE[category]
         else:
             # Sync gap (old row without category_name) or unmapped Kingdee category.
