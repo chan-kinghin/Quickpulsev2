@@ -23,6 +23,7 @@ RUN pip install --no-cache-dir .
 COPY config/ ./config/
 # NOTE: conf.ini is NOT copied - credentials must come from environment variables
 COPY sync_config.json ./
+COPY scripts/ ./scripts/
 
 RUN mkdir -p /app/data /app/reports
 
