@@ -44,6 +44,7 @@ class ProductionBOMModel(BaseModel):
     aux_prop_id: int = 0  # FAuxPropId - reference to BD_FLEXSITEMDETAILV
     material_type: int
     material_group_name: str = ""  # BD_MATERIAL.MaterialGroup.FName, e.g. "硅胶防水袋"
+    category_name: str = ""  # BD_MATERIAL.CategoryID.FName, e.g. "外销包材" / "委外加工" — used for 包材/委外 routing
     need_qty: Decimal
     picked_qty: Decimal
     no_picked_qty: Decimal

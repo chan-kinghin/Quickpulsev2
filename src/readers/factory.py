@@ -296,6 +296,13 @@ PRODUCTION_BOM_CONFIG = ReaderConfig(
         # `FMaterialId.FMaterialGroup` returns the localised group name directly.
         # Phase 1 of PLAN_material_category_display_2026-05-09.md.
         "material_group_name": FieldMapping("FMaterialId.FMaterialGroup"),
+        # BD_MATERIAL.MaterialBase.CategoryID.FName (e.g. "外销包材", "委外加工",
+        # "包装成品"). The chain `FMaterialId.FCategoryId` (camelCase d) returns
+        # the localised name directly; FMaterialId.FCategoryID.FNumber does NOT
+        # work. The SYS-code (CHLBxx_SYS) is therefore not retrievable via
+        # ExecuteBillQuery — we route on the name. See
+        # docs/PLAN_fix_baocai_routing_2026-05-22.md.
+        "category_name": FieldMapping("FMaterialId.FCategoryId"),
         "need_qty": FieldMapping("FMustQty", _decimal),  # FNeedQty doesn't exist, use FMustQty
         "picked_qty": FieldMapping("FPickedQty", _decimal),  # Corrected: no prefix
         "no_picked_qty": FieldMapping("FNoPickedQty", _decimal),  # Corrected: no prefix

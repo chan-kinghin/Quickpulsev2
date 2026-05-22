@@ -390,6 +390,7 @@ class TestCacheReaderRowConversion:
             30,  # picked_qty
             20,  # no_picked_qty
             "硅胶防水袋",  # material_group_name (column 11)
+            "外销包材",  # category_name (column 12)
         )
 
         model = reader._row_to_bom(row)
@@ -402,6 +403,7 @@ class TestCacheReaderRowConversion:
         assert model.aux_attributes == "Blue"
         assert model.aux_prop_id == 1001
         assert model.material_group_name == "硅胶防水袋"
+        assert model.category_name == "外销包材"
 
     def test_row_to_bom_with_null_values(self):
         """Test _row_to_bom with null values."""
@@ -421,6 +423,7 @@ class TestCacheReaderRowConversion:
             30,  # picked_qty
             20,  # no_picked_qty
             None,  # material_group_name (column 11)
+            None,  # category_name (column 12)
         )
 
         model = reader._row_to_bom(row)
@@ -430,6 +433,7 @@ class TestCacheReaderRowConversion:
         assert model.specification == ""
         assert model.aux_prop_id == 0
         assert model.material_group_name == ""
+        assert model.category_name == ""
 
     def test_row_to_purchase_order_happy_path(self):
         """Test _row_to_purchase_order with all fields populated."""

@@ -816,7 +816,8 @@ class MTOQueryHandler:
                       aux_attributes: str, material_type: int, need_qty: Decimal,
                       picked_qty: Decimal, no_picked_qty: Decimal,
                       mo_bill_no: str = "", mto_number: str = "",
-                      material_group_name: str = "") -> BOMJoinedRow:
+                      material_group_name: str = "",
+                      category_name: str = "") -> BOMJoinedRow:
             return BOMJoinedRow(
                 mo_bill_no=mo_bill_no,
                 mto_number=mto_number,
@@ -840,6 +841,7 @@ class MTOQueryHandler:
                 subcontract_stock_in_qty=_get(sub_stock_in, "sub_stock_in", code, aux),
                 delivery_real_qty=_get(del_real, "del_real", code, aux),
                 material_group_name=material_group_name,
+                category_name=category_name,
                 match_quality_breakdown={
                     # Use the receipt_real lookup as the canonical signal for
                     # prod_receipt — receipt_must is BOM-sourced now (see
@@ -1129,6 +1131,7 @@ class MTOQueryHandler:
                 mo_bill_no=getattr(first, "mo_bill_no", ""),
                 mto_number=getattr(first, "mto_number", ""),
                 material_group_name=getattr(first, "material_group_name", ""),
+                category_name=getattr(first, "category_name", ""),
             ))
             covered_keys.add((code, aux))
 
@@ -1503,26 +1506,51 @@ class MTOQueryHandler:
                 }
         return state
 
+    # BD_MATERIAL.CategoryID.FName → (MaterialType enum value, display label).
+    # CategoryID is the Kingdee 存货类别 system enum and is the only field with
+    # reliable routing signal in this Fluent tenant — PPBOM.FMaterialType and
+    # BD_MATERIAL.ErpClsID are both essentially flat. See
+    # docs/PLAN_fix_baocai_routing_2026-05-22.md and probe results.
+    _CATEGORY_TO_TYPE: dict[str, tuple[int, str]] = {
+        "主料": (1, "自制"),
+        "辅料": (1, "自制"),
+        "半成品": (1, "自制"),
+        "外销包材": (2, "包材"),
+        "委外加工": (3, "委外"),
+        "包装成品": (1, "成品"),  # 07.xx handled separately; this is a safety net
+    }
+
     def _bom_row_to_child(
         self,
         row: BOMJoinedRow,
         aux_descriptions: dict,
         photo_file_ids: Optional[list[str]] = None,
     ) -> ChildItem:
-        """Convert a pre-joined BOM row into a ChildItem based on material_type.
+        """Convert a pre-joined BOM row into a ChildItem.
 
         This is the single conversion method for all BOM children (cache path).
         Finished goods (07.xx) are handled separately via _build_aggregated_sales_child.
 
-        Routing rules (trust FMaterialType from Kingdee PPBOM directly):
-        - material_type=1 → 自制 (self-made)
-        - material_type=2 → 包材 (purchased)
-        - material_type=3 → 委外 (subcontracted)
+        Routing rules — derive (effective_type, label) from `category_name`
+        (BD_MATERIAL.CategoryID.FName). PPBOM.FMaterialType is unreliable
+        (essentially always 1 in this tenant). See _CATEGORY_TO_TYPE above.
+        When category_name is missing/unknown, fall back to legacy
+        material_type routing and emit a warning so sync gaps surface.
         """
         aux_attrs = aux_descriptions.get(row.aux_prop_id, "") or row.aux_attributes
 
-        # Trust FMaterialType from Kingdee PPBOM directly
-        effective_type = row.material_type
+        category = getattr(row, "category_name", "") or ""
+        if category in self._CATEGORY_TO_TYPE:
+            effective_type, type_label = self._CATEGORY_TO_TYPE[category]
+        else:
+            # Sync gap (old row without category_name) or unmapped Kingdee category.
+            # Fall back to the legacy material_type but log for observability.
+            effective_type = row.material_type
+            type_label = None  # determined by effective_type branches below
+            logger.warning(
+                "bom_row_category_fallback material=%s category=%r material_type=%s",
+                row.material_code, category, row.material_type,
+            )
 
         # Aux match quality flows through unchanged from the cache JOIN (or live builder).
         match_quality = dict(row.match_quality_breakdown or {})
@@ -1541,7 +1569,7 @@ class MTOQueryHandler:
                 specification=row.specification,
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SELF_MADE,
-                material_type_name="自制",
+                material_type_name=type_label or "自制",
                 material_group_name=group_name,
                 # REGRESSION GUARD (bug-patterns.md #10): MUST use row.need_qty here.
                 # Two known inflation variants — both forbidden:
@@ -1568,7 +1596,7 @@ class MTOQueryHandler:
                 specification=row.specification,
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.PURCHASED,
-                material_type_name="包材",
+                material_type_name=type_label or "包材",
                 material_group_name=group_name,
                 purchase_order_qty=row.purchase_order_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
@@ -1583,7 +1611,7 @@ class MTOQueryHandler:
                 specification=row.specification,
                 aux_attributes=aux_attrs,
                 material_type=MaterialType.SUBCONTRACTED,
-                material_type_name="委外",
+                material_type_name=type_label or "委外",
                 material_group_name=group_name,
                 purchase_order_qty=row.subcontract_order_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,

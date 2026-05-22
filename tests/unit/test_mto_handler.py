@@ -1500,6 +1500,152 @@ class TestBomRowToChild:
         assert child.material_type == MaterialType.SELF_MADE
         assert child.material_type_name == "自制"
 
+    def test_category_baocai_routes_as_purchased_even_when_material_type_1(self):
+        """category_name=外销包材 → 包材, regardless of FMaterialType.
+
+        Regression guard for the 2026-05-22 fix. In this Fluent tenant,
+        PPBOM.FMaterialType is almost always 1 even for purchased materials
+        (外箱, 内盒, etc.). The routing must NOT trust material_type when a
+        category_name is present.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO_BAOCAI",
+            mto_number="AS2510999",
+            material_code="03.03.001",
+            material_name="外箱",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,  # broken upstream, must be overridden
+            need_qty=Decimal("100"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("100"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("100"),
+            purchase_stock_in_qty=Decimal("60"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="外销包材",
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "包材"
+        assert child.purchase_order_qty == Decimal("100")
+        assert child.purchase_stock_in_qty == Decimal("60")
+
+    def test_category_weiwai_routes_as_subcontracted(self):
+        """category_name=委外加工 → 委外, regardless of FMaterialType.
+
+        Regression guard: 08.xx materials all carry material_type=1 in this
+        tenant. The 委外 chip was permanently empty before the fix.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO_WEIWAI",
+            mto_number="AS2510888",
+            material_code="08.01.045",
+            material_name="成人PU帽",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("500"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("500"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("500"),
+            subcontract_stock_in_qty=Decimal("300"),
+            delivery_real_qty=Decimal("0"),
+            category_name="委外加工",
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SUBCONTRACTED
+        assert child.material_type_name == "委外"
+        assert child.purchase_order_qty == Decimal("500")
+        assert child.purchase_stock_in_qty == Decimal("300")
+
+    def test_category_zhuliao_routes_as_selfmade(self):
+        """category_name=主料 → 自制 (raw materials, FMaterialType=1 happens to agree)."""
+        row = BOMJoinedRow(
+            mo_bill_no="MO_ZHU",
+            mto_number="AS001",
+            material_code="01.22.002",
+            material_name="固态硅胶",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("50"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("50"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="主料",
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SELF_MADE
+        assert child.material_type_name == "自制"
+
+    def test_missing_category_falls_back_to_material_type_and_warns(self, caplog):
+        """Empty category_name falls back to material_type with a warning log.
+
+        Covers old cache rows that don't yet have category_name populated, plus
+        any future Kingdee category we haven't mapped.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO_OLD",
+            mto_number="AS001",
+            material_code="05.01.001",
+            material_name="半成品",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("10"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("10"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            # category_name defaults to ""
+        )
+        with caplog.at_level("WARNING", logger="src.query.mto_handler"):
+            child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        # Routed by legacy material_type=1 → 自制
+        assert child.material_type == MaterialType.SELF_MADE
+        assert child.material_type_name == "自制"
+        # Sync gap is surfaced
+        assert any("bom_row_category_fallback" in r.message for r in caplog.records)
+
 
 # Test fixtures
 @pytest.fixture

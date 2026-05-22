@@ -146,7 +146,8 @@ class TestRowToBomJoined:
             "exact",         # 25: subcontract_match_quality
             "exact",         # 26: delivery_match_quality
             "硅胶防水袋",     # 27: material_group_name
-            "2026-01-15 12:00:00",  # 28: synced_at
+            "外销包材",       # 28: category_name
+            "2026-01-15 12:00:00",  # 29: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -174,6 +175,7 @@ class TestRowToBomJoined:
         assert result.subcontract_stock_in_qty == Decimal("35.0")
         assert result.delivery_real_qty == Decimal("90.0")
         assert result.material_group_name == "硅胶防水袋"
+        assert result.category_name == "外销包材"
         assert result.match_quality_breakdown == {
             "prod_receipt": "exact", "pick": "exact",
             "purchase_order": "exact", "purchase_receipt": "exact",
@@ -214,7 +216,8 @@ class TestRowToBomJoined:
             "no_match",  # 25: subcontract_match_quality
             "no_match",  # 26: delivery_match_quality
             None,        # 27: material_group_name (null → "")
-            None,        # 28: synced_at
+            None,        # 28: category_name (null → "")
+            None,        # 29: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -231,6 +234,7 @@ class TestRowToBomJoined:
         assert result.purchase_order_qty == Decimal("0")
         assert result.delivery_real_qty == Decimal("0")
         assert result.material_group_name == ""
+        assert result.category_name == ""
         # No receipts → all sources flag no_match (data state, not a fallback hit).
         assert result.match_quality_breakdown["prod_receipt"] == "no_match"
         assert result.match_quality_breakdown["delivery"] == "no_match"
@@ -269,7 +273,8 @@ class TestRowToBomJoined:
             "no_match",        # 25: subcontract_match_quality
             "exact",           # 26: delivery_match_quality
             "成品",            # 27: material_group_name
-            "2026-01-15 10:00:00",  # 28: synced_at
+            "包装成品",         # 28: category_name
+            "2026-01-15 10:00:00",  # 29: synced_at
         )
 
         result = reader._row_to_bom_joined(row)

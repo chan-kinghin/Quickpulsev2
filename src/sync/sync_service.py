@@ -546,6 +546,7 @@ class SyncService:
                 getattr(e, 'aux_prop_id', 0),  # Denormalized
                 e.material_type,
                 getattr(e, 'material_group_name', ''),  # BD_MATERIAL group name
+                getattr(e, 'category_name', ''),  # BD_MATERIAL.CategoryID name (routing field)
                 str(e.need_qty), str(e.picked_qty), str(e.no_picked_qty),
                 model_to_json(e),
             )
@@ -557,10 +558,10 @@ class SyncService:
             INSERT INTO {TABLE_BOM} (
                 mo_bill_no, mto_number, material_code, material_name,
                 specification, aux_attributes, aux_prop_id, material_type,
-                material_group_name,
+                material_group_name, category_name,
                 need_qty, picked_qty, no_picked_qty, raw_data, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(mo_bill_no, material_code, aux_prop_id) DO UPDATE SET
                 mto_number=excluded.mto_number,
                 material_name=excluded.material_name,
@@ -568,6 +569,7 @@ class SyncService:
                 aux_attributes=excluded.aux_attributes,
                 material_type=excluded.material_type,
                 material_group_name=excluded.material_group_name,
+                category_name=excluded.category_name,
                 need_qty=excluded.need_qty,
                 picked_qty=excluded.picked_qty,
                 no_picked_qty=excluded.no_picked_qty,

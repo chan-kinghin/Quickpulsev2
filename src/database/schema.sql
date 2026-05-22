@@ -42,8 +42,9 @@ CREATE TABLE IF NOT EXISTS cached_production_bom (
     specification TEXT,      -- Denormalized from raw_data
     aux_attributes TEXT,     -- Denormalized from raw_data
     aux_prop_id INTEGER DEFAULT 0,  -- Denormalized from raw_data
-    material_type INTEGER,   -- 1=自制, 2=外购, 3=委外
+    material_type INTEGER,   -- LEGACY: PPBOM.FMaterialType — almost always 1 in this tenant, do NOT use for routing. See migration 015.
     material_group_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialGroup.FName (e.g. "硅胶防水袋")
+    category_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialBase.CategoryID.FName (e.g. "外销包材", "委外加工") — used for 自制/包材/委外 routing
     need_qty REAL,
     picked_qty REAL,
     no_picked_qty REAL,
@@ -55,6 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_bom_mo ON cached_production_bom(mo_bill_no);
 CREATE INDEX IF NOT EXISTS idx_bom_mto ON cached_production_bom(mto_number);
 CREATE INDEX IF NOT EXISTS idx_bom_material ON cached_production_bom(material_code);
 CREATE INDEX IF NOT EXISTS idx_bom_type ON cached_production_bom(material_type);
+CREATE INDEX IF NOT EXISTS idx_bom_category ON cached_production_bom(category_name);
 -- Compound index for common query pattern
 CREATE INDEX IF NOT EXISTS idx_bom_mo_synced ON cached_production_bom(mo_bill_no, synced_at DESC);
 
