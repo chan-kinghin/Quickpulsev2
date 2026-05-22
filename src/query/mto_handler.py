@@ -530,6 +530,7 @@ class MTOQueryHandler:
                 material_type=MaterialType.PURCHASED,
                 material_type_name="包材",
                 material_group_name=getattr(first, "material_group_name", "") or "",
+                is_purchase=True,  # came from PUR_PurchaseOrder — by definition 外购
                 purchase_order_qty=qty,
                 purchase_stock_in_qty=stock_in_qty,
                 photo_file_ids=list(photo_file_ids or []),
@@ -1604,6 +1605,7 @@ class MTOQueryHandler:
         # photos to the union), so the same list applies to every BOM child.
         photos = list(photo_file_ids or [])
         group_name = getattr(row, "material_group_name", "") or ""
+        row_is_purchase = bool(getattr(row, "is_purchase", False))
 
         if effective_type == 1:  # 自制
             # Use BOM need_qty as demand — it's correctly scoped per production order.
@@ -1616,6 +1618,7 @@ class MTOQueryHandler:
                 material_type=MaterialType.SELF_MADE,
                 material_type_name=type_label or "自制",
                 material_group_name=group_name,
+                is_purchase=row_is_purchase,
                 # REGRESSION GUARD (bug-patterns.md #10): MUST use row.need_qty here.
                 # Two known inflation variants — both forbidden:
                 #   (a) row.prod_receipt_must_qty — receipt FMustQty values overlap
@@ -1643,6 +1646,7 @@ class MTOQueryHandler:
                 material_type=MaterialType.PURCHASED,
                 material_type_name=type_label or "包材",
                 material_group_name=group_name,
+                is_purchase=row_is_purchase,
                 purchase_order_qty=row.purchase_order_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
@@ -1658,6 +1662,7 @@ class MTOQueryHandler:
                 material_type=MaterialType.SUBCONTRACTED,
                 material_type_name=type_label or "委外",
                 material_group_name=group_name,
+                is_purchase=row_is_purchase,
                 purchase_order_qty=row.subcontract_order_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,

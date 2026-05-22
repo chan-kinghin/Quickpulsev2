@@ -595,6 +595,13 @@
                                         <span class="px-2 py-1 rounded text-xs font-medium"
                                               :class="getMaterialTypeBadge(item.material_type)"
                                               x-text="item.material_type"></span>
+                                        <span x-show="item.material_type === '包材'"
+                                              class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium border"
+                                              :class="item.is_purchase
+                                                ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
+                                                : 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'"
+                                              x-text="item.is_purchase ? '外购' : '自制'"
+                                              :title="item.is_purchase ? '外购包材 (IsPurchase=True)' : '自制包材 (IsPurchase=False)'"></span>
                                     </td>
                                     <td :class="{ 'col-hidden': !colVisible('material_group_name') }" role="cell"
                                         class="px-4 py-3 text-slate-300 text-sm break-words"

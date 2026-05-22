@@ -54,6 +54,14 @@ class ChildItem(BaseModel):
                     "Empty for synthetic rows or finished goods without a group.",
     )
     is_finished_goods: bool = Field(default=False, description="True only for 07.xx items routed via SAL_SaleOrder")
+    is_purchase: bool = Field(
+        default=False,
+        description="BD_MATERIAL.MaterialBase.IsPurchase. True for 外购 items "
+                    "(纸卡/外箱/说明书 etc), False for 自制 (e.g. Fluent-made 吸塑). "
+                    "Useful for showing 自制/外购 sub-labels inside the 包材 chip — "
+                    "both kinds remain in the 包材 category but the sourcing is "
+                    "visible to the user.",
+    )
 
     # 金蝶原始字段 - 数量类（根据物料类型，只有一个有值）
     sales_order_qty: Decimal = Field(default=Decimal(0), description="销售订单.数量")
