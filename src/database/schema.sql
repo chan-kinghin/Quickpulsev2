@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS cached_production_bom (
     material_type INTEGER,   -- LEGACY: PPBOM.FMaterialType — almost always 1 in this tenant, do NOT use for routing. See migration 015.
     material_group_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialGroup.FName (e.g. "硅胶防水袋")
     category_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialBase.CategoryID.FName (e.g. "外销包材", "委外加工") — used for 自制/包材/委外 routing
+    is_purchase INTEGER DEFAULT 0,  -- BD_MATERIAL.MaterialBase.IsPurchase — discriminates self-made vs purchased within 外销包材 (吸塑=0, 外箱=1)
     need_qty REAL,
     picked_qty REAL,
     no_picked_qty REAL,

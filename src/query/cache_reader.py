@@ -69,6 +69,10 @@ class BOMJoinedRow:
     # Sourced from PPBOM via FMaterialId.FCategoryId single-chain field.
     # Drives the 自制/包材/委外 display routing (see _bom_row_to_child).
     category_name: str = ""
+    # BD_MATERIAL.MaterialBase.IsPurchase boolean (via FMaterialId.FIsPurchase).
+    # Splits the coarse 外销包材 category: True = truly purchased packaging
+    # (外箱/内盒/纸卡), False = self-made plastic packaging parts (吸塑/跟型件).
+    is_purchase: bool = False
     # Per-source aux match quality: {source: 'exact'|'aux_zero_fallback'|'all_aux_rollup'|'no_match'}
     # Empty dict when not populated (live path until Stage 4, cache path until Stage 3).
     match_quality_breakdown: dict = field(default_factory=dict)
@@ -129,7 +133,7 @@ class CacheReader:
             SELECT mo_bill_no, mto_number, material_code, material_name,
                    specification, aux_attributes, aux_prop_id, material_type,
                    need_qty, picked_qty, no_picked_qty, material_group_name,
-                   category_name, synced_at
+                   category_name, is_purchase, synced_at
             FROM cached_production_bom
             WHERE mo_bill_no IN ({placeholders})
             ORDER BY synced_at DESC
@@ -140,8 +144,8 @@ class CacheReader:
         if not rows:
             return CacheResult(data=[], synced_at=None, is_fresh=False)
 
-        # synced_at is now at index 13 (after material_group_name at 11, category_name at 12)
-        synced_times = [self._parse_timestamp(row[13]) for row in rows if row[13]]
+        # synced_at is now at index 14 (material_group_name=11, category_name=12, is_purchase=13)
+        synced_times = [self._parse_timestamp(row[14]) for row in rows if row[14]]
         oldest_sync = min(synced_times) if synced_times else None
         is_fresh = self._is_fresh(oldest_sync) if oldest_sync else False
 
@@ -160,7 +164,7 @@ class CacheReader:
             SELECT mo_bill_no, mto_number, material_code, material_name,
                    specification, aux_attributes, aux_prop_id, material_type,
                    need_qty, picked_qty, no_picked_qty, material_group_name,
-                   category_name, synced_at
+                   category_name, is_purchase, synced_at
             FROM cached_production_bom
             WHERE mto_number LIKE ?
             ORDER BY synced_at DESC
@@ -171,8 +175,8 @@ class CacheReader:
         if not rows:
             return CacheResult(data=[], synced_at=None, is_fresh=False)
 
-        # synced_at is now at index 13 (after material_group_name at 11, category_name at 12)
-        synced_times = [self._parse_timestamp(row[13]) for row in rows if row[13]]
+        # synced_at is now at index 14 (material_group_name=11, category_name=12, is_purchase=13)
+        synced_times = [self._parse_timestamp(row[14]) for row in rows if row[14]]
         oldest_sync = min(synced_times) if synced_times else None
         is_fresh = self._is_fresh(oldest_sync) if oldest_sync else False
 
@@ -641,6 +645,7 @@ class CacheReader:
                 END as delivery_match_quality,
                 COALESCE(br.material_group_name, '') as material_group_name,
                 COALESCE(br.category_name, '') as category_name,
+                COALESCE(br.is_purchase, 0) as is_purchase,
                 ba.synced_at
             FROM bom_repr br
             JOIN bom_agg ba ON br.material_code = ba.material_code
@@ -804,9 +809,9 @@ class CacheReader:
         if not rows:
             return CacheResult(data=[], synced_at=None, is_fresh=False)
 
-        # synced_at is the last column (index 29 — after 6 telemetry CASE columns
-        # at 21-26, material_group_name at 27, category_name at 28)
-        synced_times = [self._parse_timestamp(row[29]) for row in rows if row[29]]
+        # synced_at is the last column (index 30 — after 6 telemetry CASE columns
+        # at 21-26, material_group_name at 27, category_name at 28, is_purchase at 29)
+        synced_times = [self._parse_timestamp(row[30]) for row in rows if row[30]]
         oldest_sync = min(synced_times) if synced_times else None
         is_fresh = self._is_fresh(oldest_sync) if oldest_sync else False
 
@@ -976,8 +981,8 @@ class CacheReader:
         21: prod_receipt_match_quality, 22: pick_match_quality,
         23: purchase_order_match_quality, 24: purchase_receipt_match_quality,
         25: subcontract_match_quality, 26: delivery_match_quality,
-        27: material_group_name, 28: category_name,
-        29: synced_at (accessed in get_mto_bom_joined for freshness check)
+        27: material_group_name, 28: category_name, 29: is_purchase,
+        30: synced_at (accessed in get_mto_bom_joined for freshness check)
 
         Columns 21-26 are Stage 1 telemetry — consumed by _log_fallback_telemetry,
         not yet propagated to BOMJoinedRow (Stage 3 of PLAN_aux_match_visibility).
@@ -1006,6 +1011,7 @@ class CacheReader:
             delivery_real_qty=Decimal(str(row[20] or 0)),
             material_group_name=row[27] or "",
             category_name=row[28] or "",
+            is_purchase=bool(row[29]),
             match_quality_breakdown={
                 "prod_receipt": row[21] or "no_match",
                 "pick": row[22] or "no_match",
@@ -1126,7 +1132,7 @@ class CacheReader:
         0: mo_bill_no, 1: mto_number, 2: material_code, 3: material_name,
         4: specification, 5: aux_attributes, 6: aux_prop_id, 7: material_type,
         8: need_qty, 9: picked_qty, 10: no_picked_qty,
-        11: material_group_name, 12: category_name, 13: synced_at
+        11: material_group_name, 12: category_name, 13: is_purchase, 14: synced_at
         """
         return ProductionBOMModel(
             mo_bill_no=row[0] or "",
@@ -1142,6 +1148,7 @@ class CacheReader:
             no_picked_qty=Decimal(str(row[10] or 0)),
             material_group_name=row[11] or "",
             category_name=row[12] or "",
+            is_purchase=bool(row[13]),
         )
 
     def _row_to_purchase_order(self, row: tuple) -> PurchaseOrderModel:

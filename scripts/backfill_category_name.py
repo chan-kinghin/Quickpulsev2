@@ -60,49 +60,51 @@ def _multilang(v) -> str:
     return v if isinstance(v, str) else ""
 
 
-def fetch_category_name(sdk: K3CloudApiSdk, material_code: str) -> str | None:
-    """Return CategoryID.Name for a material code, or None if unfetchable."""
+def fetch_material_fields(sdk: K3CloudApiSdk, material_code: str) -> tuple[str | None, bool | None]:
+    """Return (CategoryID.Name, IsPurchase) for a material code, or (None, None)."""
     try:
         resp = sdk.View("BD_MATERIAL", {"Number": material_code})
         if isinstance(resp, str):
             resp = json.loads(resp)
         if not resp.get("Result", {}).get("ResponseStatus", {}).get("IsSuccess"):
-            return None
+            return None, None
         data = resp["Result"]["Result"]
         mb_raw = data.get("MaterialBase")
         mb = mb_raw[0] if isinstance(mb_raw, list) and mb_raw else (mb_raw or {})
         cat = mb.get("CategoryID") or {}
-        if not isinstance(cat, dict):
-            return None
-        return _multilang(cat.get("Name"))
+        name = _multilang(cat.get("Name")) if isinstance(cat, dict) else None
+        is_purchase = bool(mb.get("IsPurchase"))
+        return name, is_purchase
     except Exception as e:
         log.warning("View BD_MATERIAL %s failed: %s", material_code, e)
-        return None
+        return None, None
 
 
 async def main(db_path: Path) -> None:
     sdk = init_sdk()
 
     async with aiosqlite.connect(db_path) as db:
-        # 1. Find DISTINCT material codes that still need backfill
+        # 1. Find ALL distinct material codes — re-fetch both fields together
+        # since is_purchase has DEFAULT 0 (no sentinel for "unbackfilled").
+        # Idempotent: rerunning just overwrites the same values.
         async with db.execute(
             "SELECT DISTINCT material_code FROM cached_production_bom "
-            "WHERE COALESCE(category_name, '') = '' AND material_code != ''"
+            "WHERE material_code != ''"
         ) as cur:
             codes = [r[0] async for r in cur]
 
-        log.info("Codes needing category_name backfill: %d", len(codes))
+        log.info("Codes needing backfill: %d", len(codes))
         if not codes:
             log.info("Nothing to do.")
             return
 
-        # 2. Fetch each distinct code (in-memory cache implicit — we already deduped)
-        resolved: dict[str, str] = {}
+        # 2. Fetch each distinct code (CategoryID + IsPurchase)
+        resolved: dict[str, tuple[str, bool]] = {}
         unresolved: list[str] = []
         for i, code in enumerate(codes, 1):
-            name = fetch_category_name(sdk, code)
-            if name:
-                resolved[code] = name
+            name, is_purchase = fetch_material_fields(sdk, code)
+            if name is not None:
+                resolved[code] = (name, bool(is_purchase))
             else:
                 unresolved.append(code)
             if i % 50 == 0:
@@ -117,22 +119,24 @@ async def main(db_path: Path) -> None:
         if unresolved:
             log.warning("First 10 unresolved codes: %s", unresolved[:10])
 
-        # 3. Bulk UPDATE
+        # 3. Bulk UPDATE both columns
         await db.executemany(
-            "UPDATE cached_production_bom SET category_name = ? WHERE material_code = ?",
-            [(name, code) for code, name in resolved.items()],
+            "UPDATE cached_production_bom SET category_name = ?, is_purchase = ? "
+            "WHERE material_code = ?",
+            [(name, int(is_p), code) for code, (name, is_p) in resolved.items()],
         )
         await db.commit()
 
-        # 4. Report distribution
+        # 4. Report distribution including IsPurchase split
         async with db.execute(
-            "SELECT COALESCE(category_name, '(empty)') AS c, COUNT(*) AS n "
+            "SELECT COALESCE(category_name, '(empty)') || ' / IsPurchase=' || is_purchase AS c, "
+            "       COUNT(*) AS n "
             "FROM cached_production_bom GROUP BY c ORDER BY n DESC"
         ) as cur:
             dist = [(r[0], r[1]) async for r in cur]
         log.info("=== Distribution after backfill ===")
         for c, n in dist:
-            log.info("  %-12s %d", c, n)
+            log.info("  %-30s %d", c, n)
 
 
 if __name__ == "__main__":

@@ -303,6 +303,12 @@ PRODUCTION_BOM_CONFIG = ReaderConfig(
         # ExecuteBillQuery — we route on the name. See
         # docs/PLAN_fix_baocai_routing_2026-05-22.md.
         "category_name": FieldMapping("FMaterialId.FCategoryId"),
+        # BD_MATERIAL.MaterialBase.IsPurchase boolean. CategoryID="外销包材"
+        # alone is too coarse — it covers BOTH Fluent's self-made plastic
+        # parts (吸塑/跟型件, IsPurchase=False) AND truly-purchased packaging
+        # (外箱/内盒/纸卡, IsPurchase=True). The routing layer needs this
+        # discriminator to keep 自制 packaging out of the 包材 chip.
+        "is_purchase": FieldMapping("FMaterialId.FIsPurchase", lambda v: bool(v)),
         "need_qty": FieldMapping("FMustQty", _decimal),  # FNeedQty doesn't exist, use FMustQty
         "picked_qty": FieldMapping("FPickedQty", _decimal),  # Corrected: no prefix
         "no_picked_qty": FieldMapping("FNoPickedQty", _decimal),  # Corrected: no prefix

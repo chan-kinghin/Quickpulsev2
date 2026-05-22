@@ -147,7 +147,8 @@ class TestRowToBomJoined:
             "exact",         # 26: delivery_match_quality
             "硅胶防水袋",     # 27: material_group_name
             "外销包材",       # 28: category_name
-            "2026-01-15 12:00:00",  # 29: synced_at
+            1,               # 29: is_purchase
+            "2026-01-15 12:00:00",  # 30: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -217,7 +218,8 @@ class TestRowToBomJoined:
             "no_match",  # 26: delivery_match_quality
             None,        # 27: material_group_name (null → "")
             None,        # 28: category_name (null → "")
-            None,        # 29: synced_at
+            None,        # 29: is_purchase (null → False)
+            None,        # 30: synced_at
         )
 
         result = reader._row_to_bom_joined(row)
@@ -274,7 +276,8 @@ class TestRowToBomJoined:
             "exact",           # 26: delivery_match_quality
             "成品",            # 27: material_group_name
             "包装成品",         # 28: category_name
-            "2026-01-15 10:00:00",  # 29: synced_at
+            0,                 # 29: is_purchase
+            "2026-01-15 10:00:00",  # 30: synced_at
         )
 
         result = reader._row_to_bom_joined(row)

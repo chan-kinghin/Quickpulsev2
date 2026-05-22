@@ -492,6 +492,50 @@ class MTOQueryHandler:
             child = self._bom_row_to_child(row, aux_descriptions, photo_file_ids=photo_file_ids)
             children.append(child)
 
+        # --- Synthetic rows for PUR-only items (not in PPBOM) ---
+        # Many purchased packaging items (纸卡/说明书/静电膜/轨道袋/外箱贴纸) live
+        # in PUR_PurchaseOrder but never get a PPBOM line in Fluent's flow.
+        # The live path emits these via _build_bom_joined_rows_from_live Step 2b;
+        # mirror that for the cache path so they don't silently disappear from
+        # the dashboard. They route to 包材 by default since they're purchases
+        # outside the BOM. (See colleague feedback 2026-05-22.)
+        covered_codes_from_bom = {row.material_code for row in bom_rows}
+        covered_keys: set[tuple[str, int]] = {
+            (row.material_code, row.aux_prop_id) for row in bom_rows
+        }
+        # Fetch purchase orders from cache for this MTO
+        purchase_orders_result = await self._cache_reader.get_purchase_orders(mto_number)
+        pur_only_groups: dict[tuple[str, int], list] = defaultdict(list)
+        for pur in (purchase_orders_result.data or []):
+            if pur.material_code.startswith("07."):
+                continue  # finished goods handled via SAL_SaleOrder path
+            if pur.material_code in covered_codes_from_bom:
+                continue  # already represented as a BOM child
+            aux = getattr(pur, "aux_prop_id", 0) or 0
+            pur_only_groups[(pur.material_code, aux)].append(pur)
+
+        for (code, aux), pur_list in pur_only_groups.items():
+            if (code, aux) in covered_keys:
+                continue
+            first = pur_list[0]
+            qty = sum((getattr(p, "order_qty", ZERO) for p in pur_list), ZERO)
+            stock_in_qty = sum(
+                (getattr(p, "stock_in_qty", ZERO) for p in pur_list), ZERO
+            )
+            children.append(ChildItem(
+                material_code=code,
+                material_name=getattr(first, "material_name", ""),
+                specification=getattr(first, "specification", ""),
+                aux_attributes=aux_descriptions.get(aux, "") or getattr(first, "aux_attributes", ""),
+                material_type=MaterialType.PURCHASED,
+                material_type_name="包材",
+                material_group_name=getattr(first, "material_group_name", "") or "",
+                purchase_order_qty=qty,
+                purchase_stock_in_qty=stock_in_qty,
+                photo_file_ids=list(photo_file_ids or []),
+            ))
+            covered_keys.add((code, aux))
+
         # Build parent from first available sales order
         parent = self._build_parent_from_sales(sales_orders[0] if sales_orders else None, mto_number)
 
@@ -1507,15 +1551,18 @@ class MTOQueryHandler:
         return state
 
     # BD_MATERIAL.CategoryID.FName → (MaterialType enum value, display label).
-    # CategoryID is the Kingdee 存货类别 system enum and is the only field with
-    # reliable routing signal in this Fluent tenant — PPBOM.FMaterialType and
-    # BD_MATERIAL.ErpClsID are both essentially flat. See
-    # docs/PLAN_fix_baocai_routing_2026-05-22.md and probe results.
+    # CategoryID is the Kingdee 存货类别 system enum — the only routing field with
+    # real signal in this Fluent tenant (PPBOM.FMaterialType and ErpClsID are both
+    # essentially flat). See docs/PLAN_fix_baocai_routing_2026-05-22.md.
+    #
+    # NOTE: "外销包材" is intentionally absent here — it's split by IsPurchase
+    # because the category lumps Fluent's self-made plastic parts (吸塑/跟型件,
+    # IsPurchase=False) together with truly-purchased packaging (外箱/纸卡,
+    # IsPurchase=True). See _classify_packaging in _bom_row_to_child.
     _CATEGORY_TO_TYPE: dict[str, tuple[int, str]] = {
         "主料": (1, "自制"),
         "辅料": (1, "自制"),
         "半成品": (1, "自制"),
-        "外销包材": (2, "包材"),
         "委外加工": (3, "委外"),
         "包装成品": (1, "成品"),  # 07.xx handled separately; this is a safety net
     }
@@ -1528,19 +1575,25 @@ class MTOQueryHandler:
     ) -> ChildItem:
         """Convert a pre-joined BOM row into a ChildItem.
 
-        This is the single conversion method for all BOM children (cache path).
-        Finished goods (07.xx) are handled separately via _build_aggregated_sales_child.
-
         Routing rules — derive (effective_type, label) from `category_name`
-        (BD_MATERIAL.CategoryID.FName). PPBOM.FMaterialType is unreliable
-        (essentially always 1 in this tenant). See _CATEGORY_TO_TYPE above.
-        When category_name is missing/unknown, fall back to legacy
-        material_type routing and emit a warning so sync gaps surface.
+        and `is_purchase`:
+          * 外销包材 + IsPurchase=True  → 包材  (外箱/内盒/纸卡, truly purchased)
+          * 外销包材 + IsPurchase=False → 自制  (吸塑/跟型件, Fluent makes them)
+          * 委外加工 → 委外
+          * 主料/辅料/半成品 → 自制
+          * 包装成品 → 成品 (07.xx finished goods go through a different path)
+          * empty/unknown → fallback to legacy material_type + warn
         """
         aux_attrs = aux_descriptions.get(row.aux_prop_id, "") or row.aux_attributes
 
         category = getattr(row, "category_name", "") or ""
-        if category in self._CATEGORY_TO_TYPE:
+        is_purchase = bool(getattr(row, "is_purchase", False))
+        if category == "外销包材":
+            if is_purchase:
+                effective_type, type_label = 2, "包材"
+            else:
+                effective_type, type_label = 1, "自制"
+        elif category in self._CATEGORY_TO_TYPE:
             effective_type, type_label = self._CATEGORY_TO_TYPE[category]
         else:
             # Sync gap (old row without category_name) or unmapped Kingdee category.

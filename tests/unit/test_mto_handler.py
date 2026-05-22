@@ -325,6 +325,9 @@ class TestMTOQueryHandler:
         mock_cache.get_purchase_receipts = AsyncMock(
             return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
         )
+        mock_cache.get_purchase_orders = AsyncMock(
+            return_value=CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 
@@ -1500,14 +1503,8 @@ class TestBomRowToChild:
         assert child.material_type == MaterialType.SELF_MADE
         assert child.material_type_name == "自制"
 
-    def test_category_baocai_routes_as_purchased_even_when_material_type_1(self):
-        """category_name=外销包材 → 包材, regardless of FMaterialType.
-
-        Regression guard for the 2026-05-22 fix. In this Fluent tenant,
-        PPBOM.FMaterialType is almost always 1 even for purchased materials
-        (外箱, 内盒, etc.). The routing must NOT trust material_type when a
-        category_name is present.
-        """
+    def test_category_baocai_with_is_purchase_true_routes_as_purchased(self):
+        """外销包材 + IsPurchase=True → 包材 (外箱/内盒/纸卡)."""
         row = BOMJoinedRow(
             mo_bill_no="MO_BAOCAI",
             mto_number="AS2510999",
@@ -1516,7 +1513,7 @@ class TestBomRowToChild:
             specification="",
             aux_attributes="",
             aux_prop_id=0,
-            material_type=1,  # broken upstream, must be overridden
+            material_type=1,
             need_qty=Decimal("100"),
             picked_qty=Decimal("0"),
             no_picked_qty=Decimal("100"),
@@ -1531,6 +1528,7 @@ class TestBomRowToChild:
             subcontract_stock_in_qty=Decimal("0"),
             delivery_real_qty=Decimal("0"),
             category_name="外销包材",
+            is_purchase=True,
         )
         child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
 
@@ -1538,6 +1536,45 @@ class TestBomRowToChild:
         assert child.material_type_name == "包材"
         assert child.purchase_order_qty == Decimal("100")
         assert child.purchase_stock_in_qty == Decimal("60")
+
+    def test_category_baocai_with_is_purchase_false_routes_as_selfmade(self):
+        """外销包材 + IsPurchase=False → 自制 (吸塑/跟型件 Fluent makes them).
+
+        Regression guard for the 2026-05-22 second-round fix: the CategoryID
+        "外销包材" alone is too coarse — it covers both purchased boxes AND
+        Fluent's self-made plastic packaging parts. IsPurchase distinguishes.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO_XISU",
+            mto_number="AS2603021-3",
+            material_code="03.02.02.176",
+            material_name="2CLG316 对折吸塑",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("200"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("200"),
+            prod_receipt_real_qty=Decimal("150"),
+            prod_receipt_must_qty=Decimal("200"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="外销包材",
+            is_purchase=False,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SELF_MADE
+        assert child.material_type_name == "自制"
+        assert child.prod_instock_must_qty == Decimal("200")
+        assert child.prod_instock_real_qty == Decimal("150")
 
     def test_category_weiwai_routes_as_subcontracted(self):
         """category_name=委外加工 → 委外, regardless of FMaterialType.

@@ -45,6 +45,7 @@ class ProductionBOMModel(BaseModel):
     material_type: int
     material_group_name: str = ""  # BD_MATERIAL.MaterialGroup.FName, e.g. "硅胶防水袋"
     category_name: str = ""  # BD_MATERIAL.CategoryID.FName, e.g. "外销包材" / "委外加工" — used for 包材/委外 routing
+    is_purchase: bool = False  # BD_MATERIAL.MaterialBase.IsPurchase — discriminates self-made vs purchased within 外销包材 (e.g. 吸塑=False, 外箱=True)
     need_qty: Decimal
     picked_qty: Decimal
     no_picked_qty: Decimal

@@ -89,6 +89,27 @@ async def main():
     if type_counter.get("委外", 0) == 0:
         failures.append("Expected ≥1 child with material_type_name='委外' — got 0")
 
+    # Verify the screenshot scenario for AS2603021: 自制 吸塑 are NOT in 包材,
+    # and PUR-only items (纸卡/说明书/etc) ARE in 包材.
+    baocai_codes = sorted({
+        c.material_code for c in result.children
+        if c.material_type_name == "包材"
+    })
+    print(f"\n包材 chip material codes ({len(baocai_codes)} unique):")
+    for code in baocai_codes:
+        names = sorted({c.material_name for c in result.children
+                        if c.material_code == code and c.material_type_name == "包材"})
+        print(f"  {code:<22} {' / '.join(names)[:60]}")
+
+    selfmade_03_xx = sorted({
+        c.material_code for c in result.children
+        if c.material_type_name == "自制" and c.material_code.startswith("03.02.")
+    })
+    if selfmade_03_xx:
+        print(f"\n03.02.* 吸塑/跟型 现在归在自制 ({len(selfmade_03_xx)} unique):")
+        for code in selfmade_03_xx[:10]:
+            print(f"  {code}")
+
     if failures:
         print("\n=== SMOKE TEST FAILED ===")
         for f in failures:
