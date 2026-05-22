@@ -374,6 +374,180 @@ class TestMTOQueryHandler:
         assert result.data_source == "live"
         mock_cache.get_sales_orders.assert_not_called()
 
+    # ---------------------------------------------------------------
+    # PUR-only synthetic child aux resolution (cache path)
+    # ---------------------------------------------------------------
+    # Regression for the bug fixed in docs/PLAN_pur_only_aux_lookup_2026-05-22.md.
+    # The cache path collected aux_prop_ids only from SAL + BOM, never from
+    # PUR. So synthetic-PUR children (packaging items like 03.23.009 贴纸 that
+    # have no PPBOM line) silently showed "-" for 辅助属性 even though
+    # BD_FLEXSITEMDETAILV had rich descriptions for those IDs.
+    def _empty_cache_mock(self, synced_at, mto_number="AK2508006"):
+        """Cache mock with empty BOM/SAL/receipts but ONE minimal PRD_MO so
+        _try_cache doesn't bail early at the "need at least some source data"
+        check (mto_handler.py line 388). Purchase orders are NOT preset — set
+        them in the test for clarity."""
+        from src.query.cache_reader import CacheResult
+        mock_cache = MagicMock()
+        empty = CacheResult(data=[], synced_at=synced_at, is_fresh=True)
+        mock_cache.get_sales_orders = AsyncMock(return_value=empty)
+        mock_cache.get_production_orders = AsyncMock(
+            return_value=CacheResult(
+                data=[ProductionOrderModel(
+                    bill_no="MO_STUB",
+                    mto_number=mto_number,
+                    workshop="",
+                    material_code="05.99.999",
+                    material_name="stub",
+                    specification="",
+                    aux_prop_id=0,
+                    qty=Decimal("1"),
+                    status="已审核",
+                    create_date="2026-05-22",
+                )],
+                synced_at=synced_at,
+                is_fresh=True,
+            )
+        )
+        mock_cache.get_mto_bom_joined = AsyncMock(return_value=empty)
+        mock_cache.get_production_receipts = AsyncMock(return_value=empty)
+        mock_cache.get_sales_delivery = AsyncMock(return_value=empty)
+        mock_cache.get_material_picking = AsyncMock(return_value=empty)
+        mock_cache.get_purchase_receipts = AsyncMock(return_value=empty)
+        return mock_cache
+
+    @pytest.mark.asyncio
+    async def test_cache_path_pur_only_child_resolves_aux_attributes(
+        self, mock_readers
+    ):
+        from datetime import datetime
+        from src.query.cache_reader import CacheResult
+
+        synced_at = datetime.utcnow()
+        mock_cache = self._empty_cache_mock(synced_at)
+        mock_cache.get_purchase_orders = AsyncMock(
+            return_value=CacheResult(
+                data=[
+                    PurchaseOrderModel(
+                        bill_no="PO900",
+                        mto_number="AK2508006",
+                        material_code="03.23.009",
+                        material_name="贴纸",
+                        specification="",
+                        aux_attributes="",
+                        aux_prop_id=114367,
+                        order_qty=Decimal("35456"),
+                        stock_in_qty=Decimal("35456"),
+                        remain_stock_in_qty=Decimal("0"),
+                    )
+                ],
+                synced_at=synced_at,
+                is_fresh=True,
+            )
+        )
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={
+                114367: "JSC儿童款泳帽可移动价格贴纸,UK24×26MM/Pantone 485C,3.99",
+            }
+        )
+
+        handler = self.create_handler(mock_readers, cache_reader=mock_cache)
+        result = await handler.get_status("AK2508006", use_cache=True)
+
+        assert result.data_source == "cache"
+        stickers = [c for c in result.children if c.material_code == "03.23.009"]
+        assert len(stickers) == 1
+        assert (
+            stickers[0].aux_attributes
+            == "JSC儿童款泳帽可移动价格贴纸,UK24×26MM/Pantone 485C,3.99"
+        )
+        # Confirm purchase_orders aux IDs reached lookup_aux_properties
+        called_with = mock_readers["production_order"].client.lookup_aux_properties.await_args
+        assert 114367 in (called_with.args[0] if called_with.args else [])
+
+    @pytest.mark.asyncio
+    async def test_cache_path_pur_only_child_missing_description_falls_back_to_empty(
+        self, mock_readers
+    ):
+        from datetime import datetime
+        from src.query.cache_reader import CacheResult
+
+        synced_at = datetime.utcnow()
+        mock_cache = self._empty_cache_mock(synced_at)
+        mock_cache.get_purchase_orders = AsyncMock(
+            return_value=CacheResult(
+                data=[
+                    PurchaseOrderModel(
+                        bill_no="PO901",
+                        mto_number="AK2508006",
+                        material_code="03.23.009",
+                        material_name="贴纸",
+                        specification="",
+                        aux_attributes="",
+                        aux_prop_id=999999,
+                        order_qty=Decimal("100"),
+                        stock_in_qty=Decimal("0"),
+                        remain_stock_in_qty=Decimal("100"),
+                    )
+                ],
+                synced_at=synced_at,
+                is_fresh=True,
+            )
+        )
+        # Kingdee has no description for this ID
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+        handler = self.create_handler(mock_readers, cache_reader=mock_cache)
+        result = await handler.get_status("AK2508006", use_cache=True)
+
+        stickers = [c for c in result.children if c.material_code == "03.23.009"]
+        assert len(stickers) == 1
+        assert stickers[0].aux_attributes == ""
+
+    @pytest.mark.asyncio
+    async def test_cache_path_pur_only_child_aux_zero_not_in_lookup(
+        self, mock_readers
+    ):
+        from datetime import datetime
+        from src.query.cache_reader import CacheResult
+
+        synced_at = datetime.utcnow()
+        mock_cache = self._empty_cache_mock(synced_at, mto_number="AS2509001")
+        mock_cache.get_purchase_orders = AsyncMock(
+            return_value=CacheResult(
+                data=[
+                    PurchaseOrderModel(
+                        bill_no="PO902",
+                        mto_number="AS2509001",
+                        material_code="03.01.010",
+                        material_name="包材",
+                        specification="",
+                        aux_attributes="",
+                        aux_prop_id=0,
+                        order_qty=Decimal("200"),
+                        stock_in_qty=Decimal("0"),
+                        remain_stock_in_qty=Decimal("200"),
+                    )
+                ],
+                synced_at=synced_at,
+                is_fresh=True,
+            )
+        )
+        lookup_mock = AsyncMock(return_value={})
+        mock_readers["production_order"].client.lookup_aux_properties = lookup_mock
+
+        handler = self.create_handler(mock_readers, cache_reader=mock_cache)
+        result = await handler.get_status("AS2509001", use_cache=True)
+
+        children = [c for c in result.children if c.material_code == "03.01.010"]
+        assert len(children) == 1
+        assert children[0].aux_attributes == ""
+        # aux_prop_id=0 must NOT be added to the lookup set
+        called_with = lookup_mock.await_args.args[0] if lookup_mock.await_args.args else []
+        assert 0 not in called_with
+
     @pytest.mark.asyncio
     async def test_selfmade_uses_bom_need_qty_not_receipt_sum(
         self, mock_readers, sample_selfmade_receipts_overlapping, sample_production_order_for_receipts

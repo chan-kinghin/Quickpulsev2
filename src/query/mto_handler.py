@@ -411,7 +411,16 @@ class MTOQueryHandler:
         if strict_aux:
             bom_rows = self._apply_strict_aux_filter(bom_rows)
 
-        # Collect aux_prop_ids for description lookup
+        # Fetch purchase orders early — needed both for aux-id collection
+        # (so the synthetic-PUR child builder below can resolve descriptions)
+        # and for the synthetic-PUR loop itself.
+        purchase_orders_result = await self._cache_reader.get_purchase_orders(mto_number)
+
+        # Collect aux_prop_ids for description lookup. Must mirror every source
+        # that becomes a child's display aux: SAL (07.xx), BOM (BOM children),
+        # PUR (synthetic-PUR-only children). Omitting PUR here silently dropped
+        # 辅助属性 labels on ~10K rows of packaging materials (see
+        # docs/PLAN_pur_only_aux_lookup_2026-05-22.md).
         aux_prop_ids = set()
         for so in sales_orders:
             if hasattr(so, "aux_prop_id") and so.aux_prop_id:
@@ -419,6 +428,9 @@ class MTOQueryHandler:
         for row in bom_rows:
             if row.aux_prop_id:
                 aux_prop_ids.add(row.aux_prop_id)
+        for po in (purchase_orders_result.data or []):
+            if getattr(po, "aux_prop_id", 0):
+                aux_prop_ids.add(po.aux_prop_id)
 
         # Lookup aux property descriptions from Kingdee
         aux_descriptions = await self._client.lookup_aux_properties(list(aux_prop_ids))
@@ -503,8 +515,8 @@ class MTOQueryHandler:
         covered_keys: set[tuple[str, int]] = {
             (row.material_code, row.aux_prop_id) for row in bom_rows
         }
-        # Fetch purchase orders from cache for this MTO
-        purchase_orders_result = await self._cache_reader.get_purchase_orders(mto_number)
+        # purchase_orders_result was fetched earlier (before the aux-id
+        # collection loop) so its IDs are in aux_descriptions.
         pur_only_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pur in (purchase_orders_result.data or []):
             if pur.material_code.startswith("07."):
