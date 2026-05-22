@@ -16,7 +16,9 @@ data
 reports
 docs
 tests
-scripts
+# scripts/ is intentionally NOT ignored — backfill + smoke-test scripts
+# need to be in the container so they can run via `docker exec` without
+# requiring `docker cp`. Kept small (~30 KB). See Dockerfile.
 *.log
 *.sqlite
 *.db
