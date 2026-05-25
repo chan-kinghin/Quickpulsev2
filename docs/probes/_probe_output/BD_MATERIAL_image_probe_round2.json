@@ -1,0 +1,622 @@
+{
+  "candidates_by_prefix": {
+    "07.": [
+      "07.39",
+      "07.01.01",
+      "07.01.02",
+      "07.01.03",
+      "07.01.04"
+    ],
+    "03.": [
+      "03.45.051",
+      "03.45.052",
+      "03.45.054",
+      "03.45.055",
+      "03.45.056"
+    ],
+    "05.": [
+      "05.02.01.44",
+      "05.02.01.14",
+      "05.02.01.01",
+      "05.02.01.04",
+      "05.02.01.08"
+    ],
+    "06.": [
+      "06.01.01.01.300",
+      "06.01.03.01.003",
+      "06.02.058.050",
+      "06.02.058.116",
+      "06.02.160.001"
+    ]
+  },
+  "executebillquery_tests": [
+    {
+      "keys": [
+        "FNumber",
+        "FImage"
+      ],
+      "ok": true,
+      "sample_rows": [
+        [
+          {
+            "Result": {
+              "ResponseStatus": {
+                "ErrorCode": 500,
+                "IsSuccess": false,
+                "Errors": [
+                  {
+                    "FieldName": null,
+                    "Message": "元数据中标识为FImage的字段不存在",
+                    "DIndex": 0
+                  }
+                ],
+                "SuccessEntitys": [],
+                "SuccessMessages": [],
+                "MsgCode": 9
+              }
+            }
+          }
+        ]
+      ],
+      "n_rows": 1
+    },
+    {
+      "keys": [
+        "FNumber",
+        "FImageFileServer"
+      ],
+      "ok": true,
+      "sample_rows": [
+        [
+          "07.39",
+          " "
+        ],
+        [
+          "07.01.01",
+          " "
+        ],
+        [
+          "07.01.02",
+          " "
+        ]
+      ],
+      "n_rows": 14
+    },
+    {
+      "keys": [
+        "FNumber",
+        "FImgFile_CMK"
+      ],
+      "ok": true,
+      "sample_rows": [
+        [
+          "07.39",
+          ""
+        ],
+        [
+          "07.01.01",
+          ""
+        ],
+        [
+          "07.01.02",
+          ""
+        ]
+      ],
+      "n_rows": 14
+    },
+    {
+      "keys": [
+        "FNumber",
+        "FMaterialCMK_FImgFile_CMK"
+      ],
+      "ok": true,
+      "sample_rows": [
+        [
+          {
+            "Result": {
+              "ResponseStatus": {
+                "ErrorCode": 500,
+                "IsSuccess": false,
+                "Errors": [
+                  {
+                    "FieldName": null,
+                    "Message": "元数据中标识为FMaterialCMK_FImgFile_CMK的字段不存在",
+                    "DIndex": 0
+                  }
+                ],
+                "SuccessEntitys": [],
+                "SuccessMessages": [],
+                "MsgCode": 9
+              }
+            }
+          }
+        ]
+      ],
+      "n_rows": 1
+    },
+    {
+      "keys": [
+        "FNumber",
+        "FUploadSkuImage"
+      ],
+      "ok": true,
+      "sample_rows": [
+        [
+          "07.39",
+          false
+        ],
+        [
+          "07.01.01",
+          false
+        ],
+        [
+          "07.01.02",
+          false
+        ]
+      ],
+      "n_rows": 14
+    }
+  ],
+  "view_findings": [
+    {
+      "material": "07.39",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "泳镜+耳塞"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "07.01.01",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "泳帽"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "07.01.02",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "泳帽"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "07.01.03",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "泳帽"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "07.01.04",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "泳帽"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "03.45.051",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "包装棉"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "03.45.052",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "打包带"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "03.45.054",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "大面罩螺帽"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "03.45.055",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "配成人大面罩螺丝"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "03.45.056",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "配儿童大面罩螺丝"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "05.02.01.44",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "鼻梁"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "05.02.01.14",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "鼻梁"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "05.02.01.01",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "鼻梁"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "05.02.01.04",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "鼻梁"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "05.02.01.08",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "鼻梁"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "06.01.01.01.300",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "CAP-A"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "06.01.03.01.003",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "CAP-AL"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "06.02.058.050",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "GL1系列"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "06.02.058.116",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "GL1系列"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    },
+    {
+      "material": "06.02.160.001",
+      "ok": true,
+      "name": [
+        {
+          "Key": 2052,
+          "Value": "2323J系列"
+        }
+      ],
+      "ErpClsID": null,
+      "header_image_fields": {
+        "Image": null,
+        "ImageFileServer": " ",
+        "IsImgFileServer": null
+      },
+      "cmk_image_fields": {
+        "FImgFile_CMK": "",
+        "UploadSkuImage": false
+      },
+      "sale_flags": {
+        "ISPRODUCTFILES": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,310 @@
+[
+  {
+    "code": "03.03.001",
+    "prefix": "03",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "外箱",
+      "erp_cls": "2",
+      "cat_number": "CHLB03_SYS",
+      "cat_name": "外销包材",
+      "mg_number": "03.03",
+      "mg_name": "外箱"
+    }
+  },
+  {
+    "code": "03.04.001",
+    "prefix": "03",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "内盒",
+      "erp_cls": "2",
+      "cat_number": "CHLB03_SYS",
+      "cat_name": "外销包材",
+      "mg_number": "03.04",
+      "mg_name": "内盒"
+    }
+  },
+  {
+    "code": "03.01.001",
+    "prefix": "03",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "K30花生袋",
+      "erp_cls": "2",
+      "cat_number": "CHLB03_SYS",
+      "cat_name": "外销包材",
+      "mg_number": "03.01",
+      "mg_name": "花生拉链袋"
+    }
+  },
+  {
+    "code": "03.01.002",
+    "prefix": "03",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "K30有侧网",
+      "erp_cls": "2",
+      "cat_number": "CHLB03_SYS",
+      "cat_name": "外销包材",
+      "mg_number": "03.01",
+      "mg_name": "花生拉链袋"
+    }
+  },
+  {
+    "code": "03.02.02.067",
+    "prefix": "03",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "21065（泳镜10210）跟型热压吸塑，HF专用",
+      "erp_cls": "2",
+      "cat_number": "CHLB03_SYS",
+      "cat_name": "外销包材",
+      "mg_number": "03.02.02",
+      "mg_name": "泳镜"
+    }
+  },
+  {
+    "code": "05.01.03",
+    "prefix": "05",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "泳帽",
+      "erp_cls": "2",
+      "cat_number": "CHLB05_SYS",
+      "cat_name": "半成品",
+      "mg_number": "05.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "05.01.05",
+    "prefix": "05",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "泳帽",
+      "erp_cls": "2",
+      "cat_number": "CHLB05_SYS",
+      "cat_name": "半成品",
+      "mg_number": "05.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "05.01.06",
+    "prefix": "05",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "泳帽",
+      "erp_cls": "2",
+      "cat_number": "CHLB05_SYS",
+      "cat_name": "半成品",
+      "mg_number": "05.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "05.20.01.11.066",
+    "prefix": "05",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "镜带（已印刷）",
+      "erp_cls": "2",
+      "cat_number": "CHLB05_SYS",
+      "cat_name": "半成品",
+      "mg_number": "05.20.01.11",
+      "mg_name": "泳镜镜带（已印刷）"
+    }
+  },
+  {
+    "code": "06.02.003",
+    "prefix": "06",
+    "erp_cls": "9",
+    "label": "成品?",
+    "fields": {
+      "name": "未包装泳镜",
+      "erp_cls": "9",
+      "cat_number": "CHLB07_SYS",
+      "cat_name": "包装成品",
+      "mg_number": "06.02",
+      "mg_name": "未包装泳镜"
+    }
+  },
+  {
+    "code": "06.02.007",
+    "prefix": "06",
+    "erp_cls": "9",
+    "label": "成品?",
+    "fields": {
+      "name": "未包装泳镜",
+      "erp_cls": "9",
+      "cat_number": "CHLB07_SYS",
+      "cat_name": "包装成品",
+      "mg_number": "06.02",
+      "mg_name": "未包装泳镜"
+    }
+  },
+  {
+    "code": "06.02.008",
+    "prefix": "06",
+    "erp_cls": "9",
+    "label": "成品?",
+    "fields": {
+      "name": "未包装泳镜",
+      "erp_cls": "9",
+      "cat_number": "CHLB07_SYS",
+      "cat_name": "包装成品",
+      "mg_number": "06.02",
+      "mg_name": "未包装泳镜"
+    }
+  },
+  {
+    "code": "07.01.03",
+    "prefix": "07",
+    "erp_cls": "9",
+    "label": "成品?",
+    "fields": {
+      "name": "泳帽",
+      "erp_cls": "9",
+      "cat_number": "CHLB07_SYS",
+      "cat_name": "包装成品",
+      "mg_number": "07.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "07.01.05",
+    "prefix": "07",
+    "erp_cls": "9",
+    "label": "成品?",
+    "fields": {
+      "name": "泳帽",
+      "erp_cls": "9",
+      "cat_number": "CHLB07_SYS",
+      "cat_name": "包装成品",
+      "mg_number": "07.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "07.41.001",
+    "prefix": "07",
+    "erp_cls": "9",
+    "label": "成品?",
+    "fields": {
+      "name": "硅胶防水袋",
+      "erp_cls": "9",
+      "cat_number": "CHLB07_SYS",
+      "cat_name": "包装成品",
+      "mg_number": "07.41",
+      "mg_name": "硅胶防水袋"
+    }
+  },
+  {
+    "code": "08.01.45",
+    "prefix": "08",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "成人PU帽",
+      "erp_cls": "2",
+      "cat_number": "CHLB08_SYS",
+      "cat_name": "委外加工",
+      "mg_number": "08.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "08.01.46.01",
+    "prefix": "08",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "成人莱卡帽 S码",
+      "erp_cls": "2",
+      "cat_number": "CHLB08_SYS",
+      "cat_name": "委外加工",
+      "mg_number": "08.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "08.01.48",
+    "prefix": "08",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "泳帽",
+      "erp_cls": "2",
+      "cat_number": "CHLB08_SYS",
+      "cat_name": "委外加工",
+      "mg_number": "08.01",
+      "mg_name": "泳帽"
+    }
+  },
+  {
+    "code": "01.22.002",
+    "prefix": "01",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "固态硅胶",
+      "erp_cls": "2",
+      "cat_number": "CHLB01_SYS",
+      "cat_name": "主料",
+      "mg_number": "01.22",
+      "mg_name": "成品硅胶"
+    }
+  },
+  {
+    "code": "01.22.003",
+    "prefix": "01",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "固态硅胶",
+      "erp_cls": "2",
+      "cat_number": "CHLB01_SYS",
+      "cat_name": "主料",
+      "mg_number": "01.22",
+      "mg_name": "成品硅胶"
+    }
+  },
+  {
+    "code": "02.04.038",
+    "prefix": "02",
+    "erp_cls": "1",
+    "label": "外购?",
+    "fields": {
+      "name": "吸塑模具2CLN009",
+      "erp_cls": "1",
+      "cat_number": "CHLB01_SYS",
+      "cat_name": "主料",
+      "mg_number": "02.04",
+      "mg_name": "吸塑模具"
+    }
+  },
+  {
+    "code": "02.10.01",
+    "prefix": "02",
+    "erp_cls": "2",
+    "label": "自制?",
+    "fields": {
+      "name": "自制透明胶带",
+      "erp_cls": "2",
+      "cat_number": "CHLB02_SYS",
+      "cat_name": "辅料",
+      "mg_number": "02.10",
+      "mg_name": "胶带"
+    }
+  }
+]

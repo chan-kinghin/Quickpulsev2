@@ -1,0 +1,68 @@
+{
+  "PRD_MO": {
+    "FATTACHMENTS": [],
+    "FAttachments": [],
+    "FAttachmentCount": [],
+    "F_ATTACHMENTS": [],
+    "FAttachmentField": [],
+    "FAttachmentSign": [],
+    "FHASATTACH": [],
+    "FHasAttach": [],
+    "FAttachCount": []
+  },
+  "SAL_SaleOrder": {
+    "FATTACHMENTS": [],
+    "FAttachments": [],
+    "FAttachmentCount": [],
+    "F_ATTACHMENTS": [],
+    "FAttachmentField": [],
+    "FAttachmentSign": [],
+    "FHASATTACH": [],
+    "FHasAttach": [],
+    "FAttachCount": []
+  },
+  "PUR_PurchaseOrder": {
+    "FATTACHMENTS": [],
+    "FAttachments": [],
+    "FAttachmentCount": [],
+    "F_ATTACHMENTS": [],
+    "FAttachmentField": [],
+    "FAttachmentSign": [],
+    "FHASATTACH": [],
+    "FHasAttach": [],
+    "FAttachCount": []
+  },
+  "SUB_POORDER": {
+    "FATTACHMENTS": [],
+    "FAttachments": [],
+    "FAttachmentCount": [],
+    "F_ATTACHMENTS": [],
+    "FAttachmentField": [],
+    "FAttachmentSign": [],
+    "FHASATTACH": [],
+    "FHasAttach": [],
+    "FAttachCount": []
+  },
+  "STK_InStock": {
+    "FATTACHMENTS": [],
+    "FAttachments": [],
+    "FAttachmentCount": [],
+    "F_ATTACHMENTS": [],
+    "FAttachmentField": [],
+    "FAttachmentSign": [],
+    "FHASATTACH": [],
+    "FHasAttach": [],
+    "FAttachCount": []
+  },
+  "PRD_INSTOCK": {
+    "FATTACHMENTS": [],
+    "FAttachments": [],
+    "FAttachmentCount": [],
+    "F_ATTACHMENTS": [],
+    "FAttachmentField": [],
+    "FAttachmentSign": [],
+    "FHASATTACH": [],
+    "FHasAttach": [],
+    "FAttachCount": []
+  }
+}

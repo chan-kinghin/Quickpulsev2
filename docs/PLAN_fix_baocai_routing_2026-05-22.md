@@ -1,12 +1,22 @@
 # Plan: Fix 包材 (and 委外) missing from dashboard — route on `CategoryID`, not `FMaterialType`
 
-## Status: Implemented 2026-05-22, pending live verification + commit
+## Status: Complete — shipped 2026-05-22, live-verified 2026-05-25
+
+Commits: `2957933` (CategoryID routing) → `dc503c1` (migration housekeeping) →
+`6b54a67`/`f352938` (ship scripts/ into Docker for backfill) → `2724bcf`/`e3d12a2`
+(IsPurchase split → revert) → `2199d01` (sub-badge inside 包材 chip).
+
+Live verification on prod (`HEAD=004b7d0`, 2026-05-25):
+- `cached_production_bom` has `category_name` populated for 77,821/77,821 rows (100%)
+- Distribution: 包装成品 55,536 / 半成品 17,803 / **外销包材 3,888** / **委外加工 585** / 辅料 5 / 主料 4
+- 122 distinct 外销包材 materials, 55 distinct 委外加工 materials surface in the cache
+- Before the fix these would all have collapsed to 自制 (since PPBOM.FMaterialType=1 for 99.94%)
 
 ## Background — see also
 
 - `docs/MATERIAL_CLASSIFICATION_FIELDS_2026-05-09.md` — earlier (partially wrong) investigation that recommended `ErpClsID`
-- `scripts/probe_erp_cls_routing.py` — the 2026-05-22 probe that overturned that recommendation
-- `scripts/_probe_output/erp_cls_routing.json` — raw probe output
+- `docs/probes/probe_erp_cls_routing.py` — the 2026-05-22 probe that overturned that recommendation
+- `docs/probes/_probe_output/erp_cls_routing.json` — raw probe output
 
 ## Problem
 
@@ -131,7 +141,7 @@ Extend the cache to carry `category_id` per BOM row, sourced from `BD_MATERIAL.M
 
 ## Verification To Do BEFORE Phase 1 implementation
 
-- [ ] **Confirm `FMaterialId.FCategoryID.FNumber` is queryable via `ExecuteBillQuery`** by extending `scripts/probe_erp_cls_routing.py` to do an `ExecuteBillQuery({"FormId": "PRD_PPBOM", "FieldKeys": "FMaterialId.FNumber,FMaterialId.FCategoryID.FNumber"})` on a known MTO. If it errors, fall back to per-material `View` calls during sync (slower but works).
+- [ ] **Confirm `FMaterialId.FCategoryID.FNumber` is queryable via `ExecuteBillQuery`** by extending `docs/probes/probe_erp_cls_routing.py` to do an `ExecuteBillQuery({"FormId": "PRD_PPBOM", "FieldKeys": "FMaterialId.FNumber,FMaterialId.FCategoryID.FNumber"})` on a known MTO. If it errors, fall back to per-material `View` calls during sync (slower but works).
 - [ ] **Confirm sample mapping holds for `04.xx` and `09.xx` codes** (not in initial probe — may exist in other MTOs).
 
 ## Risks & Open Questions

@@ -1,0 +1,2049 @@
+{
+  "Id": 760503,
+  "msterID": 760503,
+  "DocumentStatus": "C",
+  "ForbidStatus": "A",
+  "MultiLanguageText": [
+    {
+      "PkId": 569045,
+      "LocaleId": 2052,
+      "Name": "泳帽",
+      "Description": " ",
+      "Specification": "A型-AL",
+      "FORBIDREASON": " "
+    }
+  ],
+  "Name": [
+    {
+      "Key": 2052,
+      "Value": "泳帽"
+    }
+  ],
+  "Number": "05.01.07.01",
+  "Description": [
+    {
+      "Key": 2052,
+      "Value": " "
+    }
+  ],
+  "CreateOrgId_Id": 100274,
+  "CreateOrgId": {
+    "Id": 100274,
+    "MultiLanguageText": [
+      {
+        "PkId": 100003,
+        "LocaleId": 2052,
+        "Name": "洛阳富隆特体育用品有限公司"
+      }
+    ],
+    "Name": [
+      {
+        "Key": 2052,
+        "Value": "洛阳富隆特体育用品有限公司"
+      }
+    ],
+    "Number": "101"
+  },
+  "UseOrgId_Id": 100274,
+  "UseOrgId": {
+    "Id": 100274,
+    "MultiLanguageText": [
+      {
+        "PkId": 100003,
+        "LocaleId": 2052,
+        "Name": "洛阳富隆特体育用品有限公司"
+      }
+    ],
+    "Name": [
+      {
+        "Key": 2052,
+        "Value": "洛阳富隆特体育用品有限公司"
+      }
+    ],
+    "Number": "101"
+  },
+  "CreatorId_Id": 100294,
+  "CreatorId": {
+    "Id": 100294,
+    "Name": "张增辉",
+    "UserAccount": ""
+  },
+  "ModifierId_Id": 100294,
+  "ModifierId": {
+    "Id": 100294,
+    "Name": "张增辉",
+    "UserAccount": ""
+  },
+  "CreateDate": "2024-12-18T11:06:46.007",
+  "ModifyDate": "2026-03-13T10:09:29.94",
+  "MnemonicCode": " ",
+  "Specification": [
+    {
+      "Key": 2052,
+      "Value": "A型-AL"
+    }
+  ],
+  "ForbidderId_Id": 0,
+  "ForbidderId": null,
+  "ForbidDate": null,
+  "ApproveDate": "2026-03-13T10:09:30.223",
+  "ApproverId_Id": 100294,
+  "ApproverId": {
+    "Id": 100294,
+    "Name": "张增辉",
+    "UserAccount": ""
+  },
+  "Image": null,
+  "OldNumber": "05.01.07.01",
+  "MaterialGroup_Id": 188733,
+  "MaterialGroup": {
+    "Id": 188733,
+    "Number": "05.01",
+    "MultiLanguageText": [
+      {
+        "PkId": 106199,
+        "LocaleId": 2052,
+        "Name": "泳帽"
+      }
+    ],
+    "Name": [
+      {
+        "Key": 2052,
+        "Value": "泳帽"
+      }
+    ]
+  },
+  "PLMMaterialId": null,
+  "MaterialSRC": "B",
+  "IsValidate": false,
+  "ImageFileServer": " ",
+  "ImgStorageType": "B",
+  "IsImgDataBase": null,
+  "IsImgFileServer": null,
+  "IsSalseByNet": false,
+  "FIsAutoAllocate": false,
+  "FSPUID_Id": 0,
+  "FSPUID": null,
+  "FPinYin": " ",
+  "DSMatchByLot": false,
+  "FORBIDREASON": [
+    {
+      "Key": 2052,
+      "Value": " "
+    }
+  ],
+  "RefStatus": "0",
+  "ExtVar": null,
+  "IsHandleReserve": true,
+  "FMULREPLACEMATERIALID": [],
+  "F_QWJI_MZ2": 0.0,
+  "F_QWJI_JZ2": 0.0,
+  "F_QWJI_RGDJ": "",
+  "F_QWJI_CLDJ": "",
+  "F_QWJI_YLMC": "",
+  "FISSUITE": false,
+  "FPJNAME_Id": "67c57e74aadad9",
+  "FPJNAME": {
+    "Id": "67c57e74aadad9",
+    "FNumber": "SWIM CAP",
+    "MultiLanguageText": [
+      {
+        "PkId": "67c580ffaadbf7",
+        "LocaleId": 2052,
+        "FDataValue": "泳帽"
+      }
+    ],
+    "FDataValue": [
+      {
+        "Key": 2052,
+        "Value": "泳帽"
+      }
+    ]
+  },
+  "F_QWJI_YMJZ": 0.0,
+  "F_QWJI_TLZL": 0.0,
+  "F_QWJI_MCS": 0.0,
+  "F_QWJI_YMMZ": 0.0,
+  "MaterialCMK": [
+    {
+      "Id": 558862,
+      "FComTypeId_CMK_Id": 1,
+      "FComTypeId_CMK": {
+        "Id": 1,
+        "MultiLanguageText": [
+          {
+            "PkId": 1,
+            "LocaleId": 2052,
+            "Name": "普通商品"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "普通商品"
+          }
+        ],
+        "Number": "1",
+        "FBarCodeHeader": "21"
+      },
+      "FBarCodeHeader_CMK": "21",
+      "FGoodBarCode_CMK": "",
+      "FComBrandId_CMK_Id": 0,
+      "FComBrandId_CMK": null,
+      "FBusinessType_CMK_Id": "0026220efe099ee611e411a979cb3e72",
+      "FBusinessType_CMK": {
+        "Id": "0026220efe099ee611e411a979cb3e72",
+        "FNumber": "001",
+        "MultiLanguageText": [
+          {
+            "PkId": "0026220efe099ee611e411a979cb3e73",
+            "LocaleId": 2052,
+            "FDataValue": "自营"
+          }
+        ],
+        "FDataValue": [
+          {
+            "Key": 2052,
+            "Value": "自营"
+          }
+        ]
+      },
+      "FSellMethod_CMK_Id": " ",
+      "FSellMethod_CMK": null,
+      "FCurrencyId_CMK_Id": 0,
+      "FCurrencyId_CMK": null,
+      "FSaleStatus_CMK": "A",
+      "FPurStatus_CMK": "A",
+      "FPurPrice_CMK": 0.0,
+      "FSalePrice_CMK": 0.0,
+      "FVIPPrice_CMK": 0.0,
+      "FPointsRate_CMK": 0.0,
+      "FImgFile_CMK": "",
+      "FShoppeID_CMK_Id": 0,
+      "FShoppeID_CMK": null,
+      "FProPrice": 0.0,
+      "FMaterialSource_Id": 0,
+      "FMaterialSource": null,
+      "IsControlSal": false,
+      "UpPercent": 0.0,
+      "LowerPercent": 0.0,
+      "CalculateBase": "0",
+      "MaxSalPrice_CMK": 0.0,
+      "MinSalPrice_CMK": 0.0,
+      "IsAutoRemove": false,
+      "IsMailVirtual": false,
+      "IsFreeSend": "0",
+      "PackageMail": null,
+      "FreightTem": null,
+      "PriceType": "0",
+      "PerUnit": null,
+      "ByVolume": null,
+      "ByWeight": null,
+      "LogisticsCount": 0.0,
+      "RequestMinPackQty": 0.0,
+      "MinRequestQty": 0.0,
+      "RetailUnitID_Id": 0,
+      "RetailUnitID": null,
+      "IsPrinttAg": false,
+      "FIsAutoRemove1": false,
+      "FTimeUnit": "H",
+      "FMinRentDura": 0.0,
+      "FRentBeginPrice": 0.0,
+      "FPricingStep": 0.0,
+      "FRentStepPrice": 0.0,
+      "FRentFreeDura": 0.0,
+      "FDepositAmount": 0.0,
+      "UploadSkuImage": false,
+      "CMKMINDISCOUNTRATE": 0.0,
+      "FPlanPrice": 0.0
+    }
+  ],
+  "FBarCodeEntity_CMK": [],
+  "FSpecialAttributeEntity": [
+    {
+      "Id": 0,
+      "Seq": 1,
+      "FSpecAttrCategoryID_Id": 0,
+      "FSpecAttrCategoryID": null,
+      "FSpecialAttributeID_Id": 0,
+      "FSpecialAttributeID": null
+    }
+  ],
+  "MaterialBase": [
+    {
+      "Id": 558862,
+      "ErpClsID": "2",
+      "IsInventory": true,
+      "IsSale": true,
+      "IsAsset": false,
+      "IsSubContract": false,
+      "IsProduce": true,
+      "IsPurchase": true,
+      "IsRealTimeAccout": false,
+      "BaseUnitId_Id": 10101,
+      "BaseUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "TaxType_Id": "63489f1e86944c989c58d97893a2aec2",
+      "TaxType": {
+        "Id": "63489f1e86944c989c58d97893a2aec2",
+        "FNumber": "WLDSFL01_SYS",
+        "MultiLanguageText": [
+          {
+            "PkId": "1ac1f2dd4a584f838c73c939d1496e43",
+            "LocaleId": 2052,
+            "FDataValue": "标准税率"
+          }
+        ],
+        "FDataValue": [
+          {
+            "Key": 2052,
+            "Value": "标准税率"
+          }
+        ]
+      },
+      "TypeID_Id": 0,
+      "TypeID": null,
+      "CategoryID_Id": 241,
+      "CategoryID": {
+        "Id": 241,
+        "msterID": 241,
+        "MultiLanguageText": [
+          {
+            "PkId": 247,
+            "LocaleId": 2052,
+            "Name": "半成品"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "半成品"
+          }
+        ],
+        "Number": "CHLB05_SYS"
+      },
+      "TaxRateId_Id": 234,
+      "TaxRateId": {
+        "Id": 234,
+        "msterID": 234,
+        "MultiLanguageText": [
+          {
+            "PkId": 10070,
+            "LocaleId": 2052,
+            "Name": "13%增值税"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "13%增值税"
+          }
+        ],
+        "Number": "SL02_SYS"
+      },
+      "BARCODE": null,
+      "WEIGHTUNITID_Id": 0,
+      "WEIGHTUNITID": null,
+      "VOLUMEUNITID_Id": 0,
+      "VOLUMEUNITID": null,
+      "GROSSWEIGHT": 0.0,
+      "NETWEIGHT": 0.0,
+      "LENGTH": 0.0,
+      "VOLUME": 0.0,
+      "WIDTH": 0.0,
+      "HEIGHT": 0.0,
+      "CONFIGTYPE": " ",
+      "Suite": "0",
+      "CostPriceRate": 0.0,
+      "FNameEn": "",
+      "FSysModel": "",
+      "FColor": "",
+      "FSpreadName": "",
+      "FMAKEINVOICEPARTY": "0",
+      "FeatureItem": "1",
+      "UseOrgId1_Id": 100274,
+      "UseOrgId1": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      },
+      "IsChange": false
+    }
+  ],
+  "MaterialStock": [
+    {
+      "Id": 558862,
+      "StoreUnitID_Id": 10101,
+      "StoreUnitID": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "AuxUnitID_Id": 0,
+      "AuxUnitID": null,
+      "StockId_Id": 114437,
+      "StockId": {
+        "Id": 114437,
+        "msterID": 114437,
+        "MultiLanguageText": [
+          {
+            "PkId": 100025,
+            "LocaleId": 2052,
+            "Name": "半成品订单仓"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "半成品订单仓"
+          }
+        ],
+        "Number": "05.01",
+        "IsOpenLocation": false,
+        "DefStockStatusId_Id": 10000,
+        "DefStockStatusId": {
+          "Id": 10000,
+          "msterID": 10000,
+          "Number": "KCZT01_SYS",
+          "MultiLanguageText": [
+            {
+              "PkId": 1,
+              "LocaleId": 2052,
+              "Name": "可用"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "可用"
+            }
+          ]
+        },
+        "LocListFormatter": "3",
+        "StockFlexItem": []
+      },
+      "IsLockStock": true,
+      "BatchRuleID_Id": 0,
+      "BatchRuleID": null,
+      "ExpUnit": " ",
+      "StockPlaceId_Id": 0,
+      "StockPlaceId": null,
+      "OnlineLife": 0,
+      "ExpPeriod": 0,
+      "StoreURNum": 1.0,
+      "StoreURNom": 1.0,
+      "IsBatchManage": true,
+      "IsKFPeriod": false,
+      "IsExpParToFlot": false,
+      "IsCycleCounting": false,
+      "IsMustCounting": false,
+      "CurrencyId_Id": 1,
+      "CurrencyId": {
+        "Id": 1,
+        "msterID": 1,
+        "MultiLanguageText": [
+          {
+            "PkId": 2,
+            "LocaleId": 2052,
+            "Name": "人民币"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "人民币"
+          }
+        ],
+        "Number": "PRE001",
+        "Sysmbol": "¥",
+        "PriceDigits": 8,
+        "AmountDigits": 2,
+        "IsShowCSymbol": true,
+        "FormatOrder": "1",
+        "RoundType": "1"
+      },
+      "RefCost": 0.0,
+      "CountCycle": "1",
+      "CountDay": 1,
+      "IsSNManage": false,
+      "SNCodeRule_Id": 0,
+      "SNCodeRule": null,
+      "SNUnit_Id": 0,
+      "SNUnit": null,
+      "SafeStock": 0.0,
+      "ReOrderGood": 0.0,
+      "MinStock": 0.0,
+      "MaxStock": 0.0,
+      "UnitConvertDir": "1",
+      "IsEnableMinStock": false,
+      "IsEnableSafeStock": false,
+      "IsEnableMaxStock": false,
+      "IsEnableReOrder": false,
+      "EconReOrderQty": 0.0,
+      "IsSNPRDTracy": false,
+      "SNGenerateTime": "1",
+      "SNManageType": "1",
+      "BoxStandardQty": 0.0,
+      "UseOrgId2_Id": 100274,
+      "UseOrgId2": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    }
+  ],
+  "MaterialSale": [
+    {
+      "Id": 558862,
+      "IsATPCheck": false,
+      "SalePriceUnitId_Id": 10101,
+      "SalePriceUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "SaleUnitId_Id": 10101,
+      "SaleUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "IsInvoice": false,
+      "MaxQty": 100000.0,
+      "IsReturn": true,
+      "MinQty": 0.0,
+      "IsReturnPart": false,
+      "OrderQty": 0.0,
+      "SalePriceURNom": 1.0,
+      "SaleURNum": 1.0,
+      "SalePriceURNum": 1.0,
+      "SaleURNom": 1.0,
+      "OutStockLmtH": 0.0,
+      "OutStockLmtL": 0.0,
+      "AgentSalReduceRate": 0.0,
+      "AllowPublish": false,
+      "ISAFTERSALE": true,
+      "ISPRODUCTFILES": true,
+      "ISWARRANTED": false,
+      "FWARRANTY": 0,
+      "WARRANTYUNITID": "D",
+      "OutLmtUnit": "SAL",
+      "TaxCategoryCodeId_Id": 0,
+      "TaxCategoryCodeId": null,
+      "SalGroup_Id": 0,
+      "SalGroup": null,
+      "TaxDiscountsType": "0",
+      "IsTaxEnjoy": false,
+      "UseOrgId3_Id": 100274,
+      "UseOrgId3": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      },
+      "UnValidateExpQty": false
+    }
+  ],
+  "MaterialPurchase": [
+    {
+      "Id": 558862,
+      "PurchaseUnitID_Id": 10101,
+      "PurchaseUnitID": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "PurchaserId_Id": 0,
+      "PurchaserId": null,
+      "DefaultVendor_Id": 0,
+      "DefaultVendor": null,
+      "IsSourceControl": false,
+      "IsPR": false,
+      "ReceiveMinScale": 0.0,
+      "PurchaseGroupId_Id": 0,
+      "PurchaseGroupId": null,
+      "ReceiveMaxScale": 0.0,
+      "PurchasePriceUnitId_Id": 10101,
+      "PurchasePriceUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "IsVendorQualification": false,
+      "ReceiveAdvanceDays": 0,
+      "ReceiveDelayDays": 0,
+      "PurURNum": 1.0,
+      "PurPriceURNum": 1.0,
+      "PurURNom": 1.0,
+      "PurPriceURNom": 1.0,
+      "IsQuota": false,
+      "QuotaType": "1",
+      "AgentPurPlusRate": 0.0,
+      "ChargeID_Id": 0,
+      "ChargeID": null,
+      "MinSplitQty": 0.0,
+      "BaseMinSplitQty": 0.0,
+      "IsVmiBusiness": false,
+      "IsReturnMaterial": true,
+      "EnableSL": false,
+      "PurchaseOrgId_Id": 0,
+      "PurchaseOrgId": null,
+      "DefBarCodeRuleId_Id": 0,
+      "DefBarCodeRuleId": null,
+      "PrintCount": 1,
+      "POBillTypeId_Id": "93591469feb54ca2b08eb635f8b79de3",
+      "POBillTypeId": {
+        "Id": "93591469feb54ca2b08eb635f8b79de3",
+        "MultiLanguageText": [
+          {
+            "PkId": "a7b70d95ba34432387653c6937cae696",
+            "LocaleId": 2052,
+            "Name": "标准采购申请"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "标准采购申请"
+          }
+        ],
+        "Number": "CGSQD01_SYS",
+        "IsDefault": true
+      },
+      "MinPackCount": 1.0,
+      "UseOrgId4_Id": 100274,
+      "UseOrgId4": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      },
+      "DailyOutQtySub": 0.0,
+      "DefaultLineIdSub_Id": 0,
+      "DefaultLineIdSub": null,
+      "IsEnableScheduleSub": false
+    }
+  ],
+  "MaterialPlan": [
+    {
+      "Id": 558862,
+      "PlanerID_Id": 0,
+      "PlanerID": null,
+      "EOQ": 1.0,
+      "PlanningStrategy": "1",
+      "OrderPolicy": "2",
+      "PlanWorkshop_Id": 0,
+      "PlanWorkshop": null,
+      "FixLeadTimeType": "1",
+      "FixLeadTime": 0,
+      "VarLeadTimeType": "1",
+      "VarLeadTime": 0,
+      "CheckLeadTimeType": "1",
+      "CheckLeadTime": 0,
+      "OrderIntervalTimeType": "3",
+      "OrderIntervalTime": 0,
+      "PlanIntervalsDays": 1,
+      "PlanBatchSplitQty": 0.0,
+      "PlanTimeZone": 0,
+      "RequestTimeZone": 0,
+      "IsMrpComReq": false,
+      "ReserveType": "3",
+      "CanLeadDays": 0,
+      "LeadExtendDay": 0,
+      "DelayExtendDay": 0,
+      "CanDelayDays": 999,
+      "PlanOffsetTimeType": "1",
+      "PlanOffsetTime": 0,
+      "MinPOQty": 0.0,
+      "IncreaseQty": 0.0,
+      "MaxPOQty": 100000.0,
+      "VarLeadTimeLotSize": 1.0,
+      "BaseVarLeadTimeLotSize": 1.0,
+      "PlanGroupId_Id": 0,
+      "PlanGroupId": null,
+      "MfgPolicyId_Id": 40044,
+      "MfgPolicyId": {
+        "Id": 40044,
+        "MultiLanguageText": [
+          {
+            "PkId": 40049,
+            "LocaleId": 2052,
+            "Name": "MTO"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "MTO"
+          }
+        ],
+        "Number": "ZZCL003_SYS",
+        "PlanMode": "1",
+        "Ato": false
+      },
+      "SupplySourceId_Id": 0,
+      "SupplySourceId": null,
+      "TimeFactorId_Id": 0,
+      "TimeFactorId": null,
+      "QtyFactorId_Id": 0,
+      "QtyFactorId": null,
+      "PlanMode": "1",
+      "AllowPartDelay": true,
+      "AllowPartAhead": false,
+      "PLANSAFESTOCKQTY": 0.0,
+      "ATOSchemeId_Id": 0,
+      "ATOSchemeId": null,
+      "AccuLeadTime": 0,
+      "ProductLine_Id": 0,
+      "ProductLine": null,
+      "WriteOffQty": 1.0,
+      "PlanIdent_Id": " ",
+      "PlanIdent": null,
+      "ProScheTrackId_Id": " ",
+      "ProScheTrackId": null,
+      "DailyOutQty": 0.0,
+      "IsMrpComBill": true,
+      "UseOrgId7_Id": 100274,
+      "UseOrgId7": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    }
+  ],
+  "MaterialProduce": [
+    {
+      "Id": 558862,
+      "PickStockId_Id": 114437,
+      "PickStockId": {
+        "Id": 114437,
+        "msterID": 114437,
+        "MultiLanguageText": [
+          {
+            "PkId": 100025,
+            "LocaleId": 2052,
+            "Name": "半成品订单仓"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "半成品订单仓"
+          }
+        ],
+        "Number": "05.01",
+        "IsOpenLocation": false,
+        "DefStockStatusId_Id": 10000,
+        "DefStockStatusId": {
+          "Id": 10000,
+          "msterID": 10000,
+          "Number": "KCZT01_SYS",
+          "MultiLanguageText": [
+            {
+              "PkId": 1,
+              "LocaleId": 2052,
+              "Name": "可用"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "可用"
+            }
+          ]
+        },
+        "LocListFormatter": "3",
+        "StockFlexItem": []
+      },
+      "BOMUnitId_Id": 10101,
+      "BOMUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "WorkShopId_Id": 361526,
+      "WorkShopId": {
+        "Id": 361526,
+        "msterID": 361526,
+        "MultiLanguageText": [
+          {
+            "PkId": 100070,
+            "LocaleId": 2052,
+            "Name": "成型工段"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "成型工段"
+          }
+        ],
+        "Number": "03",
+        "IsStock": true
+      },
+      "IssueType": "1",
+      "ProduceUnitId_Id": 10101,
+      "ProduceUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "IsKitting": true,
+      "DefaultRouting_Id": 0,
+      "DefaultRouting": null,
+      "IsCoby": true,
+      "PerUnitStandHour": 0.0,
+      "BKFLTime": " ",
+      "FinishReceiptOverRate": 0.0,
+      "FinishReceiptShortRate": 0.0,
+      "PickBinId_Id": 0,
+      "PickBinId": null,
+      "PrdURNum": 1.0,
+      "PrdURNom": 1.0,
+      "BOMURNum": 1.0,
+      "BOMURNom": 1.0,
+      "IsMainPrd": true,
+      "IsCompleteSet": true,
+      "OverControlMode": "2",
+      "MinIssueQty": 1.0,
+      "StdLaborPrePareTime": 0.0,
+      "StdLaborProcessTime": 0.0,
+      "StdMachinePrepareTime": 0.0,
+      "StdMachineProcessTime": 0.0,
+      "ConsumVolatility": 0.0,
+      "IsProductLine": false,
+      "ProduceBillType_Id": "281783bb73244d178d41ce550d877af0",
+      "ProduceBillType": {
+        "Id": "281783bb73244d178d41ce550d877af0",
+        "MultiLanguageText": [
+          {
+            "PkId": "f4b1c9b94e8d4f829b6c5aa02c2633ba",
+            "LocaleId": 2052,
+            "Name": "直接入库-普通生产"
+          },
+          {
+            "PkId": "df603abd733743de88b18ce6af172d13",
+            "LocaleId": 3076,
+            "Name": "生產訂單"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "直接入库-普通生产"
+          },
+          {
+            "Key": 3076,
+            "Value": "生產訂單"
+          }
+        ],
+        "Number": "SCDD03_SYS",
+        "IsDefault": true
+      },
+      "OrgTrustBillType_Id": "00505694499eb16411e3cd16dc62e287",
+      "OrgTrustBillType": {
+        "Id": "00505694499eb16411e3cd16dc62e287",
+        "MultiLanguageText": [
+          {
+            "PkId": "00505694499eb16411e3cd16dc62e288",
+            "LocaleId": 2052,
+            "Name": "组织委托加工-直接入库"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "组织委托加工-直接入库"
+          }
+        ],
+        "Number": "SCDD06_SYS",
+        "IsDefault": false
+      },
+      "ISMinIssueQty": false,
+      "IsECN": false,
+      "MinIssueUnitId_Id": 10101,
+      "MinIssueUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "MDLID_Id": 0,
+      "MDLID": null,
+      "MdlMaterialId_Id": 0,
+      "MdlMaterialId": null,
+      "LossPercent": 0.0,
+      "IsSNCarryToParent": false,
+      "StandHourUnitId": "3600",
+      "BackFlushType": "1",
+      "FIXLOSS": 0.0,
+      "UseOrgId6_Id": 100274,
+      "UseOrgId6": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      },
+      "IsEnableSchedule": false,
+      "DefaultLineId_Id": 0,
+      "DefaultLineId": null
+    }
+  ],
+  "MaterialAuxPty": [
+    {
+      "Id": 193799,
+      "IsEnable1": false,
+      "IsMustInput": false,
+      "IsAffectPrice": false,
+      "IsAffectPlan": false,
+      "IsAffectCost": false,
+      "IsComControl": false,
+      "AuxPropertyId_Id": 100001,
+      "AuxPropertyId": {
+        "Id": 100001,
+        "msterID": 0,
+        "ValueType": "2",
+        "Number": "01",
+        "MultiLanguageText": [
+          {
+            "PkId": 100001,
+            "LocaleId": 2052,
+            "Name": "物料规格"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "物料规格"
+          }
+        ]
+      },
+      "ValueType": " ",
+      "ValueSet": false,
+      "UseOrgId11_Id": 100274,
+      "UseOrgId11": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    },
+    {
+      "Id": 255967,
+      "IsEnable1": true,
+      "IsMustInput": false,
+      "IsAffectPrice": false,
+      "IsAffectPlan": true,
+      "IsAffectCost": true,
+      "IsComControl": false,
+      "AuxPropertyId_Id": 100002,
+      "AuxPropertyId": {
+        "Id": 100002,
+        "msterID": 0,
+        "ValueType": "0",
+        "Number": "02",
+        "MultiLanguageText": [
+          {
+            "PkId": 100002,
+            "LocaleId": 2052,
+            "Name": "产品颜色"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "产品颜色"
+          }
+        ]
+      },
+      "ValueType": " ",
+      "ValueSet": false,
+      "UseOrgId11_Id": 100274,
+      "UseOrgId11": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    }
+  ],
+  "MaterialInvPty": [
+    {
+      "Id": 2623842,
+      "IsEnable": true,
+      "IsAffectPrice": false,
+      "IsAffectPlan": false,
+      "IsAffectCost": false,
+      "InvPtyId_Id": 10001,
+      "InvPtyId": {
+        "Id": 10001,
+        "msterID": 10001,
+        "Number": "01",
+        "MultiLanguageText": [
+          {
+            "PkId": 10008,
+            "LocaleId": 2052,
+            "Name": "仓库"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "仓库"
+          }
+        ]
+      },
+      "UseOrgId10_Id": 100274,
+      "UseOrgId10": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    },
+    {
+      "Id": 2623843,
+      "IsEnable": true,
+      "IsAffectPrice": false,
+      "IsAffectPlan": false,
+      "IsAffectCost": false,
+      "InvPtyId_Id": 10002,
+      "InvPtyId": {
+        "Id": 10002,
+        "msterID": 10002,
+        "Number": "02",
+        "MultiLanguageText": [
+          {
+            "PkId": 10013,
+            "LocaleId": 2052,
+            "Name": "仓位"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "仓位"
+          }
+        ]
+      },
+      "UseOrgId10_Id": 100274,
+      "UseOrgId10": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    },
+    {
+      "Id": 2623844,
+      "IsEnable": false,
+      "IsAffectPrice": false,
+      "IsAffectPlan": false,
+      "IsAffectCost": false,
+      "InvPtyId_Id": 10003,
+      "InvPtyId": {
+        "Id": 10003,
+        "msterID": 10003,
+        "Number": "03",
+        "MultiLanguageText": [
+          {
+            "PkId": 10016,
+            "LocaleId": 2052,
+            "Name": "BOM版本"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "BOM版本"
+          }
+        ]
+      },
+      "UseOrgId10_Id": 100274,
+      "UseOrgId10": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    },
+    {
+      "Id": 2623845,
+      "IsEnable": true,
+      "IsAffectPrice": false,
+      "IsAffectPlan": false,
+      "IsAffectCost": true,
+      "InvPtyId_Id": 10004,
+      "InvPtyId": {
+        "Id": 10004,
+        "msterID": 10004,
+        "Number": "04",
+        "MultiLanguageText": [
+          {
+            "PkId": 10019,
+            "LocaleId": 2052,
+            "Name": "批号"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "批号"
+          }
+        ]
+      },
+      "UseOrgId10_Id": 100274,
+      "UseOrgId10": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    },
+    {
+      "Id": 2623846,
+      "IsEnable": true,
+      "IsAffectPrice": false,
+      "IsAffectPlan": true,
+      "IsAffectCost": false,
+      "InvPtyId_Id": 10006,
+      "InvPtyId": {
+        "Id": 10006,
+        "msterID": 10006,
+        "Number": "06",
+        "MultiLanguageText": [
+          {
+            "PkId": 10025,
+            "LocaleId": 2052,
+            "Name": "计划跟踪号"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "计划跟踪号"
+          }
+        ]
+      },
+      "UseOrgId10_Id": 100274,
+      "UseOrgId10": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    }
+  ],
+  "MaterialSubcon": [
+    {
+      "Id": 558862,
+      "SubconUnitId_Id": 10101,
+      "SubconUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "SubconPriceUnitId_Id": 10101,
+      "SubconPriceUnitId": {
+        "Id": 10101,
+        "msterID": 10101,
+        "MultiLanguageText": [
+          {
+            "PkId": 10136,
+            "LocaleId": 2052,
+            "Name": "Pcs"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "Pcs"
+          }
+        ],
+        "Number": "Pcs",
+        "IsBaseUnit": true,
+        "UnitGroupId_Id": 10086,
+        "UnitGroupId": {
+          "Id": 10086,
+          "msterID": 10086,
+          "Number": "PCS",
+          "MultiLanguageText": [
+            {
+              "PkId": 10145,
+              "LocaleId": 2052,
+              "Name": "PCS"
+            }
+          ],
+          "Name": [
+            {
+              "Key": 2052,
+              "Value": "PCS"
+            }
+          ]
+        },
+        "Precision": 0,
+        "RoundType": "1",
+        "UNITCONVERTRATE": [
+          {
+            "Id": 10118,
+            "ConvertType": "0",
+            "DestUnitId_Id": 10101,
+            "DestUnitId": {
+              "Id": 10101,
+              "msterID": 10101,
+              "Number": "Pcs",
+              "MultiLanguageText": [
+                {
+                  "PkId": 10136,
+                  "LocaleId": 2052,
+                  "Name": "Pcs"
+                }
+              ],
+              "Name": [
+                {
+                  "Key": 2052,
+                  "Value": "Pcs"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "SUBCONURNUM": 1.0,
+      "SUBCONURNOM": 1.0,
+      "SUBCONPRICEURNUM": 1.0,
+      "SUBCONPRICEURNOM": 1.0,
+      "SUBBILLTYPE_Id": "93904bf745d84ae0ad08da30949754e0",
+      "SUBBILLTYPE": {
+        "Id": "93904bf745d84ae0ad08da30949754e0",
+        "MultiLanguageText": [
+          {
+            "PkId": "ae166c94ae10412b8197a89f86d903e7",
+            "LocaleId": 2052,
+            "Name": "普通委外订单"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "普通委外订单"
+          }
+        ],
+        "Number": "WWDD01_SYS",
+        "IsDefault": true
+      },
+      "UseOrgId8_Id": 100274,
+      "UseOrgId8": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      }
+    }
+  ],
+  "MaterialQM": [
+    {
+      "Id": 558862,
+      "CheckProduct": false,
+      "CheckIncoming": false,
+      "IncSampSchemeId_Id": 0,
+      "IncSampSchemeId": null,
+      "IncQcSchemeId_Id": 0,
+      "IncQcSchemeId": null,
+      "CheckStock": false,
+      "EnableCyclistQCSTK": false,
+      "EnableCyclistQCSTKEW": false,
+      "EWLeadDay": 0,
+      "StockCycle": 0,
+      "CheckDelivery": false,
+      "CheckReturn": false,
+      "InspectGroupId_Id": 0,
+      "InspectGroupId": null,
+      "InspectorId_Id": 0,
+      "InspectorId": null,
+      "CheckEntrusted": false,
+      "CheckOther": false,
+      "IsFirstInspect": false,
+      "UseOrgId5_Id": 100274,
+      "UseOrgId5": {
+        "Id": 100274,
+        "MultiLanguageText": [
+          {
+            "PkId": 100003,
+            "LocaleId": 2052,
+            "Name": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Name": [
+          {
+            "Key": 2052,
+            "Value": "洛阳富隆特体育用品有限公司"
+          }
+        ],
+        "Number": "101"
+      },
+      "CheckReturnMtrl": false,
+      "CheckSubRtnMtrl": false,
+      "FirstQCControlType": "0"
+    }
+  ]
+}

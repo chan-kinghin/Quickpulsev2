@@ -1,6 +1,6 @@
 # 物料分类字段调研与推荐 (2026-05-09)
 
-> **2026-05-22 OBSOLETE NOTICE**: This doc recommended `MaterialBase.ErpClsID` for the 自制/包材/委外 routing. Live probe (`scripts/probe_erp_cls_routing.py`, 23 codes) on 2026-05-22 found ErpClsID is ALSO flat in this tenant (22/23 = `"2"`, including outer cartons and outsourced caps). The correct routing field is `MaterialBase.CategoryID.FName`. See `docs/PLAN_fix_baocai_routing_2026-05-22.md` for the implemented fix.
+> **2026-05-22 OBSOLETE NOTICE**: This doc recommended `MaterialBase.ErpClsID` for the 自制/包材/委外 routing. Live probe (`docs/probes/probe_erp_cls_routing.py`, 23 codes) on 2026-05-22 found ErpClsID is ALSO flat in this tenant (22/23 = `"2"`, including outer cartons and outsourced caps). The correct routing field is `MaterialBase.CategoryID.FName`. See `docs/PLAN_fix_baocai_routing_2026-05-22.md` for the implemented fix.
 
 ## 背景
 

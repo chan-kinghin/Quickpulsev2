@@ -1,6 +1,11 @@
 # Plan: Resolve 辅助属性 for PUR-only packaging children (cache path)
 
-## Status: Not Started
+## Status: Complete — shipped 2026-05-22 via `004b7d0`
+
+Fix added `purchase_orders` fetch + ID collection BEFORE the aux-lookup loop so the
+synthetic-PUR child builder reuses the resolved aux descriptions. Unit coverage in
+`tests/unit/test_mto_handler.py` (+174 lines) exercises the three documented
+scenarios. All 219 unit tests pass on `004b7d0`. Live on prod 2026-05-25.
 
 ## Design Spec
 

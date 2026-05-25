@@ -1,0 +1,92 @@
+{
+  "attachment_services": [
+    {
+      "service": "Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.AttachmentQuery",
+      "error": "response_error:发生时间：\t2026-05-11 10:24:36\r\n错误编号：\t99bc1696166e4138bd6cb894be96c824\r\n错误信息：\tKingdee.BOS.WebApi.ServicesStub.DynamicFormService.AttachmentQuery no found."
+    },
+    {
+      "service": "Kingdee.BOS.WebApi.ServicesStub.AttachmentService.GetAttachmentList",
+      "error": "response_error:发生时间：\t2026-05-11 10:24:36\r\n错误编号：\tf8d0a44a328447ef84d335aeb494a16a\r\n错误信息：\tKingdee.BOS.WebApi.ServicesStub.AttachmentService no found."
+    }
+  ],
+  "bos_tables": [
+    {
+      "form": "BOS_Attachment",
+      "response": [
+        [
+          {
+            "Result": {
+              "ResponseStatus": {
+                "ErrorCode": 500,
+                "IsSuccess": false,
+                "Errors": [
+                  {
+                    "FieldName": null,
+                    "Message": "元数据中标识为FFileName的字段不存在",
+                    "DIndex": 0
+                  }
+                ],
+                "SuccessEntitys": [],
+                "SuccessMessages": [],
+                "MsgCode": 9
+              }
+            }
+          }
+        ]
+      ],
+      "type": "list"
+    },
+    {
+      "form": "T_BAS_ATTACHMENT",
+      "response": [
+        [
+          {
+            "Result": {
+              "ResponseStatus": {
+                "ErrorCode": 500,
+                "IsSuccess": false,
+                "Errors": [
+                  {
+                    "FieldName": null,
+                    "Message": "标识为“T_BAS_ATTACHMENT”的业务对象不存在，或者被删除。",
+                    "DIndex": 0
+                  }
+                ],
+                "SuccessEntitys": [],
+                "SuccessMessages": [],
+                "MsgCode": 4
+              }
+            }
+          }
+        ]
+      ],
+      "type": "list"
+    },
+    {
+      "form": "Bos_AttachmentItem",
+      "response": [
+        [
+          {
+            "Result": {
+              "ResponseStatus": {
+                "ErrorCode": 500,
+                "IsSuccess": false,
+                "Errors": [
+                  {
+                    "FieldName": null,
+                    "Message": "标识为“Bos_AttachmentItem”的业务对象不存在，或者被删除。",
+                    "DIndex": 0
+                  }
+                ],
+                "SuccessEntitys": [],
+                "SuccessMessages": [],
+                "MsgCode": 4
+              }
+            }
+          }
+        ]
+      ],
+      "type": "list"
+    }
+  ]
+}

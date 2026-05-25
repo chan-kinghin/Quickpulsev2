@@ -29,7 +29,7 @@ BASE_URL = os.environ.get("E2E_BASE_URL", "http://localhost:8000")
 AUTH_USERNAME = os.environ.get("E2E_AUTH_USERNAME", "admin")
 AUTH_PASSWORD = os.environ.get("E2E_AUTH_PASSWORD", "quickpulse")
 # DS264102S has 8 production orders with photos populated (verified
-# against live Kingdee on 2026-05-11 — see scripts/_probe_output/).
+# against live Kingdee on 2026-05-11 — see docs/probes/_probe_output/).
 MTO_NUMBER = "DS264102S"
 _SCREENSHOT_DIR = Path(__file__).parent
 
