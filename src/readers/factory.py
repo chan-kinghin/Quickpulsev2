@@ -8,7 +8,7 @@ configuration system. Each reader is defined by:
 - field_mappings: Dict mapping model field -> (Kingdee field, type converter)
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Any, Callable, Generic, Optional, Type, TypeVar
@@ -72,6 +72,13 @@ class ReaderConfig:
     bill_field: str = "FBillNo"
     # Extra filter applied to all queries (e.g., status filters)
     extra_filter: str = ""
+    # Extra raw Kingdee fields to request that are not in field_mappings
+    # (e.g., fields used only by post_process, not mapped 1:1 to model fields)
+    extra_field_keys: list[str] = field(default_factory=list)
+    # Optional post-processing hook called after field_mappings are applied.
+    # Signature: (raw_data: dict, kwargs: dict) -> dict
+    # Returns the (possibly mutated) kwargs dict before model construction.
+    post_process: Optional[Callable[[dict, dict], dict]] = None
 
 
 class GenericReader(Generic[T]):
@@ -92,6 +99,7 @@ class GenericReader(Generic[T]):
             keys.append(mapping.kingdee_field)
             if mapping.fallback_field:
                 keys.append(mapping.fallback_field)
+        keys.extend(self.config.extra_field_keys)
         return keys
 
     @property
@@ -110,6 +118,8 @@ class GenericReader(Generic[T]):
             if value is None and mapping.fallback_field:
                 value = raw_data.get(mapping.fallback_field)
             kwargs[model_field] = mapping.converter(value)
+        if self.config.post_process is not None:
+            kwargs = self.config.post_process(raw_data, kwargs)
         return self.config.model_class(**kwargs)
 
     async def fetch_by_mto(self, mto_number: str) -> list[T]:
@@ -426,6 +436,25 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
     extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
+def _compute_sales_order_close_status(raw_data: dict, kwargs: dict) -> dict:
+    """OR-merge 3 Kingdee close-status fields into a single 'close_status' value.
+
+    A sales order row is considered closed ('B') if ANY of:
+    - FCloseStatus == 'B'               (header-level close)
+    - FSaleOrderEntry_FMrpCloseStatus == 'B'  (entry-level MRP close)
+    - FSaleOrderEntry_FMANUALROWCLOSE is truthy (manual row close boolean)
+
+    Otherwise returns 'A' (open/active).
+    """
+    header_closed = raw_data.get("FCloseStatus") == "B"
+    mrp_closed = raw_data.get("FSaleOrderEntry_FMrpCloseStatus") == "B"
+    manual_val = raw_data.get("FSaleOrderEntry_FMANUALROWCLOSE")
+    # Normalize boolean: handles True/False, "true"/"false", 1/0, None
+    manual_closed = bool(manual_val) and str(manual_val).lower() != "false"
+    kwargs["close_status"] = "B" if (header_closed or mrp_closed or manual_closed) else "A"
+    return kwargs
+
+
 SALES_ORDER_CONFIG = ReaderConfig(
     form_id="SAL_SaleOrder",
     # Note: MTO can be in FMtoNo (entry-level) or F_QWJI_JHGZH (header-level)
@@ -446,6 +475,13 @@ SALES_ORDER_CONFIG = ReaderConfig(
         # See PRODUCTION_BOM_CONFIG; same single-chain trick for 07.xx 成品.
         "material_group_name": FieldMapping("FMaterialId.FMaterialGroup"),
     },
+    # Extra raw fields needed by post_process but not mapped 1:1 to model fields
+    extra_field_keys=[
+        "FCloseStatus",
+        "FSaleOrderEntry_FMrpCloseStatus",
+        "FSaleOrderEntry_FMANUALROWCLOSE",
+    ],
+    post_process=_compute_sales_order_close_status,
 )
 
 

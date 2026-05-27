@@ -282,14 +282,14 @@ class CacheReader:
             """
             SELECT bill_no, mto_number, material_code, material_name, specification,
                    aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
-                   bom_short_name, material_group_name, raw_data, synced_at
+                   bom_short_name, material_group_name, close_status, raw_data, synced_at
             FROM cached_sales_orders
             WHERE mto_number LIKE ?
             """,
             [f"{mto_number}%"],
         )
         return self._build_cache_result(
-            rows, self._row_to_sales_order, synced_at_index=13
+            rows, self._row_to_sales_order, synced_at_index=14
         )
 
     async def get_mto_bom_joined(self, mto_number: str) -> CacheResult:
@@ -1324,7 +1324,7 @@ class CacheReader:
         0: bill_no, 1: mto_number, 2: material_code, 3: material_name,
         4: specification, 5: aux_attributes, 6: aux_prop_id, 7: customer_name,
         8: delivery_date, 9: qty, 10: bom_short_name, 11: material_group_name,
-        12: raw_data, 13: synced_at
+        12: close_status, 13: raw_data, 14: synced_at
         """
         return SalesOrderModel(
             bill_no=row[0] or "",
@@ -1339,4 +1339,5 @@ class CacheReader:
             qty=Decimal(str(row[9] or 0)),
             bom_short_name=row[10] or "",
             material_group_name=row[11] or "",
+            close_status=row[12] or "A",
         )

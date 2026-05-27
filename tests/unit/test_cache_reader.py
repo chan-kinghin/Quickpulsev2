@@ -852,8 +852,9 @@ class TestCacheReaderRowConversion:
             Decimal("1000.00"), # 9: qty
             "BOM-A1",           # 10: bom_short_name
             "护目镜",            # 11: material_group_name
-            '{"raw": "data"}',  # 12: raw_data
-            "2026-01-01 08:00:00",  # 13: synced_at
+            "A",                # 12: close_status
+            '{"raw": "data"}',  # 13: raw_data
+            "2026-01-01 08:00:00",  # 14: synced_at
         )
 
         model = reader._row_to_sales_order(row)
@@ -889,8 +890,9 @@ class TestCacheReaderRowConversion:
             None,          # 9: qty
             None,          # 10: bom_short_name
             None,          # 11: material_group_name
-            None,          # 12: raw_data
-            None,          # 13: synced_at
+            None,          # 12: close_status
+            None,          # 13: raw_data
+            None,          # 14: synced_at
         )
 
         model = reader._row_to_sales_order(row)
