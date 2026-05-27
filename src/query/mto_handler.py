@@ -1404,6 +1404,11 @@ class MTOQueryHandler:
         # 销售订单.数量
         sales_order_qty = sum(getattr(so, "qty", ZERO) for so in sales_orders)
 
+        # OR-semantics: if any contributing sales order is closed, the merged child is closed
+        close_status = "B" if any(
+            getattr(so, "close_status", "A") == "B" for so in sales_orders
+        ) else "A"
+
         # 生产入库单.实收数量 — try exact (code, aux) first, then sum all aux variants
         # in case SAL_SaleOrder and PRD_INSTOCK have different aux_prop_id values
         prod_instock_real_qty = self._lookup_finished_receipt(
@@ -1434,6 +1439,7 @@ class MTOQueryHandler:
             prod_instock_real_qty=prod_instock_real_qty,
             purchase_stock_in_qty=purchase_stock_in_qty,
             photo_file_ids=list(photo_file_ids or []),
+            close_status=close_status,
         )
 
     @staticmethod
