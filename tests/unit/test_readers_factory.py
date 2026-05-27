@@ -21,6 +21,7 @@ from src.readers.factory import (
     ProductionReceiptReader,
     PurchaseOrderReader,
     PurchaseReceiptReader,
+    SalesOrderReader,
     SubcontractingOrderReader,
     _decimal,
     _int,
@@ -354,3 +355,98 @@ class TestTypedReaders:
         """Test SubcontractingOrderReader initialization."""
         reader = SubcontractingOrderReader(mock_kingdee_client)
         assert reader.form_id == "SUB_SUBREQORDER"
+
+
+class TestSalesOrderCloseStatus:
+    """Tests for _compute_sales_order_close_status OR-merge logic.
+
+    Exercises the post_process hook via the public GenericReader.to_model API
+    so we test the full conversion pipeline, not the private function directly.
+    """
+
+    # Minimal raw_data skeleton — fields not involved in close_status get safe defaults.
+    _BASE = {
+        "FBillNo": "SO001",
+        "FMtoNo": "AK2510001",
+        "F_QWJI_JHGZH": "",
+        "FMaterialId.FNumber": "07.02.037",
+        "FMaterialId.FName": "成品A",
+        "FMaterialId.FSpecification": "",
+        "FAuxPropId": 0,
+        "FCustId.FName": "客户A",
+        "FDeliveryDate": None,
+        "FQty": "100",
+        "FBomId.FName": "",
+        "FMaterialId.FMaterialGroup": "",
+    }
+
+    def _make_reader(self, mock_kingdee_client):
+        return SalesOrderReader(mock_kingdee_client)
+
+    def _raw(self, **overrides):
+        data = dict(self._BASE)
+        data.update(overrides)
+        return data
+
+    def test_close_status_all_normal_returns_a(self, mock_kingdee_client):
+        """All three close fields at normal values → close_status='A'."""
+        reader = self._make_reader(mock_kingdee_client)
+        raw = self._raw(
+            FCloseStatus="A",
+            FSaleOrderEntry_FMrpCloseStatus="A",
+            FSaleOrderEntry_FMANUALROWCLOSE=False,
+        )
+        result = reader.to_model(raw)
+        assert result.close_status == "A"
+
+    def test_close_status_header_closed_returns_b(self, mock_kingdee_client):
+        """FCloseStatus='B' (header-level close) → close_status='B'."""
+        reader = self._make_reader(mock_kingdee_client)
+        raw = self._raw(
+            FCloseStatus="B",
+            FSaleOrderEntry_FMrpCloseStatus="A",
+            FSaleOrderEntry_FMANUALROWCLOSE=False,
+        )
+        result = reader.to_model(raw)
+        assert result.close_status == "B"
+
+    def test_close_status_mrp_closed_returns_b(self, mock_kingdee_client):
+        """FSaleOrderEntry_FMrpCloseStatus='B' (MRP close) → close_status='B'."""
+        reader = self._make_reader(mock_kingdee_client)
+        raw = self._raw(
+            FCloseStatus="A",
+            FSaleOrderEntry_FMrpCloseStatus="B",
+            FSaleOrderEntry_FMANUALROWCLOSE=False,
+        )
+        result = reader.to_model(raw)
+        assert result.close_status == "B"
+
+    def test_close_status_manual_row_close_bool_true_returns_b(self, mock_kingdee_client):
+        """FSaleOrderEntry_FMANUALROWCLOSE=True (bool) → close_status='B'."""
+        reader = self._make_reader(mock_kingdee_client)
+        raw = self._raw(
+            FCloseStatus="A",
+            FSaleOrderEntry_FMrpCloseStatus="A",
+            FSaleOrderEntry_FMANUALROWCLOSE=True,
+        )
+        result = reader.to_model(raw)
+        assert result.close_status == "B"
+
+    def test_close_status_manual_row_close_string_true_returns_b(self, mock_kingdee_client):
+        """FSaleOrderEntry_FMANUALROWCLOSE='true' (string) → close_status='B'."""
+        reader = self._make_reader(mock_kingdee_client)
+        raw = self._raw(
+            FCloseStatus="A",
+            FSaleOrderEntry_FMrpCloseStatus="A",
+            FSaleOrderEntry_FMANUALROWCLOSE="true",
+        )
+        result = reader.to_model(raw)
+        assert result.close_status == "B"
+
+    def test_close_status_missing_fields_defaults_to_a(self, mock_kingdee_client):
+        """All three close-status fields absent from raw_data → defaults to 'A'."""
+        reader = self._make_reader(mock_kingdee_client)
+        # Use base dict with no FCloseStatus / FMrpCloseStatus / FMANUALROWCLOSE keys
+        raw = dict(self._BASE)  # none of the three close fields present
+        result = reader.to_model(raw)
+        assert result.close_status == "A"

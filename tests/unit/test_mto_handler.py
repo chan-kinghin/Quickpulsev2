@@ -1858,6 +1858,80 @@ class TestBomRowToChild:
         assert any("bom_row_category_fallback" in r.message for r in caplog.records)
 
 
+class TestAggregatedSalesChildCloseStatus:
+    """Tests for the OR-merge of close_status in _build_aggregated_sales_child.
+
+    Verifies that if ANY sales order in the grouped list is closed ('B'),
+    the resulting ChildItem.close_status is also 'B'.
+    """
+
+    def _make_handler(self):
+        """Build a minimal MTOQueryHandler with all-MagicMock readers."""
+        readers = {}
+        for name in [
+            "production_order",
+            "production_bom",
+            "production_receipt",
+            "purchase_order",
+            "purchase_receipt",
+            "subcontracting_order",
+            "material_picking",
+            "sales_delivery",
+            "sales_order",
+        ]:
+            mock = MagicMock()
+            mock.client = MagicMock()
+            mock.client.lookup_aux_properties = AsyncMock(return_value={})
+            mock.fetch_by_mto = AsyncMock(return_value=[])
+            readers[name] = mock
+        return MTOQueryHandler(
+            production_order_reader=readers["production_order"],
+            production_bom_reader=readers["production_bom"],
+            production_receipt_reader=readers["production_receipt"],
+            purchase_order_reader=readers["purchase_order"],
+            purchase_receipt_reader=readers["purchase_receipt"],
+            subcontracting_order_reader=readers["subcontracting_order"],
+            material_picking_reader=readers["material_picking"],
+            sales_delivery_reader=readers["sales_delivery"],
+            sales_order_reader=readers["sales_order"],
+        )
+
+    def _so(self, close_status="A") -> SalesOrderModel:
+        return SalesOrderModel(
+            bill_no="SO_TEST",
+            mto_number="AS_TEST",
+            material_code="07.02.037",
+            material_name="成品A",
+            specification="",
+            customer_name="客户A",
+            close_status=close_status,
+        )
+
+    def test_aggregated_sales_child_all_open_close_status_a(self):
+        """Three sales orders all open → ChildItem.close_status == 'A'."""
+        handler = self._make_handler()
+        sales_orders = [self._so("A"), self._so("A"), self._so("A")]
+        child = handler._build_aggregated_sales_child(
+            sales_orders=sales_orders,
+            receipt_by_material={},
+            delivered_by_material={},
+            aux_descriptions={},
+        )
+        assert child.close_status == "A"
+
+    def test_aggregated_sales_child_one_closed_close_status_b(self):
+        """Three sales orders, middle one closed → ChildItem.close_status == 'B'."""
+        handler = self._make_handler()
+        sales_orders = [self._so("A"), self._so("B"), self._so("A")]
+        child = handler._build_aggregated_sales_child(
+            sales_orders=sales_orders,
+            receipt_by_material={},
+            delivered_by_material={},
+            aux_descriptions={},
+        )
+        assert child.close_status == "B"
+
+
 # Test fixtures
 @pytest.fixture
 def mock_readers():
