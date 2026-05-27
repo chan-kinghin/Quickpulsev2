@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS cached_sales_orders (
     qty REAL DEFAULT 0,
     bom_short_name TEXT DEFAULT '',  -- BOM简称
     material_group_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialGroup.FName (e.g. "护目镜")
+    close_status TEXT DEFAULT 'A',  -- 'A'=正常, 'B'=已关闭 (OR of header FCloseStatus + row FMrpCloseStatus + FMANUALROWCLOSE)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bill_no, mto_number, material_code, aux_prop_id)

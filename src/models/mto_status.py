@@ -93,6 +93,8 @@ class ChildItem(BaseModel):
         description="Kingdee photo FileIDs for this row (deduplicated union across all matching PRD_MO orders). Empty list when no photos. Resolve via GET /api/photo/{file_id}.",
     )
 
+    close_status: Optional[str] = None  # Only set for 07.xx finished goods (from sales order)
+
 
 class MTOStatusResponse(BaseModel):
     """Complete MTO status response."""

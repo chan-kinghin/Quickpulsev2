@@ -1,0 +1,23 @@
+-- 017: Add close_status to cached_sales_orders for 销售订单关闭状态 display.
+--
+-- Background: Kingdee SAL_SaleOrder has a "关闭状态" column in the UI (值:
+-- 正常 / 已关闭). QuickPulse currently shows closed sales order rows in the
+-- dashboard "剩余未出" figures, which misleads the user into tracking orders
+-- that are already closed in the ERP.
+--
+-- OR-semantics: a row is considered 已关闭 ('B') when ANY of these three
+-- Kingdee fields is closed:
+--   * FCloseStatus            (单据头级别, 整单关闭)
+--   * FSaleOrderEntry_FMrpCloseStatus  (行级, MRP 关闭 — 业务流断开)
+--   * FSaleOrderEntry_FMANUALROWCLOSE  (行级, 手工行关闭)
+-- The three fields are OR-merged by the factory post-processor into a single
+-- close_status: 'A' (正常) or 'B' (已关闭).
+--
+-- Purpose: dashboard can default-hide 已关闭 rows and show a toggle; backend
+-- always returns full data set and filtering is client-side.
+-- Default 'A' means existing rows (and any row with missing data) are treated
+-- as 正常, which matches the current behavior before this field existed.
+--
+-- See: docs/PLAN_close_status_2026-05-27.md
+
+ALTER TABLE cached_sales_orders ADD COLUMN close_status TEXT DEFAULT 'A';

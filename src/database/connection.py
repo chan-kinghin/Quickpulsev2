@@ -83,6 +83,8 @@ class Database:
                 ("cached_production_bom", "category_name"),
             "016_add_is_purchase_to_bom.sql":
                 ("cached_production_bom", "is_purchase"),
+            "017_add_close_status_to_sales_orders.sql":
+                ("cached_sales_orders", "close_status"),
         }
 
         # Apply new migrations in sorted order

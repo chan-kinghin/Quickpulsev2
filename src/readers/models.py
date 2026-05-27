@@ -150,3 +150,4 @@ class SalesOrderModel(BaseModel):
     qty: Decimal = Decimal("0")  # 销售数量
     bom_short_name: str = ""  # BOM简称
     material_group_name: str = ""  # BD_MATERIAL.MaterialGroup.FName, e.g. "护目镜"
+    close_status: str = "A"  # 关闭状态: 'A'=正常, 'B'=已关闭 (OR-merged from header FCloseStatus + row FMrpCloseStatus + FMANUALROWCLOSE)
