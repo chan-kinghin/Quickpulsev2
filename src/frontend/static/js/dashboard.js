@@ -20,6 +20,7 @@ function mtoSearch() {
             status: 'all', // 保留但简化
             searchText: ''
         },
+        showClosedRows: false,
 
         // === Column Configuration ===
         // 列名直接使用金蝶的"表单.字段名"格式，不做任何计算
@@ -30,6 +31,7 @@ function mtoSearch() {
             { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
+            { key: 'close_status', label: '关闭状态', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 160, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'material_type', label: '物料类型', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false },
             { key: 'material_group_name', label: '物料分组', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false },
             // 数量列：根据物料类型显示不同来源
@@ -210,6 +212,11 @@ function mtoSearch() {
                     this.searchHistory = prefs.searchHistory;
                 }
 
+                // Apply close-status toggle
+                if (prefs.showClosedRows !== undefined) {
+                    this.showClosedRows = prefs.showClosedRows;
+                }
+
                 console.log('Preferences loaded');
             } catch (e) {
                 console.warn('Failed to load preferences:', e);
@@ -226,7 +233,8 @@ function mtoSearch() {
                         status: this.filters.status
                     },
                     sort: this.sort,
-                    searchHistory: this.searchHistory
+                    searchHistory: this.searchHistory,
+                    showClosedRows: this.showClosedRows
                 };
 
                 this.columns.forEach(col => {
@@ -245,6 +253,9 @@ function mtoSearch() {
         // === Computed Properties (as methods for Alpine.js) ===
         getFilteredItems() {
             return this.childItems.filter(item => {
+                // Close-status filter: hide closed (B) rows by default unless toggle is on
+                if (!this.showClosedRows && item.close_status === 'B') return false;
+
                 // Material type filter
                 if (!this.filters.materialTypes[item.material_type]) return false;
 
@@ -324,6 +335,11 @@ function mtoSearch() {
         // === Filter Methods ===
         toggleMaterialType(type) {
             this.filters.materialTypes[type] = !this.filters.materialTypes[type];
+            this.savePreferences();
+        },
+
+        toggleShowClosedRows() {
+            this.showClosedRows = !this.showClosedRows;
             this.savePreferences();
         },
 

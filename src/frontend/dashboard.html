@@ -318,6 +318,16 @@
                         </button>
                     </div>
 
+                    <!-- Close Status Filter -->
+                    <div class="filter-group">
+                        <span class="filter-label">关闭状态:</span>
+                        <button @click="toggleShowClosedRows()"
+                                class="filter-chip"
+                                :class="showClosedRows ? 'filter-chip-active bg-rose-900/60 text-rose-300 border-rose-700' : 'filter-chip-inactive'">
+                            <span x-text="showClosedRows ? '显示已关闭' : '隐藏已关闭'"></span>
+                        </button>
+                    </div>
+
                     <!-- Text Search -->
                     <div class="filter-search relative">
                         <i data-lucide="search" class="w-4 h-4 filter-search-icon"></i>
@@ -419,6 +429,23 @@
                                     :style="getColumnStyle('aux_attributes')">
                                     辅助属性
                                     <div class="resize-handle" @mousedown.stop="startResize($event, 'aux_attributes')" @dblclick.stop="autoFitColumn('aux_attributes')"></div>
+                                </th>
+                                <!-- 关闭状态 - sortable -->
+                                <th scope="col" :class="{ 'col-hidden': !colVisible('close_status') }"
+                                    @click="toggleSort('close_status')"
+                                    role="button"
+                                    :aria-sort="sort.column === 'close_status' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
+                                    :aria-label="'关闭状态排序' + (sort.column === 'close_status' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
+                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'close_status')"
+                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
+                                    :style="getColumnStyle('close_status')">
+                                    <div class="flex items-center gap-1">
+                                        <span>关闭状态</span>
+                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'close_status'"></i>
+                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'close_status' && sort.direction === 'asc'"></i>
+                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'close_status' && sort.direction === 'desc'"></i>
+                                    </div>
+                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'close_status')" @dblclick.stop="autoFitColumn('close_status')"></div>
                                 </th>
                                 <!-- 物料类型 - sortable -->
                                 <th scope="col" :class="{ 'col-hidden': !colVisible('material_type') }"
@@ -591,6 +618,18 @@
                                     <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" role="cell" class="px-4 py-3 text-slate-400 text-xs break-words"
                                         :title="item.aux_attributes || ''"
                                         x-text="item.aux_attributes || '-'"></td>
+                                    <!-- 关闭状态 -->
+                                    <td :class="{ 'col-hidden': !colVisible('close_status') }" role="cell" class="px-4 py-3 text-center">
+                                        <template x-if="item.close_status === 'A'">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300 border border-emerald-700">正常</span>
+                                        </template>
+                                        <template x-if="item.close_status === 'B'">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-rose-500/20 text-rose-300 border border-rose-700">已关闭</span>
+                                        </template>
+                                        <template x-if="!item.close_status">
+                                            <span class="text-slate-600">—</span>
+                                        </template>
+                                    </td>
                                     <td :class="{ 'col-hidden': !colVisible('material_type') }" role="cell" class="px-4 py-3">
                                         <span class="px-2 py-1 rounded text-xs font-medium"
                                               :class="getMaterialTypeBadge(item.material_type)"
@@ -640,6 +679,7 @@
                                 <td :class="{ 'col-hidden': !colVisible('specification') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('bom_short_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('aux_attributes') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
+                                <td :class="{ 'col-hidden': !colVisible('close_status') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('material_type') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('material_group_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <!-- 绿色组合计 -->
