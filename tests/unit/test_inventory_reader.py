@@ -728,3 +728,99 @@ async def test_typo_retry_not_fired_when_first_pass_has_hits():
     assert not any("%K-66%" in fs for _, fs in call_log), (
         "Retry should not fire when first pass has results"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix 3 — aux cap warning
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_aux_cap_emits_warning_log(caplog):
+    """When aux_rows length equals _AUX_BATCH_SIZE (200), a WARNING must be logged."""
+    import logging
+    from src.readers.inventory import _AUX_BATCH_SIZE
+
+    client = make_client()
+
+    # Return exactly _AUX_BATCH_SIZE aux rows so the cap-hit branch fires
+    aux_rows = [{"FID": i, "FF100001": "", "FF100002.FName": ""} for i in range(1, _AUX_BATCH_SIZE + 1)]
+
+    async def fake_query(*, form_id, **kw):
+        if form_id == "BD_FLEXSITEMDETAILV":
+            return aux_rows
+        return []
+
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = make_reader(client)
+
+    with caplog.at_level(logging.WARNING, logger="src.readers.inventory"):
+        await reader._candidates_for_token("黑色", "")
+
+    assert any(
+        "Aux discovery cap hit" in r.message and "黑色" in r.message
+        for r in caplog.records
+    ), f"Expected cap-hit warning not found. Records: {[r.message for r in caplog.records]}"
+
+
+# ---------------------------------------------------------------------------
+# Fix 4 — _customer_lookup graceful degradation when table is missing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_customer_lookup_missing_table_returns_empty_set(caplog):
+    """When cached_sales_orders doesn't exist, _customer_lookup returns set() and warns."""
+    import logging
+    import aiosqlite
+
+    class RealDb:
+        def __init__(self, conn):
+            self.conn = conn
+
+        async def execute_read(self, query, params=None):
+            async with self.conn.execute(query, params or []) as cur:
+                return await cur.fetchall()
+
+    async with aiosqlite.connect(":memory:") as conn:
+        # Deliberately do NOT create cached_sales_orders table
+        reader = InventoryReader(make_client(), db=RealDb(conn))
+
+        with caplog.at_level(logging.WARNING, logger="src.readers.inventory"):
+            result = await reader._customer_lookup("巴西")
+
+    assert result == set()
+    assert any(
+        "cached_sales_orders" in r.message
+        for r in caplog.records
+    ), f"Expected warning about missing table not found. Records: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_customer_lookup_missing_table_doesnt_break_search():
+    """search_materials must succeed (returning BD_MATERIAL results) when cached_sales_orders is absent."""
+    import aiosqlite
+
+    class RealDb:
+        def __init__(self, conn):
+            self.conn = conn
+
+        async def execute_read(self, query, params=None):
+            async with self.conn.execute(query, params or []) as cur:
+                return await cur.fetchall()
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        if form_id == "BD_MATERIAL":
+            if "FNumber IN" in filter_string:
+                return [{"FNumber": "07.01.001", "FName": "潜水镜", "FSpecification": "", "FErpClsID": "9"}]
+            return [{"FNumber": "07.01.001"}]
+        return []
+
+    client = make_client()
+    client.query = AsyncMock(side_effect=fake_query)
+
+    async with aiosqlite.connect(":memory:") as conn:
+        # No cached_sales_orders table
+        reader = InventoryReader(client, db=RealDb(conn))
+        resp = await reader.search_materials("test")
+
+    assert resp.total == 1
+    assert resp.items[0].material_code == "07.01.001"

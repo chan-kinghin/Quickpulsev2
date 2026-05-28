@@ -1,7 +1,9 @@
 """Inventory search reader — material → warehouse breakdown via Kingdee STK_Inventory."""
 
 import asyncio
+import logging
 import re
+import sqlite3
 from decimal import Decimal
 from typing import Optional
 
@@ -13,6 +15,8 @@ from src.models.inventory import (
     MaterialMatch,
     WarehouseRow,
 )
+
+logger = logging.getLogger(__name__)
 
 # Whitelist per-token: CJK + ASCII alnum + dot + dash + underscore, length 2-50
 # Note: spaces are stripped before per-token validation; individual tokens must not contain spaces.
@@ -95,11 +99,18 @@ class InventoryReader:
             return set()
         # Escape SQL LIKE wildcards in user input — defense in depth
         safe = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        rows = await self.db.execute_read(
-            "SELECT DISTINCT material_code FROM cached_sales_orders "
-            "WHERE customer_name LIKE ? ESCAPE '\\'",
-            [f"%{safe}%"],
-        )
+        try:
+            rows = await self.db.execute_read(
+                "SELECT DISTINCT material_code FROM cached_sales_orders "
+                "WHERE customer_name LIKE ? ESCAPE '\\'",
+                [f"%{safe}%"],
+            )
+        except sqlite3.OperationalError as exc:
+            logger.warning(
+                "Customer lookup unavailable (cached_sales_orders likely missing — "
+                "first sync pending?): %s", exc,
+            )
+            return set()
         return {r[0] for r in rows if r[0]}
 
     async def search_materials(
@@ -218,6 +229,13 @@ class InventoryReader:
             ),
             self._customer_lookup(token),
         )
+
+        if len(aux_rows) >= _AUX_BATCH_SIZE:
+            logger.warning(
+                "Aux discovery cap hit for token=%s — truncated to %d aux IDs; "
+                "intersection result may miss matches via this token",
+                token, _AUX_BATCH_SIZE,
+            )
 
         sources: dict[str, set[str]] = {}
 

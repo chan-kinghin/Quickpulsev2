@@ -433,6 +433,7 @@
                 // search() — query /api/inventory/search
                 // ----------------------------------------------------------------
                 async search() {
+                    if (this.loading) return;
                     const trimmed = this.q.trim();
 
                     if (trimmed.length < 2) {
@@ -499,7 +500,6 @@
                 // ----------------------------------------------------------------
                 back() {
                     this.selectedMaterial = null;
-                    this.includeZero = false;
                     this.errorMsg = '';
                     this.$nextTick(() => lucide.createIcons());
                 },
@@ -542,7 +542,7 @@
                 // Formatting helpers
                 // ----------------------------------------------------------------
                 formatQty(val) {
-                    if (val == null) return '-';
+                    if (val == null || isNaN(val)) return '-';
                     return new Intl.NumberFormat('zh-CN', {
                         maximumFractionDigits: 2,
                         minimumFractionDigits: 0
