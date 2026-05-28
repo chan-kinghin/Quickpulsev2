@@ -87,7 +87,7 @@ class TestSearch:
     @pytest.mark.asyncio
     async def test_search_validates_q_max_length(self):
         app = _build_app(_mock_reader())
-        long_q = "x" * 51
+        long_q = "x" * 201
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -265,3 +265,54 @@ class TestRateLimit:
                 )
                 responses.append(resp.status_code)
         assert 429 in responses
+
+
+# ---------------------------------------------------------------------------
+# TestErpClassFilter
+# ---------------------------------------------------------------------------
+
+
+class TestErpClassFilter:
+    @pytest.fixture(autouse=True)
+    def reset_limiter(self):
+        """Clear the module-level slowapi MemoryStorage before each test.
+
+        TestRateLimit (same module) exhausts the 20/min quota for 127.0.0.1.
+        Resetting the storage lets these tests run without hitting 429.
+        """
+        from src.api.middleware.rate_limit import limiter
+        limiter._storage.reset()
+        yield
+
+    @pytest.mark.asyncio
+    async def test_search_passes_erp_class_to_reader(self):
+        """?erp_class=1,9 must arrive at reader.search_materials as erp_classes=["1","9"]."""
+        reader = _mock_reader()
+        app = _build_app(reader)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/inventory/search?q=GT38&erp_class=1,9", headers=_auth_header()
+            )
+        assert resp.status_code == 200
+        reader.search_materials.assert_called_once_with(
+            q="GT38", limit=20, erp_classes=["1", "9"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_invalid_erp_class_returns_400(self):
+        """An invalid erp_class code must cause the reader to raise ValueError → 400."""
+        reader = _mock_reader()
+        reader.search_materials = AsyncMock(
+            side_effect=ValueError("Invalid erp_class values: ['foo']")
+        )
+        app = _build_app(reader)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/inventory/search?q=GT38&erp_class=foo", headers=_auth_header()
+            )
+        assert resp.status_code == 400
+        assert "Invalid erp_class" in resp.json()["detail"]

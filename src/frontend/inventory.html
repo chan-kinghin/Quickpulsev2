@@ -64,7 +64,7 @@
                                id="inventory-search"
                                x-model="q"
                                @keydown.enter="search()"
-                               placeholder="输入物料编码 / 名称 / 规格（至少 2 个字符）"
+                               placeholder="输入物料编码 / 名称 / 规格 / 颜色（多关键词用空格分隔，如：黑色 网袋）"
                                aria-label="物料搜索"
                                aria-describedby="inventory-search-help"
                                autocomplete="off"
@@ -87,6 +87,27 @@
                 <p class="text-xs text-slate-600 mt-2">
                     支持模糊匹配：输入部分编码、名称片段或规格型号
                 </p>
+            </section>
+
+            <!-- ERP class filter -->
+            <section class="mb-6" x-show="!selectedMaterial" x-cloak>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs text-slate-500">物料类型:</span>
+                    <template x-for="cls in erpClassOptions" :key="cls.code">
+                        <button @click="toggleErpClass(cls.code)"
+                                :class="erpClassFilter.includes(cls.code)
+                                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'"
+                                class="px-3 py-1 text-xs border rounded transition"
+                                x-text="cls.label">
+                        </button>
+                    </template>
+                    <button @click="clearErpClassFilter()"
+                            x-show="erpClassFilter.length > 0"
+                            class="text-xs text-slate-500 hover:text-slate-300 underline ml-2">
+                        清除
+                    </button>
+                </div>
             </section>
 
             <!-- Error banner -->
@@ -382,6 +403,14 @@
                 errorMsg: '',
                 multiOrg: false,        // controls org column visibility
                 searchPerformed: false,
+                erpClassFilter: [],     // selected erp class codes e.g. ["1","9"]
+                erpClassOptions: [
+                    { code: "1", label: "外购" },
+                    { code: "2", label: "自制" },
+                    { code: "3", label: "委外" },
+                    { code: "9", label: "成品" },
+                    { code: "4", label: "虚拟件" },
+                ],
 
                 // --- lifecycle ---
                 initPage() {
@@ -413,8 +442,11 @@
                     this.searchPerformed = true;
 
                     try {
+                        const erpParam = this.erpClassFilter.length > 0
+                            ? `&erp_class=${this.erpClassFilter.join(',')}`
+                            : '';
                         const data = await api.request(
-                            `/inventory/search?q=${encodeURIComponent(trimmed)}&limit=50`
+                            `/inventory/search?q=${encodeURIComponent(trimmed)}&limit=50${erpParam}`
                         );
                         this.results = data.items || [];
                         this.resultsTotal = data.total ?? this.results.length;
@@ -458,6 +490,21 @@
                     this.includeZero = false;
                     this.errorMsg = '';
                     this.$nextTick(() => lucide.createIcons());
+                },
+
+                // ----------------------------------------------------------------
+                // toggleErpClass() / clearErpClassFilter() — erp class filter
+                // ----------------------------------------------------------------
+                toggleErpClass(code) {
+                    const i = this.erpClassFilter.indexOf(code);
+                    if (i >= 0) this.erpClassFilter.splice(i, 1);
+                    else this.erpClassFilter.push(code);
+                    if (this.q.trim().length >= 2) this.search();
+                },
+
+                clearErpClassFilter() {
+                    this.erpClassFilter = [];
+                    if (this.q.trim().length >= 2) this.search();
                 },
 
                 // ----------------------------------------------------------------

@@ -3,6 +3,7 @@
 import asyncio
 import re
 from decimal import Decimal
+from typing import Optional
 
 from src.kingdee.client import KingdeeClient
 from src.models.inventory import (
@@ -13,8 +14,9 @@ from src.models.inventory import (
     WarehouseRow,
 )
 
-# Whitelist: CJK + ASCII alnum + dot + dash + underscore + space, length 2-50
-_QUERY_RE = re.compile(r"^[\w\s一-鿿\.\-]{2,50}$")
+# Whitelist per-token: CJK + ASCII alnum + dot + dash + underscore, length 2-50
+# Note: spaces are stripped before per-token validation; individual tokens must not contain spaces.
+_QUERY_RE = re.compile(r"^[\w一-鿿\.\-]{2,50}$")
 
 _BD_MATERIAL_FIELDS = ["FNumber", "FName", "FSpecification", "FErpClsID"]
 _STK_INVENTORY_FIELDS = [
@@ -30,10 +32,14 @@ _AUX_FIELDS = ["FID", "FF100001", "FF100002.FName"]
 
 _AUX_BATCH_SIZE = 200
 _SEARCH_SERVER_CAP = 50
+_MAX_TOKENS = 4
+
+# Valid erp_class codes accepted by the filter
+_VALID_ERP_CLASSES = {"1", "2", "3", "4", "9"}
 
 
 def sanitize_query(q: str) -> str:
-    """Validate user query before injecting into Kingdee FilterString.
+    """Validate a single query token before injecting into Kingdee FilterString.
 
     Raises ValueError if invalid. Returns SQL-escaped string (single quotes doubled)
     even though regex already blocks them — defense in depth.
@@ -44,34 +50,93 @@ def sanitize_query(q: str) -> str:
     return q.replace("'", "''")
 
 
+def tokenize(q: str) -> list[str]:
+    """Split query on ASCII space and CJK fullwidth space (\\u3000).
+
+    Each resulting token is individually validated by sanitize_query().
+    Empty parts are dropped. Raises ValueError if more than _MAX_TOKENS tokens
+    are produced, or if any token fails sanitize_query().
+    """
+    raw_tokens = re.split(r"[\s　]+", q.strip())
+    tokens = [t for t in raw_tokens if t]  # drop empties
+    if len(tokens) > _MAX_TOKENS:
+        raise ValueError(
+            f"Too many search tokens ({len(tokens)}); maximum is {_MAX_TOKENS}"
+        )
+    return [sanitize_query(t) for t in tokens]
+
+
 class InventoryReader:
     def __init__(self, client: KingdeeClient):
         self.client = client
 
-    async def search_materials(self, q: str, limit: int = 20) -> InventorySearchResponse:
-        """Search materials by code / name / spec, with aux-attribute discovery.
+    async def search_materials(
+        self,
+        q: str,
+        limit: int = 20,
+        erp_classes: Optional[list[str]] = None,
+    ) -> InventorySearchResponse:
+        """Multi-token AND search with optional erp_class filter.
 
-        Two parallel paths:
-        1. BD_MATERIAL fuzzy on FNumber / FName / FSpecification (FForbidStatus='A')
-        2. BD_FLEXSITEMDETAILV fuzzy on FF100001 / FF100002.FName → reverse-lookup
-           materials that have non-zero STK_Inventory rows under those aux IDs.
-        Results are merged, deduped by material_code, capped at server limit.
+        Splits the query on whitespace into up to _MAX_TOKENS tokens. For each
+        token a candidate material_code set is computed via:
+          - BD_MATERIAL path: FNumber/FName/FSpecification LIKE %token%
+          - aux path: BD_FLEXSITEMDETAILV FF100001/FF100002.FName LIKE %token%
+            → aux_ids → STK_Inventory FAuxPropId IN (...) → material codes
+
+        The final result is the intersection of all per-token candidate sets.
+        For a single-token query this is equivalent to the original single-token
+        behavior (union of material + aux paths, no intersection shrinkage).
         """
-        safe_q = sanitize_query(q)
+        tokens = tokenize(q)
         server_limit = min(limit, _SEARCH_SERVER_CAP)
 
-        material_filter = (
-            f"(FNumber like '%{safe_q}%' or FName like '%{safe_q}%' "
-            f"or FSpecification like '%{safe_q}%') and FForbidStatus = 'A'"
+        erp_clause = ""
+        if erp_classes:
+            bad = [c for c in erp_classes if c not in _VALID_ERP_CLASSES]
+            if bad:
+                raise ValueError(f"Invalid erp_class values: {bad}")
+            in_list = ",".join(f"'{c}'" for c in erp_classes)
+            erp_clause = f" and FErpClsID IN ({in_list})"
+
+        # Per-token candidate sets computed in parallel
+        candidate_sets = await asyncio.gather(
+            *[self._candidates_for_token(t, erp_clause) for t in tokens]
         )
-        aux_filter = f"FF100001 like '%{safe_q}%' or FF100002.FName like '%{safe_q}%'"
+
+        final_codes: set[str] = set.intersection(*candidate_sets) if candidate_sets else set()
+        final_codes_list = sorted(final_codes)[:server_limit]
+
+        if not final_codes_list:
+            return InventorySearchResponse(query=q, total=0, items=[])
+
+        rows = await self._fetch_materials_by_codes(final_codes_list, erp_clause=erp_clause)
+        items: list[MaterialMatch] = []
+        seen: set[str] = set()
+        for r in rows:
+            m = _row_to_material_match(r)
+            if m.material_code in seen:
+                continue
+            seen.add(m.material_code)
+            items.append(m)
+
+        return InventorySearchResponse(query=q, total=len(items), items=items)
+
+    async def _candidates_for_token(self, token: str, erp_clause: str) -> set[str]:
+        """Return set of material_codes matching this single token (BD_MATERIAL union aux path)."""
+        material_filter = (
+            f"(FNumber like '%{token}%' or FName like '%{token}%' "
+            f"or FSpecification like '%{token}%') and FForbidStatus = 'A'"
+            f"{erp_clause}"
+        )
+        aux_filter = f"FF100001 like '%{token}%' or FF100002.FName like '%{token}%'"
 
         bd_rows, aux_rows = await asyncio.gather(
             self.client.query(
                 form_id="BD_MATERIAL",
-                field_keys=_BD_MATERIAL_FIELDS,
+                field_keys=["FNumber"],
                 filter_string=material_filter,
-                limit=server_limit,
+                limit=500,
             ),
             self.client.query(
                 form_id="BD_FLEXSITEMDETAILV",
@@ -81,57 +146,25 @@ class InventoryReader:
             ),
         )
 
-        seen: set[str] = set()
-        items: list[MaterialMatch] = []
-        for r in bd_rows:
-            match = _row_to_material_match(r)
-            if match.material_code in seen:
-                continue
-            seen.add(match.material_code)
-            items.append(match)
+        codes: set[str] = {r["FNumber"] for r in bd_rows if r.get("FNumber")}
 
-        if aux_rows and len(items) < server_limit:
+        if aux_rows:
             aux_ids = [str(int(r["FID"])) for r in aux_rows if r.get("FID")]
-            extra_codes = await self._materials_with_aux(aux_ids, exclude=seen, limit=server_limit - len(items))
-            if extra_codes:
-                extras = await self._fetch_materials_by_codes(extra_codes)
-                for r in extras:
-                    match = _row_to_material_match(r)
-                    if match.material_code in seen:
-                        continue
-                    seen.add(match.material_code)
-                    items.append(match)
-                    if len(items) >= server_limit:
-                        break
+            if aux_ids:
+                in_clause = ",".join(aux_ids)
+                inv_rows = await self.client.query(
+                    form_id="STK_Inventory",
+                    field_keys=["FMaterialId.FNumber"],
+                    filter_string=f"FAuxPropId IN ({in_clause}) and FBaseQty <> 0",
+                    limit=2000,
+                )
+                codes |= {r["FMaterialId.FNumber"] for r in inv_rows if r.get("FMaterialId.FNumber")}
 
-        return InventorySearchResponse(query=q, total=len(items), items=items)
-
-    async def _materials_with_aux(
-        self, aux_ids: list[str], exclude: set[str], limit: int,
-    ) -> list[str]:
-        """Find material codes that have non-zero inventory under any of these aux_ids."""
-        if not aux_ids:
-            return []
-        in_clause = ",".join(aux_ids)
-        rows = await self.client.query(
-            form_id="STK_Inventory",
-            field_keys=["FMaterialId.FNumber"],
-            filter_string=f"FAuxPropId IN ({in_clause}) and FBaseQty <> 0",
-            limit=500,
-        )
-        codes: list[str] = []
-        seen_extra: set[str] = set()
-        for r in rows:
-            code = r.get("FMaterialId.FNumber")
-            if not code or code in exclude or code in seen_extra:
-                continue
-            seen_extra.add(code)
-            codes.append(code)
-            if len(codes) >= limit:
-                break
         return codes
 
-    async def _fetch_materials_by_codes(self, codes: list[str]) -> list[dict]:
+    async def _fetch_materials_by_codes(
+        self, codes: list[str], erp_clause: str = ""
+    ) -> list[dict]:
         """Fetch BD_MATERIAL metadata for a list of codes via IN clause."""
         if not codes:
             return []
@@ -139,7 +172,7 @@ class InventoryReader:
         return await self.client.query(
             form_id="BD_MATERIAL",
             field_keys=_BD_MATERIAL_FIELDS,
-            filter_string=f"FNumber IN ({in_clause}) and FForbidStatus = 'A'",
+            filter_string=f"FNumber IN ({in_clause}) and FForbidStatus = 'A'{erp_clause}",
             limit=len(codes),
         )
 

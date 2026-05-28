@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.kingdee.client import KingdeeClient
-from src.readers.inventory import InventoryReader, sanitize_query
+from src.readers.inventory import InventoryReader, sanitize_query, tokenize
 
 
 # ---------------------------------------------------------------------------
@@ -147,12 +147,29 @@ async def test_search_filter_uses_or_across_three_fields():
 
 @pytest.mark.asyncio
 async def test_search_caps_at_fifty_even_if_limit_higher():
+    # The candidate fetch uses a broad limit (500) so intersection doesn't truncate early.
+    # The cap of 50 is enforced when slicing the final intersection result, not at query time.
+    # This test verifies the response never returns more than 50 items.
     client = make_client()
+    all_mat_rows = [
+        {"FNumber": f"07.01.{i:03d}", "FName": f"物料{i}", "FSpecification": "", "FErpClsID": "9"}
+        for i in range(60)
+    ]
+
+    async def fake_query(*, form_id, filter_string="", limit=2000, **kw):
+        if form_id == "BD_MATERIAL":
+            if "FNumber IN" in filter_string:
+                # metadata fetch: only return rows whose code is requested
+                requested = {c.strip("'") for c in filter_string.split("IN (")[1].split(")")[0].split(",")}
+                return [r for r in all_mat_rows if r["FNumber"] in requested]
+            return [{"FNumber": r["FNumber"]} for r in all_mat_rows]  # candidate fetch (code only)
+        return []  # BD_FLEXSITEMDETAILV, STK_Inventory
+
+    client.query = AsyncMock(side_effect=fake_query)
     reader = make_reader(client)
-    await reader.search_materials("GT38", limit=200)
-    kw = _find_call(client, "BD_MATERIAL")
-    assert kw is not None
-    assert kw["limit"] <= 50
+    resp = await reader.search_materials("GT38", limit=200)
+    assert resp.total <= 50
+    assert len(resp.items) <= 50
 
 
 @pytest.mark.asyncio
@@ -397,3 +414,110 @@ async def test_aux_empty_set_returns_empty_dict():
     assert result == {}
     client.query.assert_not_called()
     client.query_all.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# tokenize
+# ---------------------------------------------------------------------------
+
+def test_tokenize_splits_ascii_space():
+    assert tokenize("K66 盒子") == ["K66", "盒子"]
+
+
+def test_tokenize_splits_cjk_space():
+    # CJK fullwidth space U+3000
+    assert tokenize("K66　盒子") == ["K66", "盒子"]
+
+
+def test_tokenize_single_token_no_split():
+    assert tokenize("黑色网袋") == ["黑色网袋"]
+
+
+def test_tokenize_caps_at_four():
+    with pytest.raises(ValueError, match="Too many search tokens"):
+        tokenize("a b c d e")
+
+
+# ---------------------------------------------------------------------------
+# multi-token intersection
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_multi_token_intersection():
+    """Two tokens; final result is the intersection of their candidate sets."""
+    client = make_client()
+
+    # token "网袋": BD_MATERIAL returns codes A and B; aux returns nothing
+    # token "黑色": BD_MATERIAL returns nothing; aux → STK_Inventory returns codes B and C
+    async def fake_query(*, form_id, filter_string="", **kw):
+        if form_id == "BD_MATERIAL":
+            if "网袋" in filter_string and "FNumber IN" not in filter_string:
+                return [{"FNumber": "A"}, {"FNumber": "B"}]
+            if "黑色" in filter_string and "FNumber IN" not in filter_string:
+                return []
+            # metadata fetch for final set (intersection = {"B"})
+            if "FNumber IN" in filter_string:
+                return [{"FNumber": "B", "FName": "黑色网袋", "FSpecification": "", "FErpClsID": "1"}]
+            return []
+        if form_id == "BD_FLEXSITEMDETAILV":
+            if "黑色" in filter_string:
+                return [{"FID": 999, "FF100001": "", "FF100002.FName": "黑色"}]
+            return []
+        if form_id == "STK_Inventory":
+            return [{"FMaterialId.FNumber": "B"}, {"FMaterialId.FNumber": "C"}]
+        return []
+
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = make_reader(client)
+    resp = await reader.search_materials("网袋 黑色")
+
+    codes = [i.material_code for i in resp.items]
+    assert codes == ["B"], f"Expected intersection {{B}}, got {codes}"
+    assert resp.total == 1
+
+
+@pytest.mark.asyncio
+async def test_erp_class_filter_in_kingdee_filter():
+    """erp_classes=["1","9"] must produce FErpClsID IN ('1','9') in BD_MATERIAL filter."""
+    client = make_client()
+    reader = make_reader(client)
+    await reader.search_materials("GT38", erp_classes=["1", "9"])
+    bd_calls = [
+        call.kwargs
+        for call in client.query.call_args_list
+        if call.kwargs.get("form_id") == "BD_MATERIAL"
+        and "FNumber IN" not in call.kwargs.get("filter_string", "")
+    ]
+    assert bd_calls, "BD_MATERIAL should have been queried"
+    assert any("FErpClsID IN ('1','9')" in c["filter_string"] for c in bd_calls)
+
+
+@pytest.mark.asyncio
+async def test_erp_class_invalid_raises():
+    client = make_client()
+    reader = make_reader(client)
+    with pytest.raises(ValueError, match="Invalid erp_class values"):
+        await reader.search_materials("GT38", erp_classes=["7"])
+
+
+@pytest.mark.asyncio
+async def test_multi_token_empty_intersection():
+    """When token candidate sets are disjoint, response is total=0 with empty items."""
+    client = make_client()
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        if form_id == "BD_MATERIAL" and "FNumber IN" not in filter_string:
+            if "网袋" in filter_string:
+                return [{"FNumber": "MAT_NET"}]
+            if "蛙鞋" in filter_string:
+                return [{"FNumber": "MAT_FIN"}]
+            return []
+        # aux and STK_Inventory return nothing
+        return []
+
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = make_reader(client)
+    resp = await reader.search_materials("网袋 蛙鞋")
+    # intersection of {"MAT_NET"} and {"MAT_FIN"} is empty
+    assert resp.total == 0
+    assert resp.items == []

@@ -1,6 +1,7 @@
 """Inventory search endpoints — material-pivot, real-time Kingdee queries."""
 
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
@@ -18,16 +19,21 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 @limiter.limit("20/minute")
 async def search_inventory(
     request: Request,
-    q: str = Query(..., min_length=2, max_length=50),
+    q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(20, ge=1, le=50),
+    erp_class: Optional[str] = Query(
+        None,
+        description="Comma-separated erp class codes to filter by: 1,2,3,4,9",
+    ),
     current_user: str = Depends(get_current_user),
 ):
-    """Search materials by code / name / specification (fuzzy)."""
+    """Search materials by code / name / specification (fuzzy, multi-token AND)."""
     reader = request.app.state.inventory_reader
+    erp_classes = [c.strip() for c in erp_class.split(",")] if erp_class else None
     try:
-        return await reader.search_materials(q=q, limit=limit)
+        return await reader.search_materials(q=q, limit=limit, erp_classes=erp_classes)
     except ValueError as exc:
-        # sanitize_query rejected the input
+        # tokenize or erp_class validation rejected the input
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KingdeeConnectionError as exc:
         logger.exception("Kingdee connection error during inventory search q=%s", q)
