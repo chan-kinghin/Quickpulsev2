@@ -112,14 +112,23 @@ async def test_search_dedupes_duplicate_material_codes():
     assert resp.total == 2
 
 
+def _find_call(client, form_id: str):
+    """Return the kwargs of the client.query call for a given form_id, or None."""
+    for call in client.query.call_args_list:
+        kw = call.kwargs
+        if kw.get("form_id") == form_id:
+            return kw
+    return None
+
+
 @pytest.mark.asyncio
 async def test_search_filter_includes_forbidden_clause():
     client = make_client()
     reader = make_reader(client)
     await reader.search_materials("GT38")
-    call_kwargs = client.query.call_args
-    filter_string = call_kwargs.kwargs.get("filter_string") or call_kwargs[1].get("filter_string") or call_kwargs[0][2]
-    assert "FForbidStatus = 'A'" in filter_string
+    kw = _find_call(client, "BD_MATERIAL")
+    assert kw is not None, "BD_MATERIAL should be queried"
+    assert "FForbidStatus = 'A'" in kw["filter_string"]
 
 
 @pytest.mark.asyncio
@@ -127,15 +136,12 @@ async def test_search_filter_uses_or_across_three_fields():
     client = make_client()
     reader = make_reader(client)
     await reader.search_materials("GT38")
-    call_kwargs = client.query.call_args
-    # Retrieve filter_string however it was passed (positional or keyword)
-    args = call_kwargs[0]
-    kwargs = call_kwargs[1]
-    filter_string = kwargs.get("filter_string", args[2] if len(args) > 2 else "")
+    kw = _find_call(client, "BD_MATERIAL")
+    assert kw is not None
+    filter_string = kw["filter_string"]
     assert "FNumber like" in filter_string
     assert "FName like" in filter_string
     assert "FSpecification like" in filter_string
-    # Must use OR to join the three LIKE conditions
     assert " or " in filter_string.lower()
 
 
@@ -144,11 +150,49 @@ async def test_search_caps_at_fifty_even_if_limit_higher():
     client = make_client()
     reader = make_reader(client)
     await reader.search_materials("GT38", limit=200)
-    call_kwargs = client.query.call_args
-    args = call_kwargs[0]
-    kwargs = call_kwargs[1]
-    limit_passed = kwargs.get("limit", args[3] if len(args) > 3 else None)
-    assert limit_passed <= 50
+    kw = _find_call(client, "BD_MATERIAL")
+    assert kw is not None
+    assert kw["limit"] <= 50
+
+
+@pytest.mark.asyncio
+async def test_search_aux_path_queries_flexsitem():
+    # Demo feature: aux discovery — search should also query BD_FLEXSITEMDETAILV in parallel.
+    client = make_client()
+    reader = make_reader(client)
+    await reader.search_materials("黑色")
+    kw = _find_call(client, "BD_FLEXSITEMDETAILV")
+    assert kw is not None, "BD_FLEXSITEMDETAILV should be queried for aux discovery"
+    assert "FF100001 like" in kw["filter_string"]
+    assert "FF100002.FName like" in kw["filter_string"]
+
+
+@pytest.mark.asyncio
+async def test_search_aux_discovers_extra_materials():
+    # When BD_MATERIAL returns 0 hits but aux returns matching colors,
+    # reverse-lookup via STK_Inventory should find materials.
+    client = make_client()
+
+    async def fake_query(*, form_id, **kw):
+        if form_id == "BD_MATERIAL":
+            # First call (initial search) returns nothing — no name/code/spec match for "黑色"
+            # Second call (extras fetch) returns the discovered material
+            if "FNumber IN" in kw.get("filter_string", ""):
+                return [{"FNumber": "05.02.01.35", "FName": "鼻梁", "FSpecification": "NBLT-GT38", "FErpClsID": "2"}]
+            return []
+        if form_id == "BD_FLEXSITEMDETAILV":
+            return [{"FID": 105814, "FF100001": "B", "FF100002.FName": "黑色"}]
+        if form_id == "STK_Inventory":
+            return [{"FMaterialId.FNumber": "05.02.01.35"}]
+        return []
+
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = make_reader(client)
+    resp = await reader.search_materials("黑色")
+
+    assert resp.total == 1
+    assert resp.items[0].material_code == "05.02.01.35"
+    assert resp.items[0].material_name == "鼻梁"
 
 
 @pytest.mark.asyncio

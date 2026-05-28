@@ -1,5 +1,6 @@
 """Inventory search reader — material → warehouse breakdown via Kingdee STK_Inventory."""
 
+import asyncio
 import re
 from decimal import Decimal
 
@@ -48,39 +49,99 @@ class InventoryReader:
         self.client = client
 
     async def search_materials(self, q: str, limit: int = 20) -> InventorySearchResponse:
-        """Search BD_MATERIAL by code / name / spec (fuzzy).
+        """Search materials by code / name / spec, with aux-attribute discovery.
 
-        Filter: (FNumber LIKE OR FName LIKE OR FSpecification LIKE)
-                AND FForbidStatus = 'A'  -- exclude disabled materials
-        Cap at 50 candidates server-side regardless of `limit` (defensive).
+        Two parallel paths:
+        1. BD_MATERIAL fuzzy on FNumber / FName / FSpecification (FForbidStatus='A')
+        2. BD_FLEXSITEMDETAILV fuzzy on FF100001 / FF100002.FName → reverse-lookup
+           materials that have non-zero STK_Inventory rows under those aux IDs.
+        Results are merged, deduped by material_code, capped at server limit.
         """
         safe_q = sanitize_query(q)
         server_limit = min(limit, _SEARCH_SERVER_CAP)
 
-        filter_string = (
+        material_filter = (
             f"(FNumber like '%{safe_q}%' or FName like '%{safe_q}%' "
             f"or FSpecification like '%{safe_q}%') and FForbidStatus = 'A'"
         )
+        aux_filter = f"FF100001 like '%{safe_q}%' or FF100002.FName like '%{safe_q}%'"
 
-        rows = await self.client.query(
-            form_id="BD_MATERIAL",
-            field_keys=_BD_MATERIAL_FIELDS,
-            filter_string=filter_string,
-            limit=server_limit,
+        bd_rows, aux_rows = await asyncio.gather(
+            self.client.query(
+                form_id="BD_MATERIAL",
+                field_keys=_BD_MATERIAL_FIELDS,
+                filter_string=material_filter,
+                limit=server_limit,
+            ),
+            self.client.query(
+                form_id="BD_FLEXSITEMDETAILV",
+                field_keys=_AUX_FIELDS,
+                filter_string=aux_filter,
+                limit=_AUX_BATCH_SIZE,
+            ),
         )
 
-        # Kingdee returns one row per (material × organization) — dedupe by code,
-        # keep first occurrence. Without this, the frontend's x-for :key collides.
         seen: set[str] = set()
         items: list[MaterialMatch] = []
-        for r in rows:
+        for r in bd_rows:
             match = _row_to_material_match(r)
             if match.material_code in seen:
                 continue
             seen.add(match.material_code)
             items.append(match)
 
+        if aux_rows and len(items) < server_limit:
+            aux_ids = [str(int(r["FID"])) for r in aux_rows if r.get("FID")]
+            extra_codes = await self._materials_with_aux(aux_ids, exclude=seen, limit=server_limit - len(items))
+            if extra_codes:
+                extras = await self._fetch_materials_by_codes(extra_codes)
+                for r in extras:
+                    match = _row_to_material_match(r)
+                    if match.material_code in seen:
+                        continue
+                    seen.add(match.material_code)
+                    items.append(match)
+                    if len(items) >= server_limit:
+                        break
+
         return InventorySearchResponse(query=q, total=len(items), items=items)
+
+    async def _materials_with_aux(
+        self, aux_ids: list[str], exclude: set[str], limit: int,
+    ) -> list[str]:
+        """Find material codes that have non-zero inventory under any of these aux_ids."""
+        if not aux_ids:
+            return []
+        in_clause = ",".join(aux_ids)
+        rows = await self.client.query(
+            form_id="STK_Inventory",
+            field_keys=["FMaterialId.FNumber"],
+            filter_string=f"FAuxPropId IN ({in_clause}) and FBaseQty <> 0",
+            limit=500,
+        )
+        codes: list[str] = []
+        seen_extra: set[str] = set()
+        for r in rows:
+            code = r.get("FMaterialId.FNumber")
+            if not code or code in exclude or code in seen_extra:
+                continue
+            seen_extra.add(code)
+            codes.append(code)
+            if len(codes) >= limit:
+                break
+        return codes
+
+    async def _fetch_materials_by_codes(self, codes: list[str]) -> list[dict]:
+        """Fetch BD_MATERIAL metadata for a list of codes via IN clause."""
+        if not codes:
+            return []
+        in_clause = ",".join(f"'{c}'" for c in codes)
+        return await self.client.query(
+            form_id="BD_MATERIAL",
+            field_keys=_BD_MATERIAL_FIELDS,
+            filter_string=f"FNumber IN ({in_clause}) and FForbidStatus = 'A'",
+            limit=len(codes),
+        )
 
     async def get_inventory_by_material(
         self,
