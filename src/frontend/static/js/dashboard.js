@@ -25,25 +25,25 @@ function mtoSearch() {
         // === Column Configuration ===
         // 列名直接使用金蝶的"表单.字段名"格式，不做任何计算
         columns: [
-            { key: 'index', label: '序号', width: 60, defaultWidth: 60, minWidth: 40, maxWidth: 120, resizable: false, visible: true, sortable: false, locked: true },
-            { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true },
-            { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true },
-            { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false },
-            { key: 'close_status', label: '关闭状态', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 160, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'material_type', label: '物料类型', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false },
-            { key: 'material_group_name', label: '物料分组', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false },
+            { key: 'index', label: '序号', width: 60, defaultWidth: 60, minWidth: 40, maxWidth: 120, resizable: false, visible: true, sortable: false, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'close_status', label: '关闭状态', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 160, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'material_type', label: '物料类型', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'material_group_name', label: '物料分组', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
             // 数量列：根据物料类型显示不同来源
-            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
-            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
-            { key: 'purchase_order_qty', label: '采购/委外订单.数量', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green' },
+            { key: 'sales_order_qty', label: '销售订单.数量', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green', align: 'right', headerColorClass: 'text-emerald-400', borderClasses: 'border-l border-emerald-900' },
+            { key: 'prod_instock_must_qty', label: '生产入库单.应收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'green', align: 'right', headerColorClass: 'text-emerald-400', borderClasses: '' },
+            { key: 'purchase_order_qty', label: '采购/委外订单.数量', width: 130, defaultWidth: 130, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: false, group: 'green', align: 'right', headerColorClass: 'text-emerald-400', borderClasses: 'border-r border-emerald-900' },
             // 领料/入库列
-            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
-            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
-            { key: 'purchase_stock_in_qty', label: '采购/委外.累计入库数量', width: 160, defaultWidth: 160, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, group: 'blue' },
+            { key: 'pick_actual_qty', label: '生产领料单.实发数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', align: 'right', headerColorClass: 'text-slate-400', borderClasses: 'border-l border-sky-900' },
+            { key: 'prod_instock_real_qty', label: '生产入库单.实收数量', width: 140, defaultWidth: 140, minWidth: 100, maxWidth: 350, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', align: 'right', headerColorClass: 'text-sky-400', borderClasses: '' },
+            { key: 'purchase_stock_in_qty', label: '采购/委外.累计入库数量', width: 160, defaultWidth: 160, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, group: 'blue', align: 'right', headerColorClass: 'text-sky-400', borderClasses: 'border-r border-sky-900' },
             // 语义层：完成率列（从 metrics 计算得出）
-            { key: 'fulfillment_rate', label: '完成率', width: 100, defaultWidth: 100, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false, group: 'semantic' }
+            { key: 'fulfillment_rate', label: '完成率', width: 100, defaultWidth: 100, minWidth: 70, maxWidth: 200, resizable: true, visible: true, sortable: true, locked: false, group: 'semantic', align: 'center', headerColorClass: 'text-amber-400', borderClasses: 'border-l border-amber-900/50' }
         ],
 
         // === Sorting ===

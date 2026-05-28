@@ -347,254 +347,46 @@
                     <table role="table" class="text-sm" style="table-layout: fixed;" :style="'width:' + columns.filter(c => c.visible).reduce((sum, c) => sum + c.width, 0) + 'px'">
                         <thead class="sticky top-0 z-10">
                             <tr role="row" class="border-b border-slate-700">
-                                <!-- 序号 - not sortable, not resizable -->
+                                <!-- 序号 - special: not sortable, not resizable, sticky-left -->
                                 <th scope="col" :class="{ 'col-hidden': !colVisible('index') }"
                                     class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sticky left-0 z-20"
                                     :style="getColumnStyle('index')">
                                     序号
                                 </th>
-                                <!-- 物料编码 - sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_code') }"
-                                    @click="toggleSort('material_code')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'material_code' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'物料编码排序' + (sort.column === 'material_code' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_code')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('material_code')">
-                                    <div class="flex items-center gap-1">
-                                        <span>物料编码</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_code'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_code' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_code' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_code')" @dblclick.stop="autoFitColumn('material_code')"></div>
-                                </th>
-                                <!-- 物料名称 - sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_name') }"
-                                    @click="toggleSort('material_name')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'material_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'物料名称排序' + (sort.column === 'material_name' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_name')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('material_name')">
-                                    <div class="flex items-center gap-1">
-                                        <span>物料名称</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_name'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_name' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_name' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_name')" @dblclick.stop="autoFitColumn('material_name')"></div>
-                                </th>
-                                <!-- 规格型号 - sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('specification') }"
-                                    @click="toggleSort('specification')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'specification' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'规格型号排序' + (sort.column === 'specification' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'specification')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('specification')">
-                                    <div class="flex items-center gap-1">
-                                        <span>规格型号</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'specification'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'specification' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'specification' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'specification')" @dblclick.stop="autoFitColumn('specification')"></div>
-                                </th>
-                                <!-- BOM简称 - sortable, only for 成品 (is_finished_goods) -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('bom_short_name') }"
-                                    @click="toggleSort('bom_short_name')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'bom_short_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'BOM简称排序' + (sort.column === 'bom_short_name' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'bom_short_name')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('bom_short_name')">
-                                    <div class="flex items-center gap-1">
-                                        <span>BOM简称</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'bom_short_name'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'bom_short_name' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'bom_short_name' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'bom_short_name')" @dblclick.stop="autoFitColumn('bom_short_name')"></div>
-                                </th>
-                                <!-- 辅助属性 - not sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('aux_attributes') }"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'aux_attributes')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 relative resizable"
-                                    :style="getColumnStyle('aux_attributes')">
-                                    辅助属性
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'aux_attributes')" @dblclick.stop="autoFitColumn('aux_attributes')"></div>
-                                </th>
-                                <!-- 关闭状态 - sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('close_status') }"
-                                    @click="toggleSort('close_status')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'close_status' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'关闭状态排序' + (sort.column === 'close_status' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'close_status')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('close_status')">
-                                    <div class="flex items-center gap-1">
-                                        <span>关闭状态</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'close_status'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'close_status' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'close_status' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'close_status')" @dblclick.stop="autoFitColumn('close_status')"></div>
-                                </th>
-                                <!-- 物料类型 - sortable -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_type') }"
-                                    @click="toggleSort('material_type')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'material_type' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'物料类型排序' + (sort.column === 'material_type' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_type')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('material_type')">
-                                    <div class="flex items-center gap-1">
-                                        <span>物料类型</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_type'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_type' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_type' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_type')" @dblclick.stop="autoFitColumn('material_type')"></div>
-                                </th>
-                                <!-- 物料分组 - sortable (BD_MATERIAL.MaterialGroup.FName) -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('material_group_name') }"
-                                    @click="toggleSort('material_group_name')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'material_group_name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'物料分组排序' + (sort.column === 'material_group_name' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'material_group_name')"
-                                    class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('material_group_name')">
-                                    <div class="flex items-center gap-1">
-                                        <span>物料分组</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'material_group_name'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_group_name' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'material_group_name' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'material_group_name')" @dblclick.stop="autoFitColumn('material_group_name')"></div>
-                                </th>
-                                <!-- 绿色组: 数量 (根据物料类型来源不同) -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('sales_order_qty') }"
-                                    @click="toggleSort('sales_order_qty')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'sales_order_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'销售订单数量排序' + (sort.column === 'sales_order_qty' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'sales_order_qty')"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 border-l border-emerald-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('sales_order_qty')">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <span>销售订单.数量</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'sales_order_qty'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'sales_order_qty' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'sales_order_qty' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'sales_order_qty')" @dblclick.stop="autoFitColumn('sales_order_qty')"></div>
-                                </th>
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }"
-                                    @click="toggleSort('prod_instock_must_qty')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'prod_instock_must_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'生产入库应收数量排序' + (sort.column === 'prod_instock_must_qty' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'prod_instock_must_qty')"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('prod_instock_must_qty')">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <span>生产入库单.应收数量</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'prod_instock_must_qty'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_must_qty' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_must_qty' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_must_qty')" @dblclick.stop="autoFitColumn('prod_instock_must_qty')"></div>
-                                </th>
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('purchase_order_qty') }"
-                                    @click="toggleSort('purchase_order_qty')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'purchase_order_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'采购委外订单数量排序' + (sort.column === 'purchase_order_qty' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'purchase_order_qty')"
-                                    class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 border-r border-emerald-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('purchase_order_qty')">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <span>采购/委外订单.数量</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'purchase_order_qty'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_order_qty' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_order_qty' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_order_qty')" @dblclick.stop="autoFitColumn('purchase_order_qty')"></div>
-                                </th>
-                                <!-- 领料/入库列 -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('pick_actual_qty') }"
-                                    @click="toggleSort('pick_actual_qty')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'pick_actual_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'生产领料实发数量排序' + (sort.column === 'pick_actual_qty' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'pick_actual_qty')"
-                                    class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 border-l border-sky-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('pick_actual_qty')">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <span>生产领料单.实发数量</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'pick_actual_qty'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'pick_actual_qty' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'pick_actual_qty' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'pick_actual_qty')" @dblclick.stop="autoFitColumn('pick_actual_qty')"></div>
-                                </th>
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }"
-                                    @click="toggleSort('prod_instock_real_qty')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'prod_instock_real_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'生产入库实收数量排序' + (sort.column === 'prod_instock_real_qty' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'prod_instock_real_qty')"
-                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('prod_instock_real_qty')">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <span>生产入库单.实收数量</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'prod_instock_real_qty'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_real_qty' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'prod_instock_real_qty' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'prod_instock_real_qty')" @dblclick.stop="autoFitColumn('prod_instock_real_qty')"></div>
-                                </th>
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }"
-                                    @click="toggleSort('purchase_stock_in_qty')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'purchase_stock_in_qty' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'采购委外累计入库数量排序' + (sort.column === 'purchase_stock_in_qty' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'purchase_stock_in_qty')"
-                                    class="px-4 py-3 text-right font-medium text-sky-400 bg-slate-900 border-r border-sky-900 sortable-header relative resizable"
-                                    :style="getColumnStyle('purchase_stock_in_qty')">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <span>采购/委外.累计入库数量</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'purchase_stock_in_qty'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_stock_in_qty' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'purchase_stock_in_qty' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'purchase_stock_in_qty')" @dblclick.stop="autoFitColumn('purchase_stock_in_qty')"></div>
-                                </th>
-                                <!-- 完成率（语义层） -->
-                                <th scope="col" :class="{ 'col-hidden': !colVisible('fulfillment_rate') }"
-                                    @click="toggleSort('fulfillment_rate')"
-                                    role="button"
-                                    :aria-sort="sort.column === 'fulfillment_rate' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'"
-                                    :aria-label="'完成率排序' + (sort.column === 'fulfillment_rate' ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '')"
-                                    tabindex="0" @keydown="resizeColumnByKeyboard($event, 'fulfillment_rate')"
-                                    class="px-4 py-3 text-center font-medium text-amber-400 bg-slate-900 border-l border-amber-900/50 sortable-header relative resizable"
-                                    :style="getColumnStyle('fulfillment_rate')">
-                                    <div class="flex items-center justify-center gap-1">
-                                        <span>完成率</span>
-                                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== 'fulfillment_rate'"></i>
-                                        <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'fulfillment_rate' && sort.direction === 'asc'"></i>
-                                        <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === 'fulfillment_rate' && sort.direction === 'desc'"></i>
-                                    </div>
-                                    <div class="resize-handle" @mousedown.stop="startResize($event, 'fulfillment_rate')" @dblclick.stop="autoFitColumn('fulfillment_rate')"></div>
-                                </th>
+                                <!-- Loop through remaining columns -->
+                                <template x-for="col in columns.filter(c => c.key !== 'index')" :key="col.key">
+                                    <th scope="col"
+                                        :class="[
+                                            { 'col-hidden': !colVisible(col.key) },
+                                            { 'sortable-header': col.sortable },
+                                            { 'resizable': col.resizable },
+                                            col.borderClasses || '',
+                                            col.align === 'right' ? 'text-right' : (col.align === 'center' ? 'text-center' : 'text-left'),
+                                            col.headerColorClass || 'text-slate-400'
+                                        ]"
+                                        class="px-4 py-3 font-medium bg-slate-900 relative"
+                                        @click="col.sortable && toggleSort(col.key)"
+                                        :role="col.sortable ? 'button' : null"
+                                        :aria-sort="col.sortable && sort.column === col.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : (col.sortable ? 'none' : null)"
+                                        :aria-label="col.sortable ? col.label + '排序' + (sort.column === col.key ? (sort.direction === 'asc' ? '，当前升序' : '，当前降序') : '') : null"
+                                        :tabindex="col.resizable ? 0 : null"
+                                        @keydown="col.resizable && resizeColumnByKeyboard($event, col.key)"
+                                        :style="getColumnStyle(col.key)">
+                                        <div :class="['flex items-center gap-1', col.align === 'right' ? 'justify-end' : (col.align === 'center' ? 'justify-center' : '')]">
+                                            <span x-text="col.label"></span>
+                                            <template x-if="col.sortable">
+                                                <span class="inline-flex items-center">
+                                                    <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== col.key"></i>
+                                                    <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === col.key && sort.direction === 'asc'"></i>
+                                                    <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === col.key && sort.direction === 'desc'"></i>
+                                                </span>
+                                            </template>
+                                        </div>
+                                        <template x-if="col.resizable">
+                                            <div class="resize-handle" @mousedown.stop="startResize($event, col.key)" @dblclick.stop="autoFitColumn(col.key)"></div>
+                                        </template>
+                                    </th>
+                                </template>
                             </tr>
                         </thead>
                         <tbody role="rowgroup">
