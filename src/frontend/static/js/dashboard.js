@@ -16,7 +16,7 @@ function mtoSearch() {
         // === Filters ===
         // 物料类型: 成品, 自制, 包材, 委外
         filters: {
-            materialTypes: { '成品': true, '自制': true, '包材': true, '委外': true },
+            materialTypes: { '成品': false, '自制': false, '包材': false, '委外': false },
             status: 'all', // 保留但简化
             searchText: ''
         },
@@ -256,8 +256,9 @@ function mtoSearch() {
                 // Close-status filter: hide closed (B) rows by default unless toggle is on
                 if (!this.showClosedRows && item.close_status === 'B') return false;
 
-                // Material type filter
-                if (!this.filters.materialTypes[item.material_type]) return false;
+                // Material type filter — all-false means "no filter, show everything"
+                const activeTypes = Object.entries(this.filters.materialTypes).filter(([k, v]) => v).map(([k]) => k);
+                if (activeTypes.length > 0 && !activeTypes.includes(item.material_type)) return false;
 
                 // Status filter — uses server-computed completion_status from semantic layer
                 if (this.filters.status !== 'all' && !item.metrics?.completion_status?.status) return false;
@@ -349,12 +350,12 @@ function mtoSearch() {
         },
 
         hasActiveFilters() {
-            const allTypesOn = Object.values(this.filters.materialTypes).every(v => v);
-            return !allTypesOn || this.filters.status !== 'all' || this.filters.searchText.length > 0;
+            const anyTypeActive = Object.values(this.filters.materialTypes).some(v => v);
+            return anyTypeActive || this.filters.status !== 'all' || this.filters.searchText.length > 0;
         },
 
         resetFilters() {
-            this.filters.materialTypes = { '成品': true, '自制': true, '包材': true, '委外': true };
+            this.filters.materialTypes = { '成品': false, '自制': false, '包材': false, '委外': false };
             this.filters.status = 'all';
             this.filters.searchText = '';
             this.savePreferences();
@@ -362,7 +363,7 @@ function mtoSearch() {
 
         getActiveFilterCount() {
             let count = 0;
-            if (!Object.values(this.filters.materialTypes).every(v => v)) count++;
+            if (Object.values(this.filters.materialTypes).some(v => v)) count++;
             if (this.filters.status !== 'all') count++;
             if (this.filters.searchText.length > 0) count++;
             return count;

@@ -31,6 +31,12 @@
     --font-mono: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
     --radius-sm: 2px;
     --radius-md: 4px;
+    /* ERP material class semantic tokens (single source for dashboard + inventory badges) */
+    --erp-finished: var(--violet-400);      /* ErpClass 9 成品 */
+    --erp-self-made: var(--emerald-400);    /* ErpClass 2 自制 */
+    --erp-purchased: var(--sky-400);        /* ErpClass 1 外购 */
+    --erp-subcontract: var(--amber-400);    /* ErpClass 3 委外 */
+    --erp-virtual: var(--slate-500);        /* ErpClass 4 虚拟件 */
 }
 
 body {
@@ -41,25 +47,25 @@ body {
 
 .badge-finished {
     background: rgb(139 92 246 / 0.2);
-    color: var(--violet-400);
+    color: var(--erp-finished);
     border: 1px solid rgb(139 92 246 / 0.3);
 }
 
 .badge-self-made {
     background: rgb(16 185 129 / 0.2);
-    color: var(--emerald-400);
+    color: var(--erp-self-made);
     border: 1px solid rgb(16 185 129 / 0.3);
 }
 
 .badge-purchased {
     background: rgb(14 165 233 / 0.2);
-    color: var(--sky-400);
+    color: var(--erp-purchased);
     border: 1px solid rgb(14 165 233 / 0.3);
 }
 
 .badge-subcontract {
     background: rgb(245 158 11 / 0.2);
-    color: var(--amber-400);
+    color: var(--erp-subcontract);
     border: 1px solid rgb(245 158 11 / 0.3);
 }
 
@@ -175,25 +181,25 @@ td.col-hidden {
 
 .filter-chip-finished.filter-chip-active {
     background: rgb(139 92 246 / 0.15);
-    color: var(--violet-400);
+    color: var(--erp-finished);
     border-color: rgb(139 92 246 / 0.3);
 }
 
 .filter-chip-self-made.filter-chip-active {
     background: rgb(16 185 129 / 0.15);
-    color: var(--emerald-400);
+    color: var(--erp-self-made);
     border-color: rgb(16 185 129 / 0.3);
 }
 
 .filter-chip-purchased.filter-chip-active {
     background: rgb(14 165 233 / 0.15);
-    color: var(--sky-400);
+    color: var(--erp-purchased);
     border-color: rgb(14 165 233 / 0.3);
 }
 
 .filter-chip-subcontract.filter-chip-active {
     background: rgb(245 158 11 / 0.15);
-    color: var(--amber-400);
+    color: var(--erp-subcontract);
     border-color: rgb(245 158 11 / 0.3);
 }
 
