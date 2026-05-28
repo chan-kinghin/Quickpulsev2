@@ -140,9 +140,12 @@ result = api_sdk.ExecuteBillQuery(params)
 | PRD_INSTOCK | 生产入库单 | Self-made item receipts |
 | PUR_PurchaseOrder | 采购订单 | Purchase order quantities |
 | STK_InStock | 采购入库单 | Purchase/subcontracting receipts |
+| STK_Inventory | 即时库存 | Real-time inventory by warehouse/lot/aux (inventory-search feature) |
 | SUB_POORDER | 委外订单 | Subcontracting order quantities |
 | PRD_PickMtrl | 生产领料单 | Material picking |
 | SAL_OUTSTOCK | 销售出库单 | Sales deliveries |
+| BD_MATERIAL | 物料主数据 | Material master (search-by-name/spec lookup, FErpClsID classification) |
+| BD_FLEXSITEMDETAILV | 辅助属性明细 | Resolves FAuxPropId → spec/color description |
 
 ## Project Structure (Target)
 
@@ -168,9 +171,20 @@ src/
 │   └── mto_handler.py  # MTO lookup logic with parallel fetches
 ├── api/routers/
 │   ├── mto.py          # GET /api/mto/{mto_number}
+│   ├── inventory.py    # GET /api/inventory/search, /api/inventory/material/{code}
 │   └── sync.py         # POST /api/sync/trigger, GET /api/sync/status
 └── frontend/           # Static HTML/JS served by FastAPI
 ```
+
+## Material-Pivot Data Path (Inventory Search, 2026-05-28)
+
+Separate from the MTO-pivot pipeline. Used by `/inventory` page + `/api/inventory/*`.
+
+- **Real-time only** — does NOT use SQLite cache or sync_service. Every request hits Kingdee live.
+- **Two-step query**: `BD_MATERIAL` fuzzy search (name/spec/code) → `STK_Inventory` exact lookup by `FMaterialId.FNumber`, then `BD_FLEXSITEMDETAILV` to resolve `FAuxPropId`.
+- **Files**: `src/readers/inventory.py` (reader), `src/models/inventory.py` (Pydantic), `src/api/routers/inventory.py` (router), `src/frontend/inventory.html` (UI).
+- **Security**: user query goes into Kingdee `FilterString` (no parameter binding), so `sanitize_query()` enforces a CJK/ASCII whitelist + single-quote escape. Reject quotes/semicolons/parens at the boundary.
+- **Rate limit**: 20/minute/user — stricter than MTO endpoints since every call hits live Kingdee.
 
 ## Configuration Files
 

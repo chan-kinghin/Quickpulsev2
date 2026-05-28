@@ -35,13 +35,14 @@ _STATUS_ERROR_CODES = {
     502: "erp_unavailable",
     503: "service_unavailable",
 }
-from src.api.routers import admin, agent_chat, auth, cache, mto, photo, sync
+from src.api.routers import admin, agent_chat, auth, cache, inventory as inventory_router, mto, photo, sync
 from src.config import Config
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
 from src.mto_config import MTOConfig
 from src.query.cache_reader import CacheReader
 from src.query.mto_handler import MTOQueryHandler
+from src.readers.inventory import InventoryReader
 from src.readers import (
     MaterialPickingReader,
     ProductionBOMReader,
@@ -122,6 +123,8 @@ async def lifespan(app: FastAPI):
         memory_cache_ttl=memory_cfg.ttl_seconds,
     )
 
+    inventory_reader = InventoryReader(kingdee_client)
+
     # Register callback to clear memory cache after sync completes
     sync_service.add_post_sync_callback(mto_handler.clear_memory_cache)
 
@@ -158,6 +161,7 @@ async def lifespan(app: FastAPI):
     app.state.sync_progress = progress
     app.state.sync_service = sync_service
     app.state.mto_handler = mto_handler
+    app.state.inventory_reader = inventory_reader
     app.state.scheduler = scheduler
     app.state.mto_config = mto_config
 
@@ -300,6 +304,7 @@ app.include_router(cache.router)
 app.include_router(agent_chat.router)
 app.include_router(admin.router)
 app.include_router(photo.router)
+app.include_router(inventory_router.router)
 
 
 @app.get("/")
@@ -310,6 +315,16 @@ async def root():
 @app.get("/dashboard.html")
 async def dashboard():
     return FileResponse("src/frontend/dashboard.html")
+
+
+@app.get("/inventory.html")
+async def inventory_page():
+    return FileResponse("src/frontend/inventory.html")
+
+
+@app.get("/inventory")
+async def inventory_page_clean():
+    return FileResponse("src/frontend/inventory.html")
 
 
 @app.get("/sync.html")

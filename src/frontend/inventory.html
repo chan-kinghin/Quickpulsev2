@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPulse | 物料库存查询</title>
+
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260528">
+    <script defer src="/static/js/alpine.min.js"></script>
+    <script src="/static/js/lucide.min.js"></script>
+    <link rel="stylesheet" href="/static/css/main.css?v=20260528">
+
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-slate-950 min-h-screen" x-data="authGuard()" x-init="init()">
+    <a href="#main-content"
+       class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:bg-slate-900 focus:text-slate-50 focus:px-4 focus:py-2 focus:rounded">
+        跳转到主要内容
+    </a>
+
+    <div x-show="authenticated" x-cloak x-data="inventorySearch()" x-init="initPage()">
+
+        <!-- Header -->
+        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4">
+            <div class="flex items-center justify-between max-w-7xl mx-auto">
+                <div class="flex items-center gap-4">
+                    <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
+                    <span class="text-slate-600 text-sm">|</span>
+                    <span class="text-slate-400 text-sm">物料库存查询</span>
+                </div>
+                <div class="flex items-center gap-6">
+                    <span class="text-slate-400 text-sm font-mono" x-text="new Date().toLocaleString('zh-CN')"></span>
+                    <div class="relative" x-data="{ open: false }">
+                        <button @click="open = !open"
+                                class="flex items-center gap-2 text-slate-400 hover:text-slate-50 transition">
+                            <i data-lucide="user" class="w-4 h-4"></i>
+                            <span class="text-sm">用户</span>
+                            <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                        </button>
+                        <div x-show="open" @click.away="open = false" x-transition
+                             class="absolute right-0 mt-2 w-40 bg-slate-800 border border-slate-700 rounded shadow-lg py-1 z-50">
+                            <a href="/dashboard.html" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">MTO 查询</a>
+                            <a href="/sync.html" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">同步管理</a>
+                            <a href="/admin.html" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">使用分析</a>
+                            <button @click="api.logout()"
+                                    class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">
+                                退出登录
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main content -->
+        <main id="main-content" class="max-w-7xl mx-auto px-6 py-8">
+
+            <!-- Search section -->
+            <section class="mb-8">
+                <div class="flex gap-4 items-end">
+                    <div class="flex-1 max-w-xl relative">
+                        <label for="inventory-search" class="block text-sm text-slate-400 mb-2">物料编码 / 名称 / 规格</label>
+                        <input type="text"
+                               id="inventory-search"
+                               x-model="q"
+                               @keydown.enter="search()"
+                               placeholder="输入物料编码 / 名称 / 规格（至少 2 个字符）"
+                               aria-label="物料搜索"
+                               aria-describedby="inventory-search-help"
+                               autocomplete="off"
+                               :disabled="loading"
+                               class="w-full bg-slate-800 border border-slate-700 text-slate-50 px-4 py-3 rounded focus:outline-none focus:border-emerald-500 transition">
+                        <p id="inventory-search-help" class="sr-only">
+                            输入物料编码、名称或规格型号，按回车或点击搜索按钮查询库存
+                        </p>
+                    </div>
+                    <button @click="search()"
+                            :disabled="loading || q.trim().length < 2"
+                            aria-label="搜索物料库存"
+                            class="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-slate-950 font-medium rounded transition flex items-center gap-2">
+                        <span x-show="loading && !selectedMaterial"
+                              class="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
+                        <i data-lucide="search" class="w-4 h-4" x-show="!loading || selectedMaterial"></i>
+                        <span x-text="loading && !selectedMaterial ? '搜索中...' : '搜索'"></span>
+                    </button>
+                </div>
+                <p class="text-xs text-slate-600 mt-2">
+                    支持模糊匹配：输入部分编码、名称片段或规格型号
+                </p>
+            </section>
+
+            <!-- Error banner -->
+            <div x-show="errorMsg" x-transition class="mb-6" x-cloak>
+                <div class="p-4 bg-rose-500/10 border border-rose-500/30 rounded text-rose-400 flex items-start gap-3">
+                    <i data-lucide="alert-circle" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                    <span x-text="errorMsg"></span>
+                </div>
+            </div>
+
+            <!-- ================================================================
+                 PANEL A: Candidate materials list (shown after /search returns)
+                 ================================================================ -->
+            <div x-show="!selectedMaterial && results.length > 0" x-transition x-cloak>
+                <div class="bg-slate-900 border border-slate-800 rounded overflow-hidden">
+                    <!-- Panel header -->
+                    <div class="bg-slate-800 px-6 py-4 flex items-center justify-between">
+                        <h2 class="text-base font-semibold text-slate-50 flex items-center gap-2">
+                            <i data-lucide="package-search" class="w-5 h-5"></i>
+                            匹配物料
+                            <span class="text-sm font-normal text-slate-400">
+                                (<span x-text="resultsTotal"></span> 条)
+                            </span>
+                        </h2>
+                        <span x-show="resultsTotal >= 50"
+                              class="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded">
+                            结果较多，建议精确搜索。
+                        </span>
+                    </div>
+
+                    <!-- Candidates table -->
+                    <div class="divide-y divide-slate-800">
+                        <template x-for="item in results" :key="item.material_code">
+                            <button @click="selectMaterial(item.material_code)"
+                                    class="w-full text-left px-6 py-4 hover:bg-slate-800/60 transition flex items-center gap-4">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-3 flex-wrap">
+                                        <span class="font-mono text-sm font-medium text-slate-200"
+                                              x-text="item.material_code"></span>
+                                        <span class="text-slate-300 truncate"
+                                              x-text="item.material_name"></span>
+                                        <span x-show="item.specification"
+                                              class="text-slate-500 text-sm truncate"
+                                              x-text="'— ' + item.specification"></span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 flex-shrink-0">
+                                    <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                          :class="getErpClassBadge(item.erp_class)"
+                                          x-text="item.erp_class_label"></span>
+                                    <i data-lucide="chevron-right" class="w-4 h-4 text-slate-600"></i>
+                                </div>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- No results state -->
+            <div x-show="!selectedMaterial && searchPerformed && results.length === 0 && !loading" x-transition x-cloak
+                 class="text-center py-20">
+                <i data-lucide="search-x" class="w-16 h-16 text-slate-700 mx-auto mb-4"></i>
+                <h3 class="text-lg text-slate-400 mb-2">未找到匹配的物料</h3>
+                <p class="text-slate-600 text-sm">试试简化关键词，或使用物料编码前缀搜索。</p>
+            </div>
+
+            <!-- Initial state -->
+            <div x-show="!searchPerformed && !loading" class="text-center py-20" x-cloak>
+                <i data-lucide="warehouse" class="w-16 h-16 text-slate-700 mx-auto mb-4"></i>
+                <h3 class="text-lg text-slate-400 mb-2">物料库存查询</h3>
+                <p class="text-slate-600 text-sm">输入物料编码、名称或规格后点击搜索</p>
+            </div>
+
+            <!-- ================================================================
+                 PANEL B: Warehouse breakdown detail (shown when a material is
+                 selected)
+                 ================================================================ -->
+            <div x-show="selectedMaterial" x-transition x-cloak>
+
+                <!-- Back button -->
+                <div class="mb-4">
+                    <button @click="back()"
+                            class="flex items-center gap-2 text-slate-400 hover:text-slate-200 transition text-sm">
+                        <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                        返回搜索结果
+                    </button>
+                </div>
+
+                <!-- Summary card -->
+                <div class="bg-slate-900 border border-slate-800 rounded px-6 py-5 mb-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-3 flex-wrap mb-1">
+                                <span class="font-mono text-lg font-semibold text-slate-50"
+                                      x-text="selectedMaterial?.material_code"></span>
+                                <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                      :class="getErpClassBadge(selectedMaterial?.erp_class)"
+                                      x-text="selectedMaterial?.erp_class_label"></span>
+                            </div>
+                            <div class="text-slate-200 text-base" x-text="selectedMaterial?.material_name"></div>
+                            <div class="text-slate-500 text-sm mt-0.5" x-show="selectedMaterial?.specification"
+                                 x-text="selectedMaterial?.specification"></div>
+                        </div>
+                        <div class="flex items-end gap-8">
+                            <div class="text-right">
+                                <div class="text-xs text-slate-500 mb-1">总库存</div>
+                                <div class="text-2xl font-bold text-emerald-400"
+                                     x-text="formatQty(selectedMaterial?.total_qty)"></div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-xs text-slate-500 mb-1">仓库数</div>
+                                <div class="text-2xl font-bold text-slate-200"
+                                     x-text="selectedMaterial?.warehouse_count ?? '-'"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detail table panel -->
+                <div class="bg-slate-900 border border-slate-800 rounded overflow-hidden">
+                    <!-- Panel header -->
+                    <div class="bg-slate-800 px-6 py-4 flex items-center justify-between">
+                        <h2 class="text-base font-semibold text-slate-50 flex items-center gap-2">
+                            <i data-lucide="layout-list" class="w-5 h-5"></i>
+                            库存明细
+                            <span class="text-sm font-normal text-slate-400">
+                                (<span x-text="getVisibleRows().length"></span> 条)
+                            </span>
+                        </h2>
+                        <div class="flex items-center gap-3">
+                            <!-- Include-zero toggle -->
+                            <label class="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox"
+                                       x-model="includeZero"
+                                       @change="toggleIncludeZero()"
+                                       class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-900">
+                                <span class="text-sm text-slate-400">包含零库存</span>
+                            </label>
+                            <!-- Loading spinner for detail fetch -->
+                            <span x-show="loading && selectedMaterial"
+                                  class="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="overflow-x-auto">
+                        <table role="table" class="w-full text-sm">
+                            <thead>
+                                <tr role="row" class="border-b border-slate-700">
+                                    <th scope="col"
+                                        class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">
+                                        仓库编码
+                                    </th>
+                                    <th scope="col"
+                                        class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">
+                                        仓库名称
+                                    </th>
+                                    <th scope="col"
+                                        class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">
+                                        批号
+                                    </th>
+                                    <th scope="col"
+                                        class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">
+                                        辅助属性
+                                    </th>
+                                    <th scope="col"
+                                        class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap">
+                                        数量
+                                    </th>
+                                    <!-- Stock org column: auto-hidden if all rows share one org -->
+                                    <th scope="col"
+                                        x-show="multiOrg"
+                                        class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">
+                                        库存组织
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody role="rowgroup">
+                                <template x-for="(row, index) in getVisibleRows()" :key="index">
+                                    <tr role="row"
+                                        class="border-b border-slate-800 hover:bg-slate-800/50 transition"
+                                        :class="row.base_qty === 0 ? 'opacity-50' : ''">
+                                        <td role="cell"
+                                            class="px-4 py-3 font-mono text-xs text-slate-400"
+                                            x-text="row.warehouse_code || '-'"></td>
+                                        <td role="cell"
+                                            class="px-4 py-3 text-slate-300"
+                                            x-text="row.warehouse_name || '-'"></td>
+                                        <td role="cell"
+                                            class="px-4 py-3 font-mono text-xs text-slate-400"
+                                            x-text="row.lot_number || '-'"></td>
+                                        <td role="cell"
+                                            class="px-4 py-3 text-slate-400 text-xs"
+                                            :title="row.aux_desc || ''"
+                                            x-text="row.aux_desc || '-'"></td>
+                                        <td role="cell"
+                                            class="px-4 py-3 text-right font-medium"
+                                            :class="row.base_qty > 0 ? 'text-emerald-400' : 'text-slate-500'"
+                                            x-text="formatQty(row.base_qty)"></td>
+                                        <td role="cell"
+                                            x-show="multiOrg"
+                                            class="px-4 py-3 text-slate-400 text-sm"
+                                            x-text="row.stock_org || '-'"></td>
+                                    </tr>
+                                </template>
+
+                                <!-- Empty state within detail -->
+                                <template x-if="getVisibleRows().length === 0 && !loading">
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-10 text-center text-slate-500 text-sm">
+                                            暂无库存记录
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+
+                            <!-- Footer total row -->
+                            <tfoot x-show="getVisibleRows().length > 0" class="sticky bottom-0 z-10">
+                                <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
+                                    <td class="px-4 py-3 text-slate-400" colspan="4">合计</td>
+                                    <td class="px-4 py-3 text-right text-emerald-400"
+                                        x-text="formatQty(getVisibleRows().reduce((s, r) => s + (r.base_qty || 0), 0))"></td>
+                                    <td x-show="multiOrg" class="px-4 py-3"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- Footer status bar -->
+                    <div class="bg-slate-800/50 px-6 py-3 border-t border-slate-700">
+                        <div class="flex items-center justify-between text-sm">
+                            <div class="text-slate-400">
+                                显示 <span class="font-bold text-slate-200" x-text="getVisibleRows().length"></span> 条记录
+                                <span x-show="!includeZero" class="text-slate-600 ml-1">（已过滤零库存）</span>
+                            </div>
+                            <div class="text-xs text-slate-600">
+                                实时查询 · 不使用缓存
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Live region for screen readers -->
+    <div aria-live="polite" aria-atomic="true" class="sr-only"
+         x-text="loading ? '正在加载...' : (errorMsg ? '发生错误: ' + errorMsg : '')">
+    </div>
+
+    <script src="/static/js/api.js?v=20260528"></script>
+    <script src="/static/js/auth.js?v=20260528"></script>
+    <script>
+        function inventorySearch() {
+            return {
+                // --- state ---
+                q: '',
+                loading: false,
+                results: [],            // candidates from /search
+                resultsTotal: 0,
+                selectedMaterial: null, // InventoryDetail when drilled in
+                includeZero: false,
+                errorMsg: '',
+                multiOrg: false,        // controls org column visibility
+                searchPerformed: false,
+
+                // --- lifecycle ---
+                initPage() {
+                    // nothing to pre-fetch
+                },
+
+                // ----------------------------------------------------------------
+                // search() — query /api/inventory/search
+                // ----------------------------------------------------------------
+                async search() {
+                    const trimmed = this.q.trim();
+
+                    if (trimmed.length < 2) {
+                        this.errorMsg = '请输入至少 2 个字符后再搜索。';
+                        return;
+                    }
+
+                    // Basic client-side injection guard (mirrors backend sanitize_query)
+                    if (/['";\(\)=]/.test(trimmed)) {
+                        this.errorMsg = '搜索词包含非法字符，请移除引号、分号等特殊字符。';
+                        return;
+                    }
+
+                    this.loading = true;
+                    this.errorMsg = '';
+                    this.selectedMaterial = null;
+                    this.results = [];
+                    this.resultsTotal = 0;
+                    this.searchPerformed = true;
+
+                    try {
+                        const data = await api.request(
+                            `/inventory/search?q=${encodeURIComponent(trimmed)}&limit=50`
+                        );
+                        this.results = data.items || [];
+                        this.resultsTotal = data.total ?? this.results.length;
+                    } catch (err) {
+                        this.errorMsg = this._mapError(err);
+                    } finally {
+                        this.loading = false;
+                        this.$nextTick(() => lucide.createIcons());
+                    }
+                },
+
+                // ----------------------------------------------------------------
+                // selectMaterial() — query /api/inventory/material/{code}
+                // ----------------------------------------------------------------
+                async selectMaterial(code) {
+                    this.loading = true;
+                    this.errorMsg = '';
+
+                    try {
+                        const url = `/inventory/material/${encodeURIComponent(code)}?include_zero=${this.includeZero}`;
+                        const data = await api.request(url);
+
+                        // Determine if multi-org (auto-hide org column when all rows share one value)
+                        const orgs = new Set((data.rows || []).map(r => r.stock_org).filter(Boolean));
+                        this.multiOrg = orgs.size > 1;
+
+                        this.selectedMaterial = data;
+                    } catch (err) {
+                        this.errorMsg = this._mapError(err);
+                    } finally {
+                        this.loading = false;
+                        this.$nextTick(() => lucide.createIcons());
+                    }
+                },
+
+                // ----------------------------------------------------------------
+                // back() — restore candidate list
+                // ----------------------------------------------------------------
+                back() {
+                    this.selectedMaterial = null;
+                    this.includeZero = false;
+                    this.errorMsg = '';
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                // ----------------------------------------------------------------
+                // toggleIncludeZero() — re-fetch detail with updated flag
+                // ----------------------------------------------------------------
+                async toggleIncludeZero() {
+                    if (!this.selectedMaterial) return;
+                    const code = this.selectedMaterial.material_code;
+                    await this.selectMaterial(code);
+                },
+
+                // ----------------------------------------------------------------
+                // getVisibleRows() — sorted by base_qty desc
+                // ----------------------------------------------------------------
+                getVisibleRows() {
+                    if (!this.selectedMaterial?.rows) return [];
+                    return [...this.selectedMaterial.rows].sort(
+                        (a, b) => (b.base_qty || 0) - (a.base_qty || 0)
+                    );
+                },
+
+                // ----------------------------------------------------------------
+                // Formatting helpers
+                // ----------------------------------------------------------------
+                formatQty(val) {
+                    if (val == null) return '-';
+                    return new Intl.NumberFormat('zh-CN', {
+                        maximumFractionDigits: 2,
+                        minimumFractionDigits: 0
+                    }).format(val);
+                },
+
+                getErpClassBadge(erpClass) {
+                    const map = {
+                        '1': 'bg-sky-500/20 text-sky-300 border border-sky-700',
+                        '2': 'bg-emerald-500/20 text-emerald-300 border border-emerald-700',
+                        '3': 'bg-amber-500/20 text-amber-300 border border-amber-700',
+                        '4': 'bg-slate-500/20 text-slate-400 border border-slate-600',
+                        '9': 'bg-violet-500/20 text-violet-300 border border-violet-700',
+                    };
+                    return map[String(erpClass)] || 'bg-slate-500/20 text-slate-400 border border-slate-600';
+                },
+
+                // ----------------------------------------------------------------
+                // Error mapping
+                // ----------------------------------------------------------------
+                _mapError(err) {
+                    const msg = err?.message || '';
+                    if (msg.includes('401') || msg === 'Unauthorized') {
+                        // api.js already redirects on 401 — this is a fallback label
+                        return '登录已过期，正在跳转登录页…';
+                    }
+                    if (msg.includes('429')) return '请求过于频繁，请稍后再试。';
+                    if (msg.includes('502') || msg.includes('503')) return 'ERP 暂不可达，请稍后重试。';
+                    if (msg.includes('超时') || msg.includes('timeout')) return '请求超时，请检查网络后重试。';
+                    if (msg) return `查询失败：${msg}`;
+                    return '查询失败，请稍后重试。';
+                }
+            };
+        }
+
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        document.addEventListener('alpine:initialized', () => {
+            lucide.createIcons();
+        });
+    </script>
+</body>
+</html>
