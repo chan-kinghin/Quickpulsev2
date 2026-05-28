@@ -69,6 +69,12 @@ body {
     border: 1px solid rgb(245 158 11 / 0.3);
 }
 
+.badge-virtual {
+    background: rgb(100 116 139 / 0.2);
+    color: var(--erp-virtual);
+    border: 1px solid rgb(100 116 139 / 0.3);
+}
+
 .glow-emerald:focus {
     box-shadow: 0 0 0 2px var(--slate-950), 0 0 0 4px var(--emerald-500);
 }
@@ -146,6 +152,31 @@ th.resizable {
 th.col-hidden,
 td.col-hidden {
     display: none;
+}
+
+/* === Nav Tabs (horizontal) === */
+.nav-tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    color: var(--slate-400);
+    border-radius: 6px;
+    transition: color 0.15s ease, background 0.15s ease;
+    text-decoration: none;
+}
+
+.nav-tab:hover {
+    color: var(--slate-200);
+    background: var(--slate-800);
+}
+
+.nav-tab-active {
+    color: var(--emerald-400);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.nav-tab-active:hover {
+    color: var(--emerald-400);
+    background: rgba(16, 185, 129, 0.15);
 }
 
 /* === Filter Chips === */

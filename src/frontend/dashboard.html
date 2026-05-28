@@ -8,7 +8,7 @@
     <!-- Pre-built Tailwind CSS (no CDN dependency — reliable in China).
          Bump ?v= whenever you regenerate via scripts/build_tailwind.sh, or
          browsers will serve the stale cached file. -->
-    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260512">
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260528">
 
     <!-- Serve Alpine.js locally for reliability in China -->
     <script defer src="/static/js/alpine.min.js"></script>
@@ -16,7 +16,7 @@
     <!-- SheetJS for Excel export (served locally for China reliability) -->
     <script src="/static/js/xlsx.full.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/main.css?v=20260512">
+    <link rel="stylesheet" href="/static/css/main.css?v=20260528">
 </head>
 <body class="bg-slate-950 min-h-screen" x-data="authGuard()">
     <a href="#main-content"
@@ -26,34 +26,32 @@
 
     <div x-data="mtoSearch()" x-init="init()" x-cloak @keydown.escape.window="photoModalOpen ? closePhotoModal() : (inlinePhotoOpen ? closePhotoPanel() : (chatOpen ? (chatOpen = false) : exitFullScreen()))">
         <div class="chat-content-push" :style="chatOpen ? 'margin-right: 384px' : ''" >
-        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 no-print"
+        <header class="bg-slate-900 border-b border-slate-800 no-print"
                 :class="isFullScreen && isCollapsed ? 'hidden' : ''">
-            <div class="flex items-center justify-between max-w-7xl mx-auto">
-                <div class="flex items-center gap-4">
+            <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
+                <!-- Brand -->
+                <div class="flex items-center gap-3">
                     <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
-                    <span class="text-slate-600 text-sm">|</span>
-                    <span class="text-slate-400 text-sm">产品状态明细表</span>
                 </div>
-                <div class="flex items-center gap-6">
-                    <span class="text-slate-400 text-sm font-mono" x-text="new Date().toLocaleString('zh-CN')"></span>
-                    <div class="relative" x-data="{ open: false }">
-                        <button @click="open = !open"
-                                class="flex items-center gap-2 text-slate-400 hover:text-slate-50 transition">
-                            <i data-lucide="user" class="w-4 h-4"></i>
-                            <span class="text-sm">用户</span>
-                            <i data-lucide="chevron-down" class="w-3 h-3"></i>
-                        </button>
-                        <div x-show="open" @click.away="open = false" x-transition
-                             class="absolute right-0 mt-2 w-40 bg-slate-800 border border-slate-700 rounded shadow-lg py-1 z-50">
-                            <a href="/inventory" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">物料库存查询</a>
-                            <a href="/sync.html" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">同步管理</a>
-                            <a href="/admin.html" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">使用分析</a>
-                            <button @click="api.logout()"
-                                    class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">
-                                退出登录
-                            </button>
-                        </div>
-                    </div>
+
+                <!-- Nav tabs -->
+                <nav class="flex items-center gap-1" aria-label="主导航">
+                    <a href="/" class="nav-tab nav-tab-active">MTO 查询</a>
+                    <a href="/inventory" class="nav-tab">库存查询</a>
+                    <a href="/sync.html" class="nav-tab">同步</a>
+                    <a href="/admin.html" class="nav-tab">分析</a>
+                </nav>
+
+                <!-- Right cluster -->
+                <div class="flex items-center gap-3">
+                    <span class="text-slate-500 text-xs font-mono hidden md:inline"
+                          x-text="new Date().toLocaleString('zh-CN')"></span>
+                    <button @click="api.logout()"
+                            aria-label="退出登录"
+                            class="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        <span class="hidden md:inline">退出</span>
+                    </button>
                 </div>
             </div>
         </header>
@@ -1133,9 +1131,9 @@
         </div>
     </div>
 
-    <script src="/static/js/api.js?v=20260512"></script>
-    <script src="/static/js/auth.js?v=20260512"></script>
-    <script src="/static/js/dashboard.js?v=20260512"></script>
+    <script src="/static/js/api.js?v=20260528"></script>
+    <script src="/static/js/auth.js?v=20260528"></script>
+    <script src="/static/js/dashboard.js?v=20260528"></script>
     <script>
         // Initialize Lucide icons once on page load
         lucide.createIcons();
