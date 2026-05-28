@@ -37,6 +37,9 @@ _MAX_TOKENS = 4
 # Valid erp_class codes accepted by the filter
 _VALID_ERP_CLASSES = {"1", "2", "3", "4", "9"}
 
+# Letter-digit boundary pattern for typo retry (K66 → K-66, GT38 → GT-38)
+_LETTER_DIGIT_RE = re.compile(r"^([A-Za-z]+)([0-9].*)$")
+
 
 def sanitize_query(q: str) -> str:
     """Validate a single query token before injecting into Kingdee FilterString.
@@ -66,9 +69,38 @@ def tokenize(q: str) -> list[str]:
     return [sanitize_query(t) for t in tokens]
 
 
+def _insert_dash_variant(token: str) -> Optional[str]:
+    """K66 → K-66; GT38 → GT-38; KCB3 → KCB-3.
+
+    Returns None if no letter-digit boundary found or token already has a dash/dot.
+    """
+    if "-" in token or "." in token:
+        return None
+    m = _LETTER_DIGIT_RE.match(token)
+    return f"{m.group(1)}-{m.group(2)}" if m else None
+
+
 class InventoryReader:
-    def __init__(self, client: KingdeeClient):
+    def __init__(self, client: KingdeeClient, db=None):
         self.client = client
+        self.db = db
+
+    async def _customer_lookup(self, token: str) -> set[str]:
+        """Reverse-lookup material_codes via cached_sales_orders.customer_name LIKE %token%.
+
+        Uses the existing local SQLite cache populated by the MTO sync (no Kingdee call).
+        Returns empty set if db is not wired or query yields nothing.
+        """
+        if self.db is None:
+            return set()
+        # Escape SQL LIKE wildcards in user input — defense in depth
+        safe = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = await self.db.execute_read(
+            "SELECT DISTINCT material_code FROM cached_sales_orders "
+            "WHERE customer_name LIKE ? ESCAPE '\\\\'",
+            [f"%{safe}%"],
+        )
+        return {r[0] for r in rows if r[0]}
 
     async def search_materials(
         self,
@@ -83,10 +115,11 @@ class InventoryReader:
           - BD_MATERIAL path: FNumber/FName/FSpecification LIKE %token%
           - aux path: BD_FLEXSITEMDETAILV FF100001/FF100002.FName LIKE %token%
             → aux_ids → STK_Inventory FAuxPropId IN (...) → material codes
+          - customer path: cached_sales_orders.customer_name LIKE %token% (if db wired)
 
         The final result is the intersection of all per-token candidate sets.
-        For a single-token query this is equivalent to the original single-token
-        behavior (union of material + aux paths, no intersection shrinkage).
+        If the intersection is empty and any token has a letter-digit boundary,
+        one lazy retry is attempted with dash-injected variants (K66 → K-66).
         """
         tokens = tokenize(q)
         server_limit = min(limit, _SEARCH_SERVER_CAP)
@@ -99,16 +132,50 @@ class InventoryReader:
             in_list = ",".join(f"'{c}'" for c in erp_classes)
             erp_clause = f" and FErpClsID IN ({in_list})"
 
-        # Per-token candidate sets computed in parallel
-        candidate_sets = await asyncio.gather(
-            *[self._candidates_for_token(t, erp_clause) for t in tokens]
+        # Per-token candidate dicts computed in parallel
+        candidate_dicts: list[dict[str, set[str]]] = list(
+            await asyncio.gather(
+                *[self._candidates_for_token(t, erp_clause) for t in tokens]
+            )
         )
 
-        final_codes: set[str] = set.intersection(*candidate_sets) if candidate_sets else set()
+        all_code_sets = [set(d.keys()) for d in candidate_dicts]
+        final_codes: set[str] = set.intersection(*all_code_sets) if all_code_sets else set()
+
+        # Lazy typo retry: if zero hits and any token has a letter-digit boundary, retry once
+        if not final_codes:
+            variant_tokens = []
+            any_variant = False
+            for t in tokens:
+                v = _insert_dash_variant(t)
+                if v:
+                    variant_tokens.append(v)
+                    any_variant = True
+                else:
+                    variant_tokens.append(t)
+            if any_variant:
+                retry_dicts: list[dict[str, set[str]]] = list(
+                    await asyncio.gather(
+                        *[self._candidates_for_token(t, erp_clause) for t in variant_tokens]
+                    )
+                )
+                retry_sets = [set(d.keys()) for d in retry_dicts]
+                retry_codes = set.intersection(*retry_sets) if retry_sets else set()
+                if retry_codes:
+                    final_codes = retry_codes
+                    candidate_dicts = retry_dicts
+
         final_codes_list = sorted(final_codes)[:server_limit]
 
         if not final_codes_list:
             return InventorySearchResponse(query=q, total=0, items=[])
+
+        # Aggregate sources for each surviving code
+        all_sources: dict[str, set[str]] = {}
+        for token_sources in candidate_dicts:
+            for code, srcs in token_sources.items():
+                if code in final_codes:
+                    all_sources.setdefault(code, set()).update(srcs)
 
         rows = await self._fetch_materials_by_codes(final_codes_list, erp_clause=erp_clause)
         items: list[MaterialMatch] = []
@@ -118,12 +185,17 @@ class InventoryReader:
             if m.material_code in seen:
                 continue
             seen.add(m.material_code)
+            m.matched_via = sorted(all_sources.get(m.material_code, set()))
             items.append(m)
 
         return InventorySearchResponse(query=q, total=len(items), items=items)
 
-    async def _candidates_for_token(self, token: str, erp_clause: str) -> set[str]:
-        """Return set of material_codes matching this single token (BD_MATERIAL union aux path)."""
+    async def _candidates_for_token(self, token: str, erp_clause: str) -> dict[str, set[str]]:
+        """Return {material_code: set_of_source_labels} matching this single token.
+
+        Sources: 'name' (BD_MATERIAL fields), 'aux' (FF100001/FF100002.FName),
+                 'customer' (cached_sales_orders.customer_name).
+        """
         material_filter = (
             f"(FNumber like '%{token}%' or FName like '%{token}%' "
             f"or FSpecification like '%{token}%') and FForbidStatus = 'A'"
@@ -131,7 +203,7 @@ class InventoryReader:
         )
         aux_filter = f"FF100001 like '%{token}%' or FF100002.FName like '%{token}%'"
 
-        bd_rows, aux_rows = await asyncio.gather(
+        bd_rows, aux_rows, customer_codes = await asyncio.gather(
             self.client.query(
                 form_id="BD_MATERIAL",
                 field_keys=["FNumber"],
@@ -144,9 +216,15 @@ class InventoryReader:
                 filter_string=aux_filter,
                 limit=_AUX_BATCH_SIZE,
             ),
+            self._customer_lookup(token),
         )
 
-        codes: set[str] = {r["FNumber"] for r in bd_rows if r.get("FNumber")}
+        sources: dict[str, set[str]] = {}
+
+        for r in bd_rows:
+            code = r.get("FNumber")
+            if code:
+                sources.setdefault(code, set()).add("name")
 
         if aux_rows:
             aux_ids = [str(int(r["FID"])) for r in aux_rows if r.get("FID")]
@@ -158,9 +236,15 @@ class InventoryReader:
                     filter_string=f"FAuxPropId IN ({in_clause}) and FBaseQty <> 0",
                     limit=2000,
                 )
-                codes |= {r["FMaterialId.FNumber"] for r in inv_rows if r.get("FMaterialId.FNumber")}
+                for r in inv_rows:
+                    code = r.get("FMaterialId.FNumber")
+                    if code:
+                        sources.setdefault(code, set()).add("aux")
 
-        return codes
+        for code in customer_codes:
+            sources.setdefault(code, set()).add("customer")
+
+        return sources
 
     async def _fetch_materials_by_codes(
         self, codes: list[str], erp_clause: str = ""

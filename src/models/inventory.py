@@ -26,6 +26,12 @@ class MaterialMatch(BaseModel):
     erp_class: str = Field(default="", description="BD_MATERIAL.FErpClsID raw value: 1/2/3/4/9")
     erp_class_label: str = Field(default="", description="Localized label: 外购/自制/委外/虚拟件/成品")
 
+    # Match provenance — set by InventoryReader.search_materials
+    matched_via: list[str] = Field(
+        default_factory=list,
+        description="Sources that contributed to this match: 'name', 'aux', 'customer'",
+    )
+
 
 class InventorySearchResponse(BaseModel):
     """Response for /api/inventory/search."""

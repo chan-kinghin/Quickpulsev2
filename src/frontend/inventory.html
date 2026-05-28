@@ -32,7 +32,7 @@
 
                 <!-- Nav tabs -->
                 <nav class="flex items-center gap-1" aria-label="主导航">
-                    <a href="/" class="nav-tab">MTO 查询</a>
+                    <a href="/dashboard.html" class="nav-tab">MTO 查询</a>
                     <a href="/inventory" class="nav-tab nav-tab-active">库存查询</a>
                     <a href="/sync.html" class="nav-tab">同步</a>
                     <a href="/admin.html" class="nav-tab">分析</a>
@@ -64,7 +64,7 @@
                                id="inventory-search"
                                x-model="q"
                                @keydown.enter="search()"
-                               placeholder="输入物料编码 / 名称 / 规格 / 颜色（多关键词用空格分隔，如：黑色 网袋）"
+                               placeholder="输入物料编码 / 名称 / 规格 / 颜色 / 客户名（多关键词用空格分隔）"
                                aria-label="物料搜索"
                                aria-describedby="inventory-search-help"
                                autocomplete="off"
@@ -152,6 +152,18 @@
                                         <span x-show="item.specification"
                                               class="text-slate-500 text-sm truncate"
                                               x-text="'— ' + item.specification"></span>
+                                    </div>
+                                    <div x-show="item.matched_via && item.matched_via.length > 0" class="flex gap-1 mt-1">
+                                        <template x-for="src in item.matched_via" :key="src">
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded border"
+                                                  :class="{
+                                                      'border-slate-700 text-slate-500': src === 'name',
+                                                      'border-violet-700/50 text-violet-400 bg-violet-500/5': src === 'aux',
+                                                      'border-amber-700/50 text-amber-400 bg-amber-500/5': src === 'customer',
+                                                  }"
+                                                  x-text="{ name: '名称', aux: '辅助属性', customer: '客户' }[src] || src">
+                                            </span>
+                                        </template>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-3 flex-shrink-0">

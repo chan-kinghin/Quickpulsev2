@@ -521,3 +521,167 @@ async def test_multi_token_empty_intersection():
     # intersection of {"MAT_NET"} and {"MAT_FIN"} is empty
     assert resp.total == 0
     assert resp.items == []
+
+
+# ---------------------------------------------------------------------------
+# Customer lookup
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_customer_lookup_returns_material_codes():
+    """_customer_lookup runs a SQL LIKE on cached_sales_orders.customer_name."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[("07.01.001",), ("07.01.002",)])
+    reader = InventoryReader(make_client(), db=db)
+    codes = await reader._customer_lookup("巴西")
+    assert codes == {"07.01.001", "07.01.002"}
+    sql, params = db.execute_read.call_args[0]
+    assert "cached_sales_orders" in sql
+    assert "customer_name LIKE" in sql
+    assert params == ["%巴西%"]
+
+
+@pytest.mark.asyncio
+async def test_customer_lookup_disabled_when_no_db():
+    """When db is None, _customer_lookup returns empty set without querying."""
+    reader = InventoryReader(make_client(), db=None)
+    assert await reader._customer_lookup("巴西") == set()
+
+
+@pytest.mark.asyncio
+async def test_customer_lookup_escapes_sql_wildcards():
+    """User input '%' and '_' must be escaped to be matched literally."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[])
+    reader = InventoryReader(make_client(), db=db)
+    await reader._customer_lookup("test%user")
+    params = db.execute_read.call_args[0][1]
+    # Wildcard inside the user term should be escaped
+    assert "test\\%user" in params[0]
+
+
+@pytest.mark.asyncio
+async def test_matched_via_includes_customer_when_path_contributes():
+    """When customer lookup is the only source, matched_via should be ['customer']."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[("07.99.001",)])
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        if form_id == "BD_MATERIAL":
+            if "FNumber IN" in filter_string:
+                # metadata fetch
+                return [{"FNumber": "07.99.001", "FName": "测试", "FSpecification": "", "FErpClsID": "9"}]
+            return []  # candidate fetch — empty
+        return []
+
+    client = make_client()
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = InventoryReader(client, db=db)
+    resp = await reader.search_materials("巴西")
+    assert resp.total == 1
+    assert resp.items[0].matched_via == ["customer"]
+
+
+@pytest.mark.asyncio
+async def test_matched_via_combines_sources():
+    """Material matching via both name AND customer should have both labels."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[("07.99.001",)])
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        if form_id == "BD_MATERIAL":
+            if "FNumber IN" in filter_string:
+                return [{"FNumber": "07.99.001", "FName": "MARES vest", "FSpecification": "", "FErpClsID": "9"}]
+            return [{"FNumber": "07.99.001"}]  # candidate fetch hits
+        return []
+
+    client = make_client()
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = InventoryReader(client, db=db)
+    resp = await reader.search_materials("MARES")
+    assert set(resp.items[0].matched_via) == {"name", "customer"}
+
+
+# ---------------------------------------------------------------------------
+# Typo retry (_insert_dash_variant + search_materials retry path)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_typo_retry_inserts_dash():
+    """When zero hits, retry with dash-injected variant: K66 → K-66."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[])
+
+    call_log = []
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        call_log.append((form_id, filter_string))
+        if form_id == "BD_MATERIAL":
+            if "FNumber IN" in filter_string:
+                return [{"FNumber": "05.05.17.02", "FName": "盒子", "FSpecification": "K-66盒子", "FErpClsID": "1"}]
+            # candidate fetch: only "K-66" variant returns hits, "K66" returns empty
+            if "%K-66%" in filter_string:
+                return [{"FNumber": "05.05.17.02"}]
+            return []
+        return []
+
+    client = make_client()
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = InventoryReader(client, db=db)
+    resp = await reader.search_materials("K66")
+
+    assert resp.total == 1
+    # Verify the variant query was made
+    assert any("%K-66%" in fs for _, fs in call_log), f"K-66 variant not attempted: {call_log}"
+
+
+@pytest.mark.asyncio
+async def test_typo_retry_skipped_when_no_letter_digit_boundary():
+    """Tokens like '盒子' or 'K-66' should not trigger dash injection."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[])
+
+    call_log = []
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        call_log.append(filter_string)
+        return []
+
+    client = make_client()
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = InventoryReader(client, db=db)
+    await reader.search_materials("盒子")
+
+    # No filter_string should contain a dash injected into "盒子"
+    assert not any("-子" in fs or "盒-" in fs for fs in call_log)
+
+
+@pytest.mark.asyncio
+async def test_typo_retry_not_fired_when_first_pass_has_hits():
+    """Retry must NOT run when first pass already yields results."""
+    db = AsyncMock()
+    db.execute_read = AsyncMock(return_value=[])
+
+    call_log = []
+
+    async def fake_query(*, form_id, filter_string="", **kw):
+        call_log.append((form_id, filter_string))
+        if form_id == "BD_MATERIAL":
+            if "FNumber IN" in filter_string:
+                return [{"FNumber": "05.05.001", "FName": "盒子", "FSpecification": "K66标准", "FErpClsID": "1"}]
+            # K66 candidate fetch hits on first pass
+            if "%K66%" in filter_string:
+                return [{"FNumber": "05.05.001"}]
+            return []
+        return []
+
+    client = make_client()
+    client.query = AsyncMock(side_effect=fake_query)
+    reader = InventoryReader(client, db=db)
+    resp = await reader.search_materials("K66")
+
+    assert resp.total == 1
+    # K-66 variant should NOT have been queried since first pass had hits
+    assert not any("%K-66%" in fs for _, fs in call_log), (
+        "Retry should not fire when first pass has results"
+    )

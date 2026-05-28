@@ -44,6 +44,12 @@ class TestMaterialMatch:
         assert match.erp_class_label == ""
         assert match.specification == ""
 
+    def test_material_match_matched_via_default_empty_list(self):
+        """matched_via defaults to an empty list — not None, not missing."""
+        m = MaterialMatch(material_code="X", material_name="Y")
+        assert m.matched_via == []
+        assert isinstance(m.matched_via, list)
+
 
 class TestInventorySearchResponse:
     """Tests for InventorySearchResponse model."""

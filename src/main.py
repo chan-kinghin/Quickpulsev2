@@ -123,7 +123,7 @@ async def lifespan(app: FastAPI):
         memory_cache_ttl=memory_cfg.ttl_seconds,
     )
 
-    inventory_reader = InventoryReader(kingdee_client)
+    inventory_reader = InventoryReader(kingdee_client, db=db)
 
     # Register callback to clear memory cache after sync completes
     sync_service.add_post_sync_callback(mto_handler.clear_memory_cache)
@@ -308,7 +308,18 @@ app.include_router(inventory_router.router)
 
 
 @app.get("/")
-async def root():
+async def root(request: Request):
+    token = request.cookies.get("access_token")
+    if token:
+        from jose import JWTError, jwt as jose_jwt
+        from src.api.routers.auth import SECRET_KEY, ALGORITHM
+
+        try:
+            payload = jose_jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if payload.get("sub") is not None:
+                return RedirectResponse(url="/dashboard.html", status_code=302)
+        except JWTError:
+            pass
     return FileResponse("src/frontend/index.html")
 
 
