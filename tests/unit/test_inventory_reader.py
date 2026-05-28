@@ -542,6 +542,49 @@ async def test_customer_lookup_returns_material_codes():
 
 
 @pytest.mark.asyncio
+async def test_customer_lookup_sql_runs_against_real_sqlite():
+    """Regression: ESCAPE clause must be a single character.
+
+    The first v3 deploy shipped with ESCAPE '\\\\' (Python source) which SQLite
+    rejects with 'ESCAPE expression must be a single character'. AsyncMock
+    tests didn't catch this because they never parsed the SQL — only an actual
+    sqlite engine does. This test forces the SQL through a real in-memory DB.
+    """
+    import aiosqlite
+
+    class RealDb:
+        def __init__(self, conn):
+            self.conn = conn
+
+        async def execute_read(self, query, params=None):
+            async with self.conn.execute(query, params or []) as cur:
+                return await cur.fetchall()
+
+    async with aiosqlite.connect(":memory:") as conn:
+        await conn.execute(
+            "CREATE TABLE cached_sales_orders ("
+            "  bill_no TEXT, material_code TEXT, customer_name TEXT)"
+        )
+        await conn.executemany(
+            "INSERT INTO cached_sales_orders VALUES (?, ?, ?)",
+            [
+                ("S1", "07.01.001", "巴西KS"),
+                ("S2", "07.01.002", "巴西MULTISPORT"),
+                ("S3", "07.99.099", "美国Acme"),
+            ],
+        )
+        await conn.commit()
+
+        reader = InventoryReader(make_client(), db=RealDb(conn))
+        codes = await reader._customer_lookup("巴西")
+        assert codes == {"07.01.001", "07.01.002"}
+
+        # Wildcards in user input must be matched literally, not as wildcards
+        codes_pct = await reader._customer_lookup("巴%")
+        assert codes_pct == set(), "% in input must be escaped to literal"
+
+
+@pytest.mark.asyncio
 async def test_customer_lookup_disabled_when_no_db():
     """When db is None, _customer_lookup returns empty set without querying."""
     reader = InventoryReader(make_client(), db=None)

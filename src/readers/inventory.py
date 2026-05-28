@@ -97,7 +97,7 @@ class InventoryReader:
         safe = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         rows = await self.db.execute_read(
             "SELECT DISTINCT material_code FROM cached_sales_orders "
-            "WHERE customer_name LIKE ? ESCAPE '\\\\'",
+            "WHERE customer_name LIKE ? ESCAPE '\\'",
             [f"%{safe}%"],
         )
         return {r[0] for r in rows if r[0]}
