@@ -121,7 +121,7 @@
 
                     <!-- Candidates table -->
                     <div class="divide-y divide-slate-800">
-                        <template x-for="item in results" :key="item.material_code">
+                        <template x-for="(item, idx) in results" :key="idx + '-' + item.material_code">
                             <button @click="selectMaterial(item.material_code)"
                                     class="w-full text-left px-6 py-4 hover:bg-slate-800/60 transition flex items-center gap-4">
                                 <div class="flex-1 min-w-0">

@@ -69,7 +69,17 @@ class InventoryReader:
             limit=server_limit,
         )
 
-        items = [_row_to_material_match(r) for r in rows]
+        # Kingdee returns one row per (material × organization) — dedupe by code,
+        # keep first occurrence. Without this, the frontend's x-for :key collides.
+        seen: set[str] = set()
+        items: list[MaterialMatch] = []
+        for r in rows:
+            match = _row_to_material_match(r)
+            if match.material_code in seen:
+                continue
+            seen.add(match.material_code)
+            items.append(match)
+
         return InventorySearchResponse(query=q, total=len(items), items=items)
 
     async def get_inventory_by_material(

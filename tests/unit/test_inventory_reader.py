@@ -93,6 +93,26 @@ async def test_search_returns_material_match_list():
 
 
 @pytest.mark.asyncio
+async def test_search_dedupes_duplicate_material_codes():
+    # Kingdee BD_MATERIAL returns one row per (material × org); we must collapse
+    # to one row per material_code or the frontend x-for :key collides and renders nothing.
+    client = make_client()
+    client.query = AsyncMock(return_value=[
+        {"FNumber": "06.04.080", "FName": "未包装呼吸管", "FSpecification": "SN9810", "FErpClsID": "9"},
+        {"FNumber": "06.04.080", "FName": "未包装呼吸管", "FSpecification": "SN9810", "FErpClsID": "9"},
+        {"FNumber": "06.04.080", "FName": "未包装呼吸管", "FSpecification": "SN9810", "FErpClsID": "9"},
+        {"FNumber": "07.17.046", "FName": "潜水镜+呼吸管+蛙鞋", "FSpecification": "M5J+SN9810+F1J", "FErpClsID": "9"},
+        {"FNumber": "07.17.046", "FName": "潜水镜+呼吸管+蛙鞋", "FSpecification": "M5J+SN9810+F1J", "FErpClsID": "9"},
+    ])
+    reader = make_reader(client)
+    resp = await reader.search_materials("SN9810")
+    codes = [i.material_code for i in resp.items]
+    assert len(codes) == len(set(codes)), f"Duplicate codes in response: {codes}"
+    assert resp.total == len(resp.items)
+    assert resp.total == 2
+
+
+@pytest.mark.asyncio
 async def test_search_filter_includes_forbidden_clause():
     client = make_client()
     reader = make_reader(client)
