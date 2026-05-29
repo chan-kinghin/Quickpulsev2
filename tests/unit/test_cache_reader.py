@@ -1165,6 +1165,29 @@ class TestOverPickAlerts:
         assert result["alerts"][0]["material_name"] == "PPBOM名"
 
     @pytest.mark.asyncio
+    async def test_over_pick_summary_reports_net_and_one_sided(self, test_database):
+        """The alert list is the POSITIVE tail only (实发>申请). `summary` exposes
+        the global picture so the UI can explain why the over-pick total looks
+        large: it reports the gross positive total, the (negative) under-pick
+        total, and the net. Guards against the '910K looks like a double count'
+        misread — the net is actually deeply negative (net under-pick)."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "OP1", "05.01.001", 10, 30, "S1")   # +20 over
+        await self._pick(test_database, "OP2", "05.01.002", 100, 40, "S2")  # -60 under
+        result = await reader.get_over_pick_alerts()
+        # Only the positive-deviation pair is an alert.
+        assert len(result["alerts"]) == 1
+        assert result["alerts"][0]["mto_number"] == "OP1"
+        s = result["summary"]
+        assert s["over_total"] == 20
+        assert s["under_total"] == -60
+        assert s["net_total"] == -40
+        assert s["over_pairs"] == 1
+        assert s["under_pairs"] == 1
+        # over_pairs is the same population as total_count (consistency redundancy).
+        assert s["over_pairs"] == result["total_count"]
+
+    @pytest.mark.asyncio
     async def test_over_pick_total_count_matches_full_qualifying_set(self, test_database):
         """total_count counts the full qualifying set (no LIMIT) and is >= the
         number of returned alerts."""
