@@ -107,6 +107,20 @@ class MTOStatusResponse(BaseModel):
         default="live",
         description="Data source: 'cache' for cached data, 'live' for real-time API",
     )
+    # Derived from the MTO number prefix via classify_mto(). Safe defaults keep
+    # existing serialization stable; '未分类' for unparseable numbers.
+    business_line_label: str = Field(
+        default="未分类",
+        description="业务线 derived from MTO 1st letter (外销/内销/瑞弧/未分类)",
+    )
+    order_type_label: str = Field(
+        default="未分类",
+        description="订单类型 derived from MTO 2nd letter (完整订单/备货半成品单/样品单/未分类)",
+    )
+    is_sample: bool = Field(
+        default=False,
+        description="True iff order type is 样品单 (MTO 2nd letter == 'Y')",
+    )
     cache_age_seconds: Optional[int] = Field(
         default=None,
         description="Age of cached data in seconds (only present when data_source='cache')",
