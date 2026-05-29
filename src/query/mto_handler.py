@@ -666,16 +666,25 @@ class MTOQueryHandler:
             children.append(child)
 
         # Phase 2a: synthetic / PUR-only rows (Step-2 blocks below) are NOT in PPBOM and
-        # carry no category, so historically they fell back to the unreliable legacy
-        # material_type (e.g. a 外销包材 box mislabeled 自制). Look up the authoritative
-        # BD_MATERIAL.CategoryID for those codes so they route via _CATEGORY_TO_TYPE.
+        # carry no category, so historically they fell back to the legacy material_type
+        # (e.g. a 外销包材 box mislabeled 自制). Look up the authoritative BD_MATERIAL.CategoryID.
         synthetic_codes = {
             mc
             for src in (prod_receipts, purchase_orders, prod_orders, material_picks)
             for r in src
             if (mc := getattr(r, "material_code", "")) and not mc.startswith("07.")
         }
-        category_by_code = await self._client.lookup_material_categories(list(synthetic_codes))
+        # Only let CategoryID OVERRIDE the block's source-based type toward the NON-自制 types
+        # (外销包材→包材, 委外加工→委外, 包装成品→成品). For 主料/辅料/半成品 (which map to 自制) the
+        # block's source is more reliable: a purchase-sourced row is 外购/包材, NOT 自制 — e.g.
+        # 外箱纸板 is category 主料 + IsPurchase=True but is packaging, so the crude 主料→自制 map
+        # would mislabel it. Filtering to override-categories keeps purchased main materials correct.
+        _override_cats = {c for c, (_t, lbl) in self._CATEGORY_TO_TYPE.items() if lbl != "自制"}
+        category_by_code = {
+            code: cat
+            for code, cat in (await self._client.lookup_material_categories(list(synthetic_codes))).items()
+            if cat in _override_cats
+        }
 
         # --- BOM children via shared path ---
         bom_rows = self._build_bom_joined_rows_from_live(
