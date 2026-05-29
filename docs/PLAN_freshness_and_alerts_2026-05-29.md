@@ -1,6 +1,9 @@
 # Plan: 数据新鲜度仪表 + 静默失败修复 (QW-1) + 超领/超发预警中心 (QW-2)
 
-## Status: Implemented (pending review / commit)
+## Status: Deployed to dev ✓ (2026-05-29)
+
+> Merged to `main` (FF), pushed `main` + `develop`, CD auto-deployed dev (run 26613950247, 5m1s green). Live dev verified: `/alerts.html` 200, freshness/over-pick/over-ship endpoints return real data. **Feature already earned its keep**: freshness endpoint flagged `cached_sales_orders` as stale on dev (28h old vs 8h for the other 8 tables) — exactly the silent lag it was built to surface.
+
 
 > 3 阶段全部落地,新增 21 个测试全绿(`1010 passed`)。真数据 smoke(`data/quickpulse.db`)验证:超领 927 条、超发 487 条(榜首=第一大客户刀刀超发 +64,736)、9 表新鲜度正常。
 > ⚠️ 发现 **预先存在**的 3 个红测试(`tests/api/test_mto_endpoints.py` 的 use_cache 默认值 test-vs-code 漂移),在 baseline `7f081a8` 上即失败,与本次改动无关——待用户决定是否单独处理。
