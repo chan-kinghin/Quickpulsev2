@@ -3672,3 +3672,75 @@ class TestStrictAuxFilter:
         assert out[0].purchase_order_qty == Decimal("0")
         assert out[0].purchase_stock_in_qty == Decimal("0")
         assert out[0].match_quality_breakdown["purchase_order"] == "no_match"
+
+
+class TestMTOClassificationFields:
+    """The response carries business-line / order-type badges derived from the
+    MTO number prefix via classify_mto(). Pure-additive: existing quantity and
+    column logic is untouched. Uses the live path for determinism.
+    """
+
+    def create_handler(self, mock_readers):
+        return MTOQueryHandler(
+            production_order_reader=mock_readers["production_order"],
+            production_bom_reader=mock_readers["production_bom"],
+            production_receipt_reader=mock_readers["production_receipt"],
+            purchase_order_reader=mock_readers["purchase_order"],
+            purchase_receipt_reader=mock_readers["purchase_receipt"],
+            subcontracting_order_reader=mock_readers["subcontracting_order"],
+            material_picking_reader=mock_readers["material_picking"],
+            sales_delivery_reader=mock_readers["sales_delivery"],
+            sales_order_reader=mock_readers["sales_order"],
+            cache_reader=None,
+        )
+
+    def _wire_purchase_only(self, mock_readers, sample_purchase_orders):
+        """Minimal live wiring: only purchase orders return data (03 class)."""
+        mock_readers["sales_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(
+            return_value=sample_purchase_orders
+        )
+        mock_readers["production_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["purchase_receipt"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["material_picking"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["sales_delivery"].fetch_by_mto = AsyncMock(return_value=[])
+        mock_readers["production_order"].client.lookup_aux_properties = AsyncMock(
+            return_value={}
+        )
+
+    @pytest.mark.asyncio
+    async def test_as_full_order(self, mock_readers, sample_purchase_orders):
+        """AS prefix -> 外销 · 完整订单, not a sample."""
+        self._wire_purchase_only(mock_readers, sample_purchase_orders)
+        handler = self.create_handler(mock_readers)
+
+        result = await handler.get_status("AS2604001", use_cache=False)
+
+        assert result.business_line_label == "外销"
+        assert result.order_type_label == "完整订单"
+        assert result.is_sample is False
+
+    @pytest.mark.asyncio
+    async def test_ak_stock_halffinished_order(self, mock_readers, sample_purchase_orders):
+        """AK prefix -> 外销 · 备货半成品单, not a sample."""
+        self._wire_purchase_only(mock_readers, sample_purchase_orders)
+        handler = self.create_handler(mock_readers)
+
+        result = await handler.get_status("AK2510034", use_cache=False)
+
+        assert result.business_line_label == "外销"
+        assert result.order_type_label == "备货半成品单"
+        assert result.is_sample is False
+
+    @pytest.mark.asyncio
+    async def test_ay_sample_order(self, mock_readers, sample_purchase_orders):
+        """AY prefix -> 外销 · 样品单, is_sample True."""
+        self._wire_purchase_only(mock_readers, sample_purchase_orders)
+        handler = self.create_handler(mock_readers)
+
+        result = await handler.get_status("AY2604099", use_cache=False)
+
+        assert result.business_line_label == "外销"
+        assert result.order_type_label == "样品单"
+        assert result.is_sample is True

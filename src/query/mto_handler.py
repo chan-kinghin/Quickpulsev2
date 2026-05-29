@@ -22,6 +22,7 @@ from src.models.mto_status import (
     DocumentNode,
     MTORelatedOrdersResponse,
 )
+from src.query.mto_classifier import classify_mto
 from src.semantic.enrichment import enrich_response
 
 logger = logging.getLogger(__name__)
@@ -561,6 +562,7 @@ class MTOQueryHandler:
                 cache_age = int((now_local - synced).total_seconds())
                 break
 
+        classification = classify_mto(mto_number)
         result = MTOStatusResponse(
             mto_number=mto_number,
             parent=parent,
@@ -568,6 +570,9 @@ class MTOQueryHandler:
             query_time=datetime.now(timezone.utc),
             data_source="cache",
             cache_age_seconds=cache_age,
+            business_line_label=classification.business_line_label,
+            order_type_label=classification.order_type_label,
+            is_sample=classification.is_sample,
         )
 
         if self._metric_engine:
@@ -686,12 +691,16 @@ class MTOQueryHandler:
         if not children and not sales_orders and not prod_orders and not purchase_orders:
             raise ValueError(f"No data found for MTO {mto_number}")
 
+        classification = classify_mto(mto_number)
         result = MTOStatusResponse(
             mto_number=mto_number,
             parent=parent,
             children=children,
             query_time=datetime.now(timezone.utc),
             data_source="live",
+            business_line_label=classification.business_line_label,
+            order_type_label=classification.order_type_label,
+            is_sample=classification.is_sample,
         )
 
         if self._metric_engine:

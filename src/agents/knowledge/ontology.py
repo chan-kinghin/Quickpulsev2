@@ -46,7 +46,7 @@ DOMAIN_CONCEPTS: List[DomainConcept] = [
         name_zh="计划跟踪号",
         name_en="MTO Number",
         description="MTO（Make-To-Order）是QuickPulse系统的核心追踪单位。"
-        "每个MTO号代表一个客户订单的生产追踪流水，格式为AK+年份后两位+序号（如AK2510034）。"
+        "每个MTO号代表一个客户订单的生产追踪流水，编号格式为[业务线字母][订单类型字母]+年份后两位+序号（如AK2604007、DS262027S）。"
         "系统通过MTO号关联销售订单、生产订单、BOM、采购、入库、领料、出库等所有单据。",
         category="process",
         related_concepts=["production_order", "sales_order", "bom"],
@@ -252,9 +252,11 @@ DOMAIN_CONCEPTS: List[DomainConcept] = [
         id="mto_format",
         name_zh="MTO编号格式",
         name_en="MTO Number Format",
-        description="MTO编号格式为AK+年份后两位+序号，例如AK2510034。"
-        "AK是固定前缀，25是2025年，10034是序号。"
-        "查询时MTO号区分大小写。",
+        description="MTO编号格式为[业务线字母][订单类型字母]+年份后两位+序号，例如AK2604007。"
+        "前两位字母是结构化前缀，不是固定的AK："
+        "第1字母=业务线（A=外销，D=内销，W=瑞弧），第2字母=订单类型（S=完整订单，K=备货半成品单，Y=样品单）。"
+        "例如AS2604007=外销完整订单，AK2604007=外销备货半成品单，DS262027S=内销完整订单（结尾的S是序号的一部分，不是订单类型），AY开头为外销样品单。"
+        "子单在主单号后追加-1/-2等后缀（如AS2604001-1）。查询时MTO号区分大小写。",
         category="rule",
         related_concepts=["mto"],
         kingdee_forms=[],
