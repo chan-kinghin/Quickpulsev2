@@ -63,9 +63,9 @@ async def _warm_kingdee_auth(client: "KingdeeClient") -> None:
     """Fire one trivial query so the SDK's InitConfig/auth handshake happens at boot.
 
     Without this, the first LIVE query after a restart pays the full ~18s auth cost
-    (measured 2026-05-29). Startup cache-warming uses the cache path and does NOT warm
-    SDK auth. Non-blocking and never crashes startup — a warmup miss only means the
-    first live query is slower.
+    (measured 2026-05-29). This warms SDK auth only; the separate startup result-cache
+    warming (below) drives the live path in its own background task. Non-blocking and
+    never crashes startup — a warmup miss only means the first live query is slower.
     """
     try:
         await client.query("BD_MATERIAL", ["FNumber"], "", limit=1)
@@ -146,8 +146,13 @@ async def lifespan(app: FastAPI):
     # Register callback to clear memory cache after sync completes
     sync_service.add_post_sync_callback(mto_handler.clear_memory_cache)
 
-    # Warm cache on startup with recently synced MTOs
-    if memory_cfg.enabled and memory_cfg.warm_on_startup:
+    # Warm the L1 result cache on startup with recently synced MTOs.
+    # Runs in the BACKGROUND: post-Phase-3 the default get_status path is LIVE
+    # (1-5s/MTO), so awaiting warm_count warmups inline would block lifespan
+    # startup for minutes and the container would never report healthy — the
+    # 2026-05-30 dev deploy rolled back for exactly this. Fire-and-forget
+    # (mirrors _warm_kingdee_auth); cancelled on shutdown.
+    async def _warm_startup_cache() -> None:
         try:
             recent_mtos = await db.execute_read(
                 """
@@ -168,6 +173,12 @@ async def lifespan(app: FastAPI):
                 )
         except Exception as exc:
             logger.warning("Startup cache warming failed: %s", exc)
+
+    warm_task: "asyncio.Task | None" = (
+        asyncio.create_task(_warm_startup_cache())
+        if memory_cfg.enabled and memory_cfg.warm_on_startup
+        else None
+    )
 
     loop = asyncio.get_running_loop()
     scheduler = SyncScheduler(config.sync, sync_service, loop=loop)
@@ -199,6 +210,9 @@ async def lifespan(app: FastAPI):
 
     if not auth_warm_task.done():
         auth_warm_task.cancel()
+
+    if warm_task is not None and not warm_task.done():
+        warm_task.cancel()
 
     scheduler.stop()
     await db.close()
