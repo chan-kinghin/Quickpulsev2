@@ -1133,6 +1133,18 @@ class CacheReader:
                 skipped,
             )
 
+        count_rows = await self.db.execute_read(
+            """
+            SELECT COUNT(*) FROM (
+              SELECT 1 FROM cached_material_picking mp
+              WHERE mp.app_qty IS NOT NULL AND mp.actual_qty IS NOT NULL
+              GROUP BY mp.mto_number, mp.material_code
+              HAVING SUM(mp.actual_qty) - SUM(mp.app_qty) > 0
+            )
+            """
+        )
+        total_count = int(count_rows[0][0] or 0) if count_rows and count_rows[0] else 0
+
         rows = await self.db.execute_read(
             """
             SELECT
@@ -1143,18 +1155,38 @@ class CacheReader:
                 SUM(mp.actual_qty) - SUM(mp.app_qty) AS over_amount,
                 so.customer_name,
                 so.delivery_date,
-                so.material_name
+                COALESCE(bom.material_name, po.material_name) AS material_name
             FROM cached_material_picking mp
+            -- customer/delivery: MTO grain (an over-pick alert is per-MTO).
             LEFT JOIN (
-                SELECT mto_number, material_code,
-                       MAX(customer_name)  AS customer_name,
-                       MAX(delivery_date)  AS delivery_date,
-                       MAX(material_name)  AS material_name
+                SELECT mto_number,
+                       MAX(customer_name) AS customer_name,
+                       MAX(delivery_date) AS delivery_date
                 FROM cached_sales_orders
-                GROUP BY mto_number, material_code
+                GROUP BY mto_number
             ) so
               ON so.mto_number = mp.mto_number
-             AND so.material_code = mp.material_code
+            -- material_name: the COMPONENT name at (mto, material_code) grain.
+            -- PPBOM covers BOM/self-made components; purchase_orders covers
+            -- bought-out components (03.xx). NEVER cached_sales_orders, whose
+            -- material_name is the finished-good (07.xx) and would mislabel a
+            -- component (silent-wrong-data). COALESCE prefers the PPBOM name.
+            LEFT JOIN (
+                SELECT mto_number, material_code,
+                       MAX(material_name) AS material_name
+                FROM cached_production_bom
+                GROUP BY mto_number, material_code
+            ) bom
+              ON bom.mto_number = mp.mto_number
+             AND bom.material_code = mp.material_code
+            LEFT JOIN (
+                SELECT mto_number, material_code,
+                       MAX(material_name) AS material_name
+                FROM cached_purchase_orders
+                GROUP BY mto_number, material_code
+            ) po
+              ON po.mto_number = mp.mto_number
+             AND po.material_code = mp.material_code
             WHERE mp.app_qty IS NOT NULL AND mp.actual_qty IS NOT NULL
             GROUP BY mp.mto_number, mp.material_code
             HAVING SUM(mp.actual_qty) - SUM(mp.app_qty) > 0
@@ -1178,7 +1210,11 @@ class CacheReader:
             }
             for r in rows
         ]
-        return {"alerts": alerts, "skipped_incomplete": skipped}
+        return {
+            "alerts": alerts,
+            "skipped_incomplete": skipped,
+            "total_count": total_count,
+        }
 
     async def get_over_ship_alerts(self, limit: int = 200) -> dict:
         """Deliveries exceeding the sales-order quantity (超发), per mto+material.
@@ -1203,6 +1239,30 @@ class CacheReader:
                 "(delivery rows with NULL real_qty excluded, not treated as 0)",
                 skipped,
             )
+
+        count_rows = await self.db.execute_read(
+            """
+            SELECT COUNT(*) FROM (
+              SELECT 1
+              FROM (
+                  SELECT mto_number, material_code, SUM(real_qty) AS total_real
+                  FROM cached_sales_delivery
+                  WHERE real_qty IS NOT NULL
+                  GROUP BY mto_number, material_code
+              ) d
+              JOIN (
+                  SELECT mto_number, material_code, SUM(qty) AS total_qty
+                  FROM cached_sales_orders
+                  WHERE COALESCE(close_status, 'A') != 'B'
+                  GROUP BY mto_number, material_code
+              ) o
+                ON o.mto_number = d.mto_number
+               AND o.material_code = d.material_code
+              WHERE d.total_real - o.total_qty > 0
+            )
+            """
+        )
+        total_count = int(count_rows[0][0] or 0) if count_rows and count_rows[0] else 0
 
         rows = await self.db.execute_read(
             """
@@ -1252,7 +1312,11 @@ class CacheReader:
             }
             for r in rows
         ]
-        return {"alerts": alerts, "skipped_incomplete": skipped}
+        return {
+            "alerts": alerts,
+            "skipped_incomplete": skipped,
+            "total_count": total_count,
+        }
 
     def _is_fresh(self, synced_at: Optional[datetime]) -> bool:
         """Check if cache is within TTL.

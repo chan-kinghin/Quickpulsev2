@@ -17,10 +17,10 @@ def mock_cache_reader():
     reader = MagicMock()
     reader.table_freshness = AsyncMock(return_value=[])
     reader.get_over_pick_alerts = AsyncMock(
-        return_value={"alerts": [], "skipped_incomplete": 0}
+        return_value={"alerts": [], "skipped_incomplete": 0, "total_count": 0}
     )
     reader.get_over_ship_alerts = AsyncMock(
-        return_value={"alerts": [], "skipped_incomplete": 0}
+        return_value={"alerts": [], "skipped_incomplete": 0, "total_count": 0}
     )
     return reader
 
@@ -93,30 +93,92 @@ class TestFreshnessEndpoint:
         assert resp.status_code == 401
 
 
+def _over_pick_alert(mto, material="05.01.001", severe=True):
+    return {
+        "mto_number": mto,
+        "material_code": material,
+        "app_qty": 0,
+        "actual_qty": 50,
+        "over_amount": 50,
+        "customer_name": "刀刀",
+        "delivery_date": "2026-03-05T00:00:00",
+        "material_name": "静电膜",
+        "severe": severe,
+    }
+
+
+def _over_ship_alert(mto, material="07.01.001"):
+    return {
+        "mto_number": mto,
+        "material_code": material,
+        "order_qty": 100,
+        "shipped_qty": 120,
+        "over_amount": 20,
+        "customer_name": "MARES",
+        "delivery_date": "2026-03-05T00:00:00",
+        "material_name": "蛙鞋",
+    }
+
+
 class TestOverPickEndpoint:
     @pytest.mark.asyncio
     async def test_passthrough(self, app_with_alerts, auth_headers, mock_cache_reader):
         mock_cache_reader.get_over_pick_alerts.return_value = {
-            "alerts": [
-                {
-                    "mto_number": "AK1",
-                    "material_code": "05.01.001",
-                    "app_qty": 0,
-                    "actual_qty": 50,
-                    "over_amount": 50,
-                    "customer_name": "刀刀",
-                    "delivery_date": "2026-03-05T00:00:00",
-                    "material_name": "静电膜",
-                    "severe": True,
-                }
-            ],
+            "alerts": [_over_pick_alert("AK1")],
             "skipped_incomplete": 2,
+            "total_count": 5,
         }
         resp = await _get(app_with_alerts, "/api/alerts/over-pick", auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["skipped_incomplete"] == 2
         assert data["alerts"][0]["severe"] is True
+        # No samples present → nothing excluded, but the count is always reported.
+        assert data["excluded_sample_count"] == 0
+        # total_count passes through the sample filter unchanged.
+        assert data["total_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_samples_excluded_by_default(
+        self, app_with_alerts, auth_headers, mock_cache_reader
+    ):
+        """AY/DY (order_type=Y) sample rows are noise — dropped by default."""
+        mock_cache_reader.get_over_pick_alerts.return_value = {
+            "alerts": [
+                _over_pick_alert("AK2510034"),  # 完整订单 — keep
+                _over_pick_alert("AY2510001"),  # 样品单 (export) — drop
+                _over_pick_alert("DY251002S"),  # 样品单 (domestic) — drop
+                _over_pick_alert("AK2510034-1"),  # sub-order, not a sample — keep
+            ],
+            "skipped_incomplete": 0,
+        }
+        resp = await _get(app_with_alerts, "/api/alerts/over-pick", auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        kept = {a["mto_number"] for a in data["alerts"]}
+        assert kept == {"AK2510034", "AK2510034-1"}
+        assert data["excluded_sample_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_include_samples_retains_and_still_reports_count(
+        self, app_with_alerts, auth_headers, mock_cache_reader
+    ):
+        mock_cache_reader.get_over_pick_alerts.return_value = {
+            "alerts": [
+                _over_pick_alert("AK2510034"),
+                _over_pick_alert("AY2510001"),
+                _over_pick_alert("DY251002S"),
+            ],
+            "skipped_incomplete": 0,
+        }
+        resp = await _get(
+            app_with_alerts, "/api/alerts/over-pick?include_samples=true", auth_headers
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["alerts"]) == 3  # nothing dropped
+        # Count is still reported so the filter never becomes a silent no-op.
+        assert data["excluded_sample_count"] == 2
 
     @pytest.mark.asyncio
     async def test_query_failure_returns_500(
@@ -136,23 +198,55 @@ class TestOverShipEndpoint:
     @pytest.mark.asyncio
     async def test_passthrough(self, app_with_alerts, auth_headers, mock_cache_reader):
         mock_cache_reader.get_over_ship_alerts.return_value = {
+            "alerts": [_over_ship_alert("AK2")],
+            "skipped_incomplete": 0,
+            "total_count": 3,
+        }
+        resp = await _get(app_with_alerts, "/api/alerts/over-ship", auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alerts"][0]["over_amount"] == 20
+        assert data["excluded_sample_count"] == 0
+        # total_count passes through the sample filter unchanged.
+        assert data["total_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_samples_excluded_by_default(
+        self, app_with_alerts, auth_headers, mock_cache_reader
+    ):
+        mock_cache_reader.get_over_ship_alerts.return_value = {
             "alerts": [
-                {
-                    "mto_number": "AK2",
-                    "material_code": "07.01.001",
-                    "order_qty": 100,
-                    "shipped_qty": 120,
-                    "over_amount": 20,
-                    "customer_name": "MARES",
-                    "delivery_date": "2026-03-05T00:00:00",
-                    "material_name": "蛙鞋",
-                }
+                _over_ship_alert("AK2510034"),  # keep
+                _over_ship_alert("AY2510001"),  # 样品单 — drop
+                _over_ship_alert("DY251002S"),  # 样品单 — drop
             ],
             "skipped_incomplete": 0,
         }
         resp = await _get(app_with_alerts, "/api/alerts/over-ship", auth_headers)
         assert resp.status_code == 200
-        assert resp.json()["alerts"][0]["over_amount"] == 20
+        data = resp.json()
+        kept = {a["mto_number"] for a in data["alerts"]}
+        assert kept == {"AK2510034"}
+        assert data["excluded_sample_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_include_samples_retains_and_still_reports_count(
+        self, app_with_alerts, auth_headers, mock_cache_reader
+    ):
+        mock_cache_reader.get_over_ship_alerts.return_value = {
+            "alerts": [
+                _over_ship_alert("AK2510034"),
+                _over_ship_alert("AY2510001"),
+            ],
+            "skipped_incomplete": 0,
+        }
+        resp = await _get(
+            app_with_alerts, "/api/alerts/over-ship?include_samples=true", auth_headers
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["alerts"]) == 2
+        assert data["excluded_sample_count"] == 1
 
     @pytest.mark.asyncio
     async def test_requires_auth(self, app_with_alerts):
