@@ -59,6 +59,21 @@ from src.sync.scheduler import SyncScheduler
 from src.sync.sync_service import SyncService
 
 
+async def _warm_kingdee_auth(client: "KingdeeClient") -> None:
+    """Fire one trivial query so the SDK's InitConfig/auth handshake happens at boot.
+
+    Without this, the first LIVE query after a restart pays the full ~18s auth cost
+    (measured 2026-05-29). Startup cache-warming uses the cache path and does NOT warm
+    SDK auth. Non-blocking and never crashes startup — a warmup miss only means the
+    first live query is slower.
+    """
+    try:
+        await client.query("BD_MATERIAL", ["FNumber"], "", limit=1)
+        logger.info("Kingdee SDK auth warmed at startup")
+    except Exception as exc:
+        logger.warning("Kingdee SDK auth warmup failed (first live query will be slower): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = Config.load()
@@ -69,6 +84,9 @@ async def lifespan(app: FastAPI):
     await db.connect()
 
     kingdee_client = KingdeeClient(config.kingdee)
+    # Warm SDK auth in the background so the first live query after a restart doesn't
+    # eat the ~18s InitConfig/auth handshake. Non-blocking; cancelled on shutdown.
+    auth_warm_task = asyncio.create_task(_warm_kingdee_auth(kingdee_client))
 
     readers = {
         "production_order": ProductionOrderReader(kingdee_client),
@@ -178,6 +196,9 @@ async def lifespan(app: FastAPI):
             await sync_task
         except asyncio.CancelledError:
             pass
+
+    if not auth_warm_task.done():
+        auth_warm_task.cancel()
 
     scheduler.stop()
     await db.close()
