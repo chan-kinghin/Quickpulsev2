@@ -1,9 +1,12 @@
-"""Integration tests for cache/live path parity.
+"""Unit tests for cache/live path parity.
 
 Verifies that the cache path and live path produce the same BOMJoinedRow
 structure when fed identical test data. This catches the common "cache path
 blind spot" where cache_reader.py SELECTs silently omit fields that the
 live reader includes (see MEMORY.md).
+
+Pure-mock (no DB / no Kingdee creds) — lives in tests/unit/ so the gating CI
+job actually runs it. It is the dedicated guard for bug-patterns Pattern 1.
 """
 
 from dataclasses import fields as dataclass_fields
@@ -86,6 +89,11 @@ class TestBOMJoinedRowStructureParity:
         "delivery_real_qty",
         # Per-source aux match quality (commit 8e0f644)
         "match_quality_breakdown",
+        # Display routing — material grouping / category / purchase split (commit 2724bcf).
+        # Verified wired in all 3 paths: factory.py (live), cache_reader.py SELECT, sync_service.py INSERT.
+        "material_group_name",
+        "category_name",
+        "is_purchase",
     }
 
     def test_bom_joined_row_has_all_expected_fields(self):
