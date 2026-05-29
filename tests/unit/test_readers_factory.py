@@ -181,6 +181,20 @@ class TestReaderConfigs:
         config = SALES_ORDER_CONFIG
         assert config.form_id == "SAL_SaleOrder"
 
+    def test_sales_order_extra_fields_use_bare_entry_names(self):
+        """Regression guard (2026-05-29): entry-level close-status fields MUST be
+        bare (no FSaleOrderEntry_/FEntity_ prefix). The prefixed form is rejected
+        by Kingdee metadata and silently empties the WHOLE SAL_SaleOrder query,
+        which froze sales-order sync + live data for ~2 days. See bug-patterns.md.
+        """
+        for key in SALES_ORDER_CONFIG.extra_field_keys:
+            assert "Entry_" not in key and "Entry." not in key, (
+                f"extra_field_key {key!r} uses an entity prefix that Kingdee rejects; "
+                f"use the bare field name (verified valid: FMrpCloseStatus, FMANUALROWCLOSE)"
+            )
+        assert "FMrpCloseStatus" in SALES_ORDER_CONFIG.extra_field_keys
+        assert "FMANUALROWCLOSE" in SALES_ORDER_CONFIG.extra_field_keys
+
 
 class TestGenericReader:
     """Tests for GenericReader class."""
@@ -393,8 +407,8 @@ class TestSalesOrderCloseStatus:
         reader = self._make_reader(mock_kingdee_client)
         raw = self._raw(
             FCloseStatus="A",
-            FSaleOrderEntry_FMrpCloseStatus="A",
-            FSaleOrderEntry_FMANUALROWCLOSE=False,
+            FMrpCloseStatus="A",
+            FMANUALROWCLOSE=False,
         )
         result = reader.to_model(raw)
         assert result.close_status == "A"
@@ -404,41 +418,41 @@ class TestSalesOrderCloseStatus:
         reader = self._make_reader(mock_kingdee_client)
         raw = self._raw(
             FCloseStatus="B",
-            FSaleOrderEntry_FMrpCloseStatus="A",
-            FSaleOrderEntry_FMANUALROWCLOSE=False,
+            FMrpCloseStatus="A",
+            FMANUALROWCLOSE=False,
         )
         result = reader.to_model(raw)
         assert result.close_status == "B"
 
     def test_close_status_mrp_closed_returns_b(self, mock_kingdee_client):
-        """FSaleOrderEntry_FMrpCloseStatus='B' (MRP close) → close_status='B'."""
+        """FMrpCloseStatus='B' (MRP close) → close_status='B'."""
         reader = self._make_reader(mock_kingdee_client)
         raw = self._raw(
             FCloseStatus="A",
-            FSaleOrderEntry_FMrpCloseStatus="B",
-            FSaleOrderEntry_FMANUALROWCLOSE=False,
+            FMrpCloseStatus="B",
+            FMANUALROWCLOSE=False,
         )
         result = reader.to_model(raw)
         assert result.close_status == "B"
 
     def test_close_status_manual_row_close_bool_true_returns_b(self, mock_kingdee_client):
-        """FSaleOrderEntry_FMANUALROWCLOSE=True (bool) → close_status='B'."""
+        """FMANUALROWCLOSE=True (bool) → close_status='B'."""
         reader = self._make_reader(mock_kingdee_client)
         raw = self._raw(
             FCloseStatus="A",
-            FSaleOrderEntry_FMrpCloseStatus="A",
-            FSaleOrderEntry_FMANUALROWCLOSE=True,
+            FMrpCloseStatus="A",
+            FMANUALROWCLOSE=True,
         )
         result = reader.to_model(raw)
         assert result.close_status == "B"
 
     def test_close_status_manual_row_close_string_true_returns_b(self, mock_kingdee_client):
-        """FSaleOrderEntry_FMANUALROWCLOSE='true' (string) → close_status='B'."""
+        """FMANUALROWCLOSE='true' (string) → close_status='B'."""
         reader = self._make_reader(mock_kingdee_client)
         raw = self._raw(
             FCloseStatus="A",
-            FSaleOrderEntry_FMrpCloseStatus="A",
-            FSaleOrderEntry_FMANUALROWCLOSE="true",
+            FMrpCloseStatus="A",
+            FMANUALROWCLOSE="true",
         )
         result = reader.to_model(raw)
         assert result.close_status == "B"

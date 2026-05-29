@@ -440,15 +440,19 @@ def _compute_sales_order_close_status(raw_data: dict, kwargs: dict) -> dict:
     """OR-merge 3 Kingdee close-status fields into a single 'close_status' value.
 
     A sales order row is considered closed ('B') if ANY of:
-    - FCloseStatus == 'B'               (header-level close)
-    - FSaleOrderEntry_FMrpCloseStatus == 'B'  (entry-level MRP close)
-    - FSaleOrderEntry_FMANUALROWCLOSE is truthy (manual row close boolean)
+    - FCloseStatus == 'B'        (header-level close)
+    - FMrpCloseStatus == 'B'     (entry-level MRP close)
+    - FMANUALROWCLOSE is truthy  (manual row close boolean)
+
+    NOTE: entry-level fields use the BARE name (no FSaleOrderEntry_ prefix).
+    The prefixed form fails Kingdee metadata ("字段不存在") and silently breaks
+    the ENTIRE SAL_SaleOrder query — verified 2026-05-29, see bug-patterns.md.
 
     Otherwise returns 'A' (open/active).
     """
     header_closed = raw_data.get("FCloseStatus") == "B"
-    mrp_closed = raw_data.get("FSaleOrderEntry_FMrpCloseStatus") == "B"
-    manual_val = raw_data.get("FSaleOrderEntry_FMANUALROWCLOSE")
+    mrp_closed = raw_data.get("FMrpCloseStatus") == "B"
+    manual_val = raw_data.get("FMANUALROWCLOSE")
     # Normalize boolean: handles True/False, "true"/"false", 1/0, None
     manual_closed = bool(manual_val) and str(manual_val).lower() != "false"
     kwargs["close_status"] = "B" if (header_closed or mrp_closed or manual_closed) else "A"
@@ -475,11 +479,15 @@ SALES_ORDER_CONFIG = ReaderConfig(
         # See PRODUCTION_BOM_CONFIG; same single-chain trick for 07.xx 成品.
         "material_group_name": FieldMapping("FMaterialId.FMaterialGroup"),
     },
-    # Extra raw fields needed by post_process but not mapped 1:1 to model fields
+    # Extra raw fields needed by post_process but not mapped 1:1 to model fields.
+    # Entry-level fields MUST be bare (no FSaleOrderEntry_ prefix) — the prefixed
+    # form is rejected by Kingdee metadata and silently empties the whole query
+    # (verified 2026-05-29 via metadata probe; matches the "no FEntity_ prefix"
+    # convention used by every other reader above).
     extra_field_keys=[
         "FCloseStatus",
-        "FSaleOrderEntry_FMrpCloseStatus",
-        "FSaleOrderEntry_FMANUALROWCLOSE",
+        "FMrpCloseStatus",
+        "FMANUALROWCLOSE",
     ],
     post_process=_compute_sales_order_close_status,
 )
