@@ -66,12 +66,20 @@ extreme @12 = 274 MB (54%); never OOM-killed. Memory is NOT a blocker.
 
 ## Phased rollout (RE-SEQUENCED after the parity finding)
 - **Phase 1 — DONE (`266d2e2`):** warm SDK auth at startup. (1b result-cache layer deferred until Phase 2a proves the direction.)
-- **Phase 2a — NEW, now the critical prerequisite: make routing canonical.** Anchor routing on
-  `BD_MATERIAL.CategoryID` (+ IsPurchase) per `memory/kingdee-classification.md` — NOT receipt-form (live's bug),
-  NOT a 包材 fallback on empty category (cache's bug). Ensure the value is captured on EVERY row incl.
-  PUR-only/synthetic (cache stores `category_name=''` today). Verify against ground truth on the known
-  divergent set (外销包材, 委外加工, multi-variant). This is a routing-correctness fix, applied so ONE path
-  becomes trustworthy — it is the real precondition for collapsing, and it's valuable even if we never collapse.
+- **Phase 2a — NEW, critical prerequisite: make routing canonical.** PRECISE ROOT CAUSE (traced
+  2026-05-29): the routing MAP `_CATEGORY_TO_TYPE` (mto_handler.py:1592) is already correct
+  (外销包材→包材, 委外加工→委外, 主料/半成品→自制). The bug is that synthetic/PUR-only rows lack
+  `category_name`, so each path hits a different bad fallback:
+  - LIVE: empty `category_name` → falls back to legacy `material_type` (mto_handler.py:1619-1621) → 自制.
+  - CACHE: the PUR-only synthetic builder HARD-CODES `material_type_name="包材"` (mto_handler.py:544) → ignores category.
+  FIX: plumb `FCategoryId` onto the PUR path so every row routes through `_CATEGORY_TO_TYPE`. Scope
+  (3-path + migration — handle with the pre-change checklist + TDD):
+    - `factory.py`: add `FMaterialId.FCategoryId.FName` (+ `FIsPurchase`) FieldMappings to PurchaseOrder & PurchaseReceipt readers.
+    - `readers/models.py`: add `category_name` (+ `is_purchase`) to `PurchaseOrderModel` / `PurchaseReceiptModel`.
+    - synthetic PUR-only builders: LIVE `mto_handler.py:~509-546` (drop the hard-coded 包材, set `category_name`) + CACHE `cache_reader.py` synthetic path.
+    - migration: `cached_purchase_orders` / `cached_purchase_receipts` get a `category_name` column; `sync_service` writes it; schema.sql + a guarded ADD COLUMN migration (per migration-drift finding).
+  Verify against ground truth (03.06.03.001 外销包材→包材, 08.12.02.18 委外加工→委外) before/after.
+  Valuable on its own even if we never collapse — it fixes live mislabeling users see today.
 - **Phase 2b — clean parity:** re-run parity on a fresh-synced cache (or same-inputs harness) so the
   comparison is staleness-free; require structural parity + explained routing before any cutover.
 - **Phase 3 — cutover + delete:** only after 2a/2b are green — route query path to live (+ result cache),
