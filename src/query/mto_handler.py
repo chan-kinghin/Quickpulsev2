@@ -665,11 +665,24 @@ class MTOQueryHandler:
             )
             children.append(child)
 
+        # Phase 2a: synthetic / PUR-only rows (Step-2 blocks below) are NOT in PPBOM and
+        # carry no category, so historically they fell back to the unreliable legacy
+        # material_type (e.g. a 外销包材 box mislabeled 自制). Look up the authoritative
+        # BD_MATERIAL.CategoryID for those codes so they route via _CATEGORY_TO_TYPE.
+        synthetic_codes = {
+            mc
+            for src in (prod_receipts, purchase_orders, prod_orders, material_picks)
+            for r in src
+            if (mc := getattr(r, "material_code", "")) and not mc.startswith("07.")
+        }
+        category_by_code = await self._client.lookup_material_categories(list(synthetic_codes))
+
         # --- BOM children via shared path ---
         bom_rows = self._build_bom_joined_rows_from_live(
             production_bom, prod_orders, prod_receipts, material_picks,
             purchase_orders, purchase_receipts, subcontracting_orders,
             sales_deliveries,
+            category_by_code=category_by_code,
         )
 
         if strict_aux:
@@ -709,6 +722,7 @@ class MTOQueryHandler:
         purchase_receipts: list,
         subcontracting_orders: list,
         sales_deliveries: list,
+        category_by_code: Optional[dict] = None,
     ) -> list[BOMJoinedRow]:
         """Convert live API data into BOMJoinedRow format for shared enrichment.
 
@@ -1244,6 +1258,7 @@ class MTOQueryHandler:
                 material_type=m_type,
                 need_qty=_lookup_mo_qty(code, aux),
                 picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
@@ -1270,6 +1285,7 @@ class MTOQueryHandler:
                 aux_attributes=getattr(first, "aux_attributes", ""),
                 material_type=2,  # purchased
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
 
@@ -1314,6 +1330,7 @@ class MTOQueryHandler:
                 aux_attributes=getattr(first, "aux_attributes", ""),
                 material_type=1,  # self-made (PRD_MO implies production)
                 need_qty=mo_qty, picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
@@ -1340,6 +1357,7 @@ class MTOQueryHandler:
                 aux_attributes="",
                 material_type=m_type,
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
