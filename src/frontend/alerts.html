@@ -101,6 +101,18 @@
                 </div>
             </div>
 
+            <!-- Capped banner (only when the API limit was actually hit) -->
+            <div x-show="currentCapped()" x-transition class="mb-4" x-cloak>
+                <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-amber-400 text-sm flex items-start gap-2">
+                    <i data-lucide="alert-triangle" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                    <span>
+                        仅显示前 <span class="font-semibold" x-text="currentAlerts().length"></span> 条，实际共约
+                        <span class="font-semibold" x-text="currentTotal()"></span>
+                        条<span x-text="activeTab === 'over-pick' ? '超领' : '超发'"></span>记录，请缩小范围或导出完整数据。
+                    </span>
+                </div>
+            </div>
+
             <!-- Over-ship coarse-grain note -->
             <div x-show="activeTab === 'over-ship'" class="mb-4 text-xs text-slate-500" x-cloak>
                 ⓘ 超发按 mto + 物料 粗粒度比对（已发货量 vs 订单量，已排除已关闭订单）。含辅助属性差异时需人工复核。
@@ -139,15 +151,18 @@
                                     class="border-b border-slate-800 hover:bg-slate-800/60 transition cursor-pointer">
                                     <td role="cell" class="px-4 py-3 font-mono text-xs text-slate-200" x-text="row.mto_number"></td>
                                     <td role="cell" class="px-4 py-3 font-mono text-xs text-slate-400" x-text="row.material_code"></td>
-                                    <td role="cell" class="px-4 py-3 text-slate-300 truncate max-w-xs">
-                                        <span x-text="row.material_name || '-'"></span>
-                                        <span x-show="row.severe"
-                                              class="ml-2 text-[10px] px-1.5 py-0.5 rounded text-rose-400">
-                                            未申请直接发料
-                                        </span>
+                                    <td role="cell" class="px-4 py-3 text-slate-300">
+                                        <div class="flex items-center gap-2" style="max-width: 260px;">
+                                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                                                  :title="row.material_name || '-'" x-text="row.material_name || '-'"></span>
+                                            <span x-show="row.severe" style="flex-shrink:0;"
+                                                  class="text-xs px-1.5 py-0.5 rounded text-rose-400 whitespace-nowrap">
+                                                未申请直接发料
+                                            </span>
+                                        </div>
                                     </td>
                                     <td role="cell" class="px-4 py-3 text-slate-400" x-text="row.customer_name || '-'"></td>
-                                    <td role="cell" class="px-4 py-3 text-slate-400 text-xs" x-text="formatDate(row.delivery_date)"></td>
+                                    <td role="cell" class="px-4 py-3 text-slate-400 text-xs whitespace-nowrap" x-text="formatDate(row.delivery_date)"></td>
                                     <td role="cell" class="px-4 py-3 text-right text-slate-400"
                                         x-text="formatQty(activeTab === 'over-pick' ? row.app_qty : row.order_qty)"></td>
                                     <td role="cell" class="px-4 py-3 text-right text-slate-200"
@@ -189,8 +204,8 @@
                 activeTab: 'over-pick',
                 loading: false,
                 errorMsg: '',
-                overPick: { alerts: [], skipped: 0, loaded: false },
-                overShip: { alerts: [], skipped: 0, loaded: false },
+                overPick: { alerts: [], skipped: 0, total: 0, excludedSample: 0, loaded: false },
+                overShip: { alerts: [], skipped: 0, total: 0, excludedSample: 0, loaded: false },
 
                 initPage() {
                     this.loadTab('over-pick');
@@ -210,8 +225,14 @@
                     this.loading = true;
                     this.errorMsg = '';
                     try {
-                        const data = await api.request(`/alerts/${tab}?limit=500`);
-                        const store = { alerts: data.alerts || [], skipped: data.skipped_incomplete || 0, loaded: true };
+                        const data = await api.request(`/alerts/${tab}?limit=1000`);
+                        const store = {
+                            alerts: data.alerts || [],
+                            skipped: data.skipped_incomplete || 0,
+                            total: data.total_count || 0,
+                            excludedSample: data.excluded_sample_count || 0,
+                            loaded: true
+                        };
                         if (tab === 'over-pick') this.overPick = store;
                         else this.overShip = store;
                     } catch (err) {
@@ -227,6 +248,15 @@
                 },
                 currentSkipped() {
                     return (this.activeTab === 'over-pick' ? this.overPick : this.overShip).skipped;
+                },
+                currentTotal() {
+                    return (this.activeTab === 'over-pick' ? this.overPick : this.overShip).total;
+                },
+                currentCapped() {
+                    // True cap = displayed rows + excluded samples reached the API limit (1000),
+                    // not merely that some samples were excluded.
+                    const store = this.activeTab === 'over-pick' ? this.overPick : this.overShip;
+                    return (store.alerts.length + (store.excludedSample || 0)) >= 1000;
                 },
                 currentLoaded() {
                     return (this.activeTab === 'over-pick' ? this.overPick : this.overShip).loaded;

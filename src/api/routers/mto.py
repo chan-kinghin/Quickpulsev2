@@ -132,7 +132,7 @@ async def search_mto(
 async def export_mto_excel(
     request: Request,
     mto_number: str = Path(..., min_length=2, max_length=50, pattern=r"^[A-Za-z0-9\-]+$"),
-    use_cache: bool = Query(True, description="Use cached data (default: true, uses fresh cache if available)"),
+    use_cache: bool = Query(False, description="Use cached data. Default false: exports fetch live Kingdee data for accuracy; pass use_cache=true for a fast cached export."),
     current_user: str = Depends(get_current_user),
 ):
     """Export MTO status to CSV. Uses live data by default for accuracy."""

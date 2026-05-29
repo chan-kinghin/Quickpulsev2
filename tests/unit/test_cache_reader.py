@@ -1064,6 +1064,45 @@ class TestOverPickAlerts:
             [mto, mat, app, actual, bill, aux],
         )
 
+    @staticmethod
+    async def _order(db, mto, mat, cust, deliv):
+        """Seed a sales-order row. material_code here is a FINISHED-GOOD (07.xx)
+        code — deliberately different from the component code in _pick — to prove
+        the MTO-grain join works without matching on material_code."""
+        await db.execute_write(
+            """
+            INSERT INTO cached_sales_orders
+            (bill_no, mto_number, material_code, material_name, customer_name,
+             delivery_date, qty, close_status, aux_prop_id)
+            VALUES (?, ?, ?, ?, ?, ?, 100, 'A', 0)
+            """,
+            [f"SO-{mto}", mto, mat, "成品名(不应出现在组件上)", cust, deliv],
+        )
+
+    @staticmethod
+    async def _bom(db, mo_bill, mto, mat, name, aux=0):
+        await db.execute_write(
+            """
+            INSERT INTO cached_production_bom
+            (mo_bill_no, mto_number, material_code, material_name, aux_prop_id, need_qty)
+            VALUES (?, ?, ?, ?, ?, 0)
+            """,
+            [mo_bill, mto, mat, name, aux],
+        )
+
+    @staticmethod
+    async def _po(db, bill, mto, mat, name, aux=0):
+        """Seed a purchase-order row — the name source for bought-out (03.xx)
+        components that never appear in PPBOM."""
+        await db.execute_write(
+            """
+            INSERT INTO cached_purchase_orders
+            (bill_no, mto_number, material_code, material_name, aux_prop_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [bill, mto, mat, name, aux],
+        )
+
     @pytest.mark.asyncio
     async def test_over_pick_summed_across_picking_docs(self, test_database):
         """Same mto+material across two picking docs: sum first, then compare."""
@@ -1075,6 +1114,72 @@ class TestOverPickAlerts:
         assert len(result["alerts"]) == 1
         assert result["alerts"][0]["over_amount"] == 7
         assert result["alerts"][0]["severe"] is False
+
+    @pytest.mark.asyncio
+    async def test_over_pick_enriched_from_mto_grain_and_ppbom(self, test_database):
+        """customer_name/delivery_date come from sales orders at MTO grain;
+        material_name comes from PPBOM (the COMPONENT name), NOT from the
+        finished-good sales-order row. Joining SO on material_code never matches
+        a component, so this guards against the old NULL-enrichment bug AND the
+        regression of mislabelling the component with the finished-good name."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        # Component picked over-application (07.xx SO vs 05.xx component)
+        await self._pick(test_database, "AK5", "05.01.005", 10, 30, "P-E")  # +20
+        await self._order(test_database, "AK5", "07.01.005", "刀刀", "2026-03-05")
+        await self._bom(test_database, "MO-AK5", "AK5", "05.01.005", "组件真实名称")
+        result = await reader.get_over_pick_alerts()
+        assert len(result["alerts"]) == 1
+        a = result["alerts"][0]
+        # MTO-grain enrichment populated (was "" before fix)
+        assert a["customer_name"] == "刀刀"
+        assert a["delivery_date"] == "2026-03-05"
+        # Component name from PPBOM, not the finished-good name from sales orders
+        assert a["material_name"] == "组件真实名称"
+        assert a["material_name"] != "成品名(不应出现在组件上)"
+
+    @pytest.mark.asyncio
+    async def test_over_pick_material_name_falls_back_to_purchase_order(self, test_database):
+        """Bought-out components (03.xx) are absent from PPBOM; their name comes
+        from cached_purchase_orders via COALESCE — still never the finished-good
+        sales-order name. Covers the ~720 over-pick rows PPBOM alone can't name."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK9", "03.17.001", 10, 30, "P-PO")  # +20
+        await self._order(test_database, "AK9", "07.09.001", "波兰MARTES", "2026-04-10")
+        await self._po(test_database, "PO-AK9", "AK9", "03.17.001", "采购件真实名称")
+        # deliberately NO PPBOM row for this component
+        result = await reader.get_over_pick_alerts()
+        a = result["alerts"][0]
+        assert a["customer_name"] == "波兰MARTES"
+        assert a["material_name"] == "采购件真实名称"
+        assert a["material_name"] != "成品名(不应出现在组件上)"
+
+    @pytest.mark.asyncio
+    async def test_over_pick_ppbom_name_wins_over_purchase_order(self, test_database):
+        """When a component appears in BOTH PPBOM and purchase_orders, COALESCE
+        prefers the PPBOM name (production-authoritative)."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK10", "05.02.001", 10, 30, "P-B")  # +20
+        await self._bom(test_database, "MO-AK10", "AK10", "05.02.001", "PPBOM名")
+        await self._po(test_database, "PO-AK10", "AK10", "05.02.001", "采购名")
+        result = await reader.get_over_pick_alerts()
+        assert result["alerts"][0]["material_name"] == "PPBOM名"
+
+    @pytest.mark.asyncio
+    async def test_over_pick_total_count_matches_full_qualifying_set(self, test_database):
+        """total_count counts the full qualifying set (no LIMIT) and is >= the
+        number of returned alerts."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK6", "05.01.006", 10, 30, "P6")  # over
+        await self._pick(test_database, "AK7", "05.01.007", 10, 25, "P7")  # over
+        await self._pick(test_database, "AK8", "05.01.008", 100, 50, "P8")  # within
+        full = await reader.get_over_pick_alerts()
+        assert full["total_count"] == 2
+        assert full["total_count"] == len(full["alerts"])
+        # With a LIMIT smaller than the qualifying set, total_count stays full.
+        limited = await reader.get_over_pick_alerts(limit=1)
+        assert len(limited["alerts"]) == 1
+        assert limited["total_count"] == 2
+        assert limited["total_count"] >= len(limited["alerts"])
 
     @pytest.mark.asyncio
     async def test_app_zero_actual_positive_is_severe(self, test_database):
@@ -1162,6 +1267,25 @@ class TestOverShipAlerts:
         await self._delivery(test_database, "AK2", "07.01.002", 80, "D3")
         result = await reader.get_over_ship_alerts()
         assert result["alerts"] == []
+
+    @pytest.mark.asyncio
+    async def test_over_ship_total_count_matches_full_qualifying_set(self, test_database):
+        """total_count counts the full over-ship qualifying set (no LIMIT) and is
+        >= the number of returned alerts."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._order(test_database, "AK5", "07.01.005", 100)
+        await self._delivery(test_database, "AK5", "07.01.005", 130, "D-O1")  # over
+        await self._order(test_database, "AK6", "07.01.006", 100)
+        await self._delivery(test_database, "AK6", "07.01.006", 150, "D-O2")  # over
+        await self._order(test_database, "AK7", "07.01.007", 100)
+        await self._delivery(test_database, "AK7", "07.01.007", 80, "D-O3")  # within
+        full = await reader.get_over_ship_alerts()
+        assert full["total_count"] == 2
+        assert full["total_count"] == len(full["alerts"])
+        limited = await reader.get_over_ship_alerts(limit=1)
+        assert len(limited["alerts"]) == 1
+        assert limited["total_count"] == 2
+        assert limited["total_count"] >= len(limited["alerts"])
 
     @pytest.mark.asyncio
     async def test_sample_rows_not_filtered_in_cache_reader(self, test_database):

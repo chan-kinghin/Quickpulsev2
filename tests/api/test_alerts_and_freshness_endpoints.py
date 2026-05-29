@@ -17,10 +17,10 @@ def mock_cache_reader():
     reader = MagicMock()
     reader.table_freshness = AsyncMock(return_value=[])
     reader.get_over_pick_alerts = AsyncMock(
-        return_value={"alerts": [], "skipped_incomplete": 0}
+        return_value={"alerts": [], "skipped_incomplete": 0, "total_count": 0}
     )
     reader.get_over_ship_alerts = AsyncMock(
-        return_value={"alerts": [], "skipped_incomplete": 0}
+        return_value={"alerts": [], "skipped_incomplete": 0, "total_count": 0}
     )
     return reader
 
@@ -126,6 +126,7 @@ class TestOverPickEndpoint:
         mock_cache_reader.get_over_pick_alerts.return_value = {
             "alerts": [_over_pick_alert("AK1")],
             "skipped_incomplete": 2,
+            "total_count": 5,
         }
         resp = await _get(app_with_alerts, "/api/alerts/over-pick", auth_headers)
         assert resp.status_code == 200
@@ -134,6 +135,8 @@ class TestOverPickEndpoint:
         assert data["alerts"][0]["severe"] is True
         # No samples present → nothing excluded, but the count is always reported.
         assert data["excluded_sample_count"] == 0
+        # total_count passes through the sample filter unchanged.
+        assert data["total_count"] == 5
 
     @pytest.mark.asyncio
     async def test_samples_excluded_by_default(
@@ -197,12 +200,15 @@ class TestOverShipEndpoint:
         mock_cache_reader.get_over_ship_alerts.return_value = {
             "alerts": [_over_ship_alert("AK2")],
             "skipped_incomplete": 0,
+            "total_count": 3,
         }
         resp = await _get(app_with_alerts, "/api/alerts/over-ship", auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["alerts"][0]["over_amount"] == 20
         assert data["excluded_sample_count"] == 0
+        # total_count passes through the sample filter unchanged.
+        assert data["total_count"] == 3
 
     @pytest.mark.asyncio
     async def test_samples_excluded_by_default(

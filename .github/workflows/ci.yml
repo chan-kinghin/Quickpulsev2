@@ -11,8 +11,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e .
-      - run: pip install pytest pytest-asyncio pytest-cov
-      - run: pytest tests/ --ignore=tests/e2e --ignore=tests/integration -q
+      # Kingdee SDK is a vendored wheel (not on PyPI); src/kingdee/client.py imports it
+      # at module top, so the whole suite fails to collect without this install.
+      - run: pip install sdk/python_sdk_v8.2.0/*.whl
+      - run: pip install pytest pytest-asyncio pytest-cov pytest-timeout
+      - run: pytest tests/ --ignore=tests/e2e --ignore=tests/integration -q --timeout=60
 
   lint:
     runs-on: ubuntu-latest
@@ -23,6 +26,9 @@ jobs:
           python-version: '3.11'
       - run: pip install ruff
       - run: ruff check src/
+      # Fail if any responsive Tailwind class used in markup is absent from both
+      # the precompiled bundle and main.css (the silent-hide gap, e.g. md:inline).
+      - run: bash scripts/check_tailwind_classes.sh
 
   typecheck:
     runs-on: ubuntu-latest
@@ -33,5 +39,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e .
+      - run: pip install sdk/python_sdk_v8.2.0/*.whl
       - run: pip install mypy
       - run: mypy src/ --ignore-missing-imports

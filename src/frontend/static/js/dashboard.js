@@ -26,9 +26,9 @@ function mtoSearch() {
         // 列名直接使用金蝶的"表单.字段名"格式，不做任何计算
         columns: [
             { key: 'index', label: '序号', width: 60, defaultWidth: 60, minWidth: 40, maxWidth: 120, resizable: false, visible: true, sortable: false, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
-            { key: 'material_code', label: '物料编码', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'material_code', label: '物料编码', width: 150, defaultWidth: 150, minWidth: 80, maxWidth: 300, resizable: true, visible: true, sortable: true, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
             { key: 'material_name', label: '物料名称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: true, locked: true, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
-            { key: 'specification', label: '规格型号', width: 120, defaultWidth: 120, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
+            { key: 'specification', label: '规格型号', width: 150, defaultWidth: 150, minWidth: 80, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
             { key: 'bom_short_name', label: 'BOM简称', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 400, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
             { key: 'aux_attributes', label: '辅助属性', width: 150, defaultWidth: 150, minWidth: 100, maxWidth: 500, resizable: true, visible: true, sortable: false, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
             { key: 'close_status', label: '关闭状态', width: 90, defaultWidth: 90, minWidth: 70, maxWidth: 160, resizable: true, visible: true, sortable: true, locked: false, align: 'left', headerColorClass: 'text-slate-400', borderClasses: '' },
@@ -371,6 +371,11 @@ function mtoSearch() {
 
         // === Sort Methods ===
         toggleSort(columnKey) {
+            // A resize-handle drag ends with a synthetic `click` bubbling to the
+            // <th> (mousedown target = handle, mouseup target = cell → click fires
+            // on their common ancestor <th>). @mousedown.stop on the handle cannot
+            // stop that later click, so swallow it once here instead of sorting.
+            if (this._suppressSort) { this._suppressSort = false; return; }
             const col = this.columns.find(c => c.key === columnKey);
             if (!col || !col.sortable) return;
 
@@ -413,6 +418,9 @@ function mtoSearch() {
         startResize(event, columnKey) {
             event.preventDefault();
             event.stopPropagation();
+            // Grabbing the handle must never sort the column: arm the guard that
+            // toggleSort() consumes when the post-drag click bubbles to the <th>.
+            this._suppressSort = true;
             const colIndex = this.columns.findIndex(c => c.key === columnKey);
             if (colIndex === -1) return;
 
@@ -485,6 +493,10 @@ function mtoSearch() {
                 this._guideLine = null;
             }
 
+            // Safety net: if no click follows this drag, clear the guard on the
+            // next tick so a later genuine header click is not wrongly swallowed.
+            setTimeout(() => { this._suppressSort = false; }, 0);
+
             this.savePreferences();
         },
 
@@ -541,6 +553,16 @@ function mtoSearch() {
             const fitWidth = Math.min(col.maxWidth, Math.max(col.minWidth, maxWidth + padding));
             col.width = fitWidth;
             this.savePreferences();
+        },
+
+        // One-click: auto-fit EVERY visible resizable column to its content.
+        // Reuses the same per-column measurement as the double-click handle, so a
+        // user gets the whole table sized to content in one action (the convenient
+        // "自动列宽" control). autoFitColumn() persists prefs; the last call saves.
+        autoFitAllColumns() {
+            this.getVisibleColumns().forEach(col => {
+                if (col.resizable) this.autoFitColumn(col.key);
+            });
         },
 
         // Reset all column widths to defaults
@@ -650,6 +672,12 @@ function mtoSearch() {
                 this.showError('请输入MTO单号');
                 return;
             }
+
+            // Close any open search dropdown and cancel a pending debounce so a
+            // late 300ms timer can't re-open the dropdown after we submit.
+            this.showSearchResults = false;
+            this.showSearchHistory = false;
+            if (this._searchDebounce) clearTimeout(this._searchDebounce);
 
             const input = this.mtoNumber.trim();
 

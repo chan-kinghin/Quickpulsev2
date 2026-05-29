@@ -1,6 +1,14 @@
 # Plan: 前端改成简约 SaaS 风格（明亮白底 + 去花哨）
 
-## Status: Not Started — 等待批准
+## Status: ✅ Complete (branch `feat/saas-ui-restyle`, 2 commits 44507b1 + 69fc698) — NOT pushed/merged/deployed, 等用户验收
+
+### 验收结果 (2026-05-29)
+- 6 页 Playwright 截图确认为亮色 SaaS 风(login/dashboard+data/alerts/sync/admin/inventory)
+- WCAG AA 对比度:除提示层外全部 AA 通过;`slate-500` 提示层 #79838f = AA-large(3.85),`slate-400` 标签 = AA(4.76);400>500 对比排序已修正
+- e2e:工作区失败集合与「改动前基线」**逐项相同**(20败/37过/9跳)→ 零回归。20 个失败全为历史遗留(8 个 `*_live` 需真实后端;其余为导航统一前的结构漂移)
+- 单测:本机临时 venv 缺金蝶 SDK(`k3cloud_webapi_sdk`)无法跑;前端改动不涉及 Python
+- 仅提交 9 个 `src/frontend/*` 文件;工作区里并存的 MTO 订单类型后端改动(mto_handler/alerts/mto_status/ontology/seed_data + 多个 test)**未触碰、未提交**(非本次工作)
+- dashboard.html 内含一处**预存**的 MTO 业务线·订单类型徽标(并发工作所加,非本次撰写),已原样保留
 
 ## 背景
 
