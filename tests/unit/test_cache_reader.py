@@ -997,3 +997,177 @@ class TestFallbackTelemetry:
         record = next(r for r in caplog.records if "mto_fallback_telemetry" in r.message)
         assert "mto=AK9999999" in record.message
         assert "bom_rows=3" in record.message
+
+
+class TestTableFreshness:
+    """Tests for CacheReader.table_freshness (data-freshness health card)."""
+
+    @pytest.mark.asyncio
+    async def test_no_like_or_mto_filter(self):
+        """Regression guard: table-level freshness must NOT reuse per-MTO LIKE matching.
+
+        check_freshness() is per-MTO with `WHERE mto_number LIKE ?`; table_freshness()
+        is whole-table. If this ever regresses to a LIKE/mto query the staleness card
+        silently stops reflecting actual table state.
+        """
+        mock_db = MagicMock()
+        captured = []
+
+        async def fake_read(query, params=None):
+            captured.append(query)
+            return [(None, 0)]
+
+        mock_db.execute_read = fake_read
+        reader = CacheReader(mock_db, ttl_minutes=60)
+        await reader.table_freshness()
+
+        assert len(captured) == 9  # all 9 cache tables probed
+        assert all("LIKE" not in q.upper() for q in captured), captured
+        assert all("MTO_NUMBER" not in q.upper() for q in captured), captured
+
+    @pytest.mark.asyncio
+    async def test_empty_then_populated(self, test_database):
+        reader = CacheReader(test_database, ttl_minutes=60)
+
+        facts = await reader.table_freshness()
+        by_table = {f["table"]: f for f in facts}
+        assert len(facts) == 9
+        assert by_table["cached_sales_orders"]["row_count"] == 0
+        assert by_table["cached_sales_orders"]["last_synced_at"] is None
+
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_sales_orders
+            (bill_no, mto_number, material_code, customer_name, delivery_date, qty, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            ["SO1", "AK2510034", "07.01.001", "刀刀", "2026-03-05T00:00:00", 100],
+        )
+
+        facts = await reader.table_freshness()
+        by_table = {f["table"]: f for f in facts}
+        assert by_table["cached_sales_orders"]["row_count"] == 1
+        assert by_table["cached_sales_orders"]["last_synced_at"] is not None
+
+
+class TestOverPickAlerts:
+    """Tests for CacheReader.get_over_pick_alerts (超领预警)."""
+
+    @staticmethod
+    async def _pick(db, mto, mat, app, actual, bill, aux=0):
+        await db.execute_write(
+            """
+            INSERT INTO cached_material_picking
+            (mto_number, material_code, app_qty, actual_qty, ppbom_bill_no, aux_prop_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [mto, mat, app, actual, bill, aux],
+        )
+
+    @pytest.mark.asyncio
+    async def test_over_pick_summed_across_picking_docs(self, test_database):
+        """Same mto+material across two picking docs: sum first, then compare."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK1", "05.01.001", 10, 12, "P1")
+        await self._pick(test_database, "AK1", "05.01.001", 10, 15, "P2")  # 27 vs 20 → 7
+        result = await reader.get_over_pick_alerts()
+        assert result["skipped_incomplete"] == 0
+        assert len(result["alerts"]) == 1
+        assert result["alerts"][0]["over_amount"] == 7
+        assert result["alerts"][0]["severe"] is False
+
+    @pytest.mark.asyncio
+    async def test_app_zero_actual_positive_is_severe(self, test_database):
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK2", "05.01.002", 0, 50, "P3")
+        result = await reader.get_over_pick_alerts()
+        assert len(result["alerts"]) == 1
+        assert result["alerts"][0]["severe"] is True
+
+    @pytest.mark.asyncio
+    async def test_within_application_not_flagged(self, test_database):
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK3", "05.01.003", 100, 80, "P4")
+        result = await reader.get_over_pick_alerts()
+        assert result["alerts"] == []
+
+    @pytest.mark.asyncio
+    async def test_null_qty_skipped_not_zeroed(self, test_database, caplog):
+        """NULL actual_qty must be skipped + counted, never coerced to 0."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AK4", "05.01.004", 10, None, "P5")
+        with caplog.at_level("WARNING", logger="src.query.cache_reader"):
+            result = await reader.get_over_pick_alerts()
+        assert result["skipped_incomplete"] == 1
+        assert result["alerts"] == []
+        assert any("overpick_null_skip" in r.message for r in caplog.records)
+
+
+class TestOverShipAlerts:
+    """Tests for CacheReader.get_over_ship_alerts (超发预警)."""
+
+    @staticmethod
+    async def _order(db, mto, mat, qty, close="A", cust="刀刀"):
+        await db.execute_write(
+            """
+            INSERT INTO cached_sales_orders
+            (bill_no, mto_number, material_code, customer_name, delivery_date,
+             qty, close_status, aux_prop_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            [f"SO-{mto}-{mat}", mto, mat, cust, "2026-03-05T00:00:00", qty, close],
+        )
+
+    @staticmethod
+    async def _delivery(db, mto, mat, real, bill):
+        await db.execute_write(
+            """
+            INSERT INTO cached_sales_delivery
+            (bill_no, mto_number, material_code, real_qty, aux_prop_id)
+            VALUES (?, ?, ?, ?, 0)
+            """,
+            [bill, mto, mat, real],
+        )
+
+    @pytest.mark.asyncio
+    async def test_over_ship_detected(self, test_database):
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._order(test_database, "AK1", "07.01.001", 100)
+        await self._delivery(test_database, "AK1", "07.01.001", 70, "D1")
+        await self._delivery(test_database, "AK1", "07.01.001", 50, "D2")  # 120 vs 100
+        result = await reader.get_over_ship_alerts()
+        assert len(result["alerts"]) == 1
+        assert result["alerts"][0]["over_amount"] == 20
+
+    @pytest.mark.asyncio
+    async def test_within_order_not_flagged(self, test_database):
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._order(test_database, "AK2", "07.01.002", 100)
+        await self._delivery(test_database, "AK2", "07.01.002", 80, "D3")
+        result = await reader.get_over_ship_alerts()
+        assert result["alerts"] == []
+
+    @pytest.mark.asyncio
+    async def test_closed_order_excluded(self, test_database):
+        """A closed order line (close_status='B') must not produce an over-ship alert."""
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._order(test_database, "AK3", "07.01.003", 100, close="B")
+        await self._delivery(test_database, "AK3", "07.01.003", 130, "D4")
+        result = await reader.get_over_ship_alerts()
+        assert result["alerts"] == []
+
+    @pytest.mark.asyncio
+    async def test_null_real_qty_skipped(self, test_database, caplog):
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._order(test_database, "AK4", "07.01.004", 10)
+        await test_database.execute_write(
+            """
+            INSERT INTO cached_sales_delivery
+            (bill_no, mto_number, material_code, real_qty, aux_prop_id)
+            VALUES ('D5', 'AK4', '07.01.004', NULL, 0)
+            """,
+        )
+        with caplog.at_level("WARNING", logger="src.query.cache_reader"):
+            result = await reader.get_over_ship_alerts()
+        assert result["skipped_incomplete"] == 1
+        assert any("overship_null_skip" in r.message for r in caplog.records)

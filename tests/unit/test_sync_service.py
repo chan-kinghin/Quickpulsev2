@@ -523,3 +523,81 @@ class TestSyncServiceBatching:
             assert result is None
         finally:
             sync_module.BOM_MAX_RETRIES = original_retries
+
+
+class TestPartialSyncReporting:
+    """A sync with <=50% failed chunks must be recorded as 'partial', not 'success'.
+
+    Before 2026-05-29 partial failures were logged then recorded as success
+    (run_sync hard-coded status='success'); a silently-stalled table looked
+    healthy. See PLAN_freshness_and_alerts_2026-05-29.md.
+    """
+
+    def _service(self, mock_readers, test_database, mock_sync_progress):
+        return SyncService(
+            readers=mock_readers, db=test_database, progress=mock_sync_progress
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_sync_records_partial(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        # 1 of 5 chunks failed (<=50%): completes, but incomplete.
+        service._sync_date_range = AsyncMock(return_value=(100, [2], 5))
+
+        result = await service.run_sync(days_back=10, chunk_days=2)
+
+        assert result.status == "partial"
+        assert result.failed_chunks == 1
+        assert result.total_chunks == 5
+        # Must be persisted as partial, not success.
+        rows = await test_database.execute_read(
+            "SELECT status, error_message FROM sync_history ORDER BY id DESC LIMIT 1"
+        )
+        assert rows[0][0] == "partial"
+        assert "1/5" in (rows[0][1] or "")
+
+    @pytest.mark.asyncio
+    async def test_run_sync_clean_success_unaffected(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        service._sync_date_range = AsyncMock(return_value=(100, [], 5))
+
+        result = await service.run_sync(days_back=10, chunk_days=2)
+
+        assert result.status == "success"
+        assert result.failed_chunks == 0
+
+    @pytest.mark.asyncio
+    async def test_sync_date_range_warns_and_returns_failures(
+        self, mock_readers, test_database, mock_sync_progress, caplog
+    ):
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        service._parallel_chunks = 1  # deterministic chunk order
+        # 4 daily chunks; the 2nd raises → 1/4 = 25% (<=50%): warn, don't raise.
+        service._sync_chunk = AsyncMock(side_effect=[5, SyncError("boom"), 5, 5])
+
+        with caplog.at_level("WARNING", logger="src.sync.sync_service"):
+            records, failed_indices, total = await service._sync_date_range(
+                days_back=3, chunk_days=1
+            )
+
+        assert total == 4
+        assert len(failed_indices) == 1
+        assert records == 15  # 5+5+5; failed chunk contributes 0
+        assert any("sync_partial" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_sync_date_range_aborts_above_50pct(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        service._parallel_chunks = 1
+        # 3 of 4 chunks fail → 75% > 50% → must still abort (raise).
+        service._sync_chunk = AsyncMock(
+            side_effect=[SyncError("a"), SyncError("b"), SyncError("c"), 5]
+        )
+        with pytest.raises(SyncError, match="aborted"):
+            await service._sync_date_range(days_back=3, chunk_days=1)

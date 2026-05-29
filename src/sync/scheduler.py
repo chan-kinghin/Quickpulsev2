@@ -62,10 +62,32 @@ class SyncScheduler:
             logger.info("Auto-sync skipped - sync already running")
             return
         logger.info("Auto-sync triggered: days_back=%d, chunk_days=%d", days_back, chunk_days)
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             self.sync_service.run_sync(days_back=days_back, chunk_days=chunk_days),
             self.loop,
         )
+        future.add_done_callback(self._on_sync_done)
+
+    @staticmethod
+    def _on_sync_done(future) -> None:
+        """Surface auto-sync failures instead of swallowing them.
+
+        run_coroutine_threadsafe runs the coroutine on another loop; without
+        a done-callback any exception is silently discarded and a crashed
+        nightly sync looks identical to a healthy one.
+        """
+        try:
+            result = future.result()
+        except Exception:  # noqa: BLE001 - log every failure mode with traceback
+            logger.error("Auto-sync job failed", exc_info=True)
+            return
+        status = getattr(result, "status", None)
+        if status == "partial":
+            logger.warning(
+                "Auto-sync completed PARTIAL: %d/%d chunks failed",
+                getattr(result, "failed_chunks", 0),
+                getattr(result, "total_chunks", 0),
+            )
 
     def _run_scheduler(self) -> None:
         while not self._stop_event.is_set():

@@ -35,7 +35,7 @@ _STATUS_ERROR_CODES = {
     502: "erp_unavailable",
     503: "service_unavailable",
 }
-from src.api.routers import admin, agent_chat, auth, cache, inventory as inventory_router, mto, photo, sync
+from src.api.routers import admin, agent_chat, alerts, auth, cache, inventory as inventory_router, mto, photo, sync
 from src.config import Config
 from src.database.connection import Database
 from src.kingdee.client import KingdeeClient
@@ -162,6 +162,9 @@ async def lifespan(app: FastAPI):
     app.state.sync_service = sync_service
     app.state.mto_handler = mto_handler
     app.state.inventory_reader = inventory_reader
+    # Always expose a CacheReader for freshness/alerts endpoints — these read raw
+    # cache tables directly and must work even when the TTL query-cache is disabled.
+    app.state.cache_reader = cache_reader or CacheReader(db, ttl_minutes=cache_ttl)
     app.state.scheduler = scheduler
     app.state.mto_config = mto_config
 
@@ -305,6 +308,7 @@ app.include_router(agent_chat.router)
 app.include_router(admin.router)
 app.include_router(photo.router)
 app.include_router(inventory_router.router)
+app.include_router(alerts.router)
 
 
 @app.get("/")
@@ -341,6 +345,11 @@ async def inventory_page_clean():
 @app.get("/sync.html")
 async def sync_page():
     return FileResponse("src/frontend/sync.html")
+
+
+@app.get("/alerts.html")
+async def alerts_page():
+    return FileResponse("src/frontend/alerts.html")
 
 
 @app.get("/admin.html")

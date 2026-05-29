@@ -1074,6 +1074,186 @@ class CacheReader:
         synced_at = self._parse_timestamp(rows[0][0])
         return self._is_fresh(synced_at), synced_at
 
+    async def table_freshness(self) -> list[dict]:
+        """Per-table freshness facts: newest synced_at + row count, whole-table.
+
+        Distinct from check_freshness(), which is per-MTO with LIKE matching.
+        This drives the data-freshness health card so a silently-stalled table
+        (e.g. deliveries stop updating) becomes visible instead of hiding behind
+        a green overall status. No mto filter, no LIKE — table names are fixed
+        constants, not user input.
+        """
+        tables = [
+            "cached_production_orders",
+            "cached_production_bom",
+            "cached_purchase_orders",
+            "cached_subcontracting_orders",
+            "cached_production_receipts",
+            "cached_purchase_receipts",
+            "cached_material_picking",
+            "cached_sales_delivery",
+            "cached_sales_orders",
+        ]
+        out: list[dict] = []
+        for t in tables:
+            rows = await self.db.execute_read(
+                f"SELECT MAX(synced_at), COUNT(*) FROM {t}"
+            )
+            last_synced = None
+            row_count = 0
+            if rows and rows[0] is not None:
+                last_synced = self._parse_timestamp(rows[0][0])
+                row_count = int(rows[0][1] or 0)
+            out.append(
+                {"table": t, "last_synced_at": last_synced, "row_count": row_count}
+            )
+        return out
+
+    async def get_over_pick_alerts(self, limit: int = 200) -> dict:
+        """Materials picked beyond their applied quantity (超领), per mto+material.
+
+        Mirrors metrics._compute_over_pick: over = actual - app, flagged when > 0.
+        Rows with NULL app_qty or actual_qty are EXCLUDED and counted as
+        "incomplete" rather than coerced to 0 — treating missing data as 0 would
+        hide a real over-pick (or invent a fake one). Stays at mto+material grain;
+        never touches aux fallback.
+        """
+        null_rows = await self.db.execute_read(
+            """
+            SELECT COUNT(DISTINCT mto_number || '|' || material_code)
+            FROM cached_material_picking
+            WHERE app_qty IS NULL OR actual_qty IS NULL
+            """
+        )
+        skipped = int(null_rows[0][0] or 0) if null_rows and null_rows[0] else 0
+        if skipped:
+            logger.warning(
+                "overpick_null_skip event=overpick_null_skip skipped_materials=%d "
+                "(rows with NULL app_qty/actual_qty excluded, not treated as 0)",
+                skipped,
+            )
+
+        rows = await self.db.execute_read(
+            """
+            SELECT
+                mp.mto_number,
+                mp.material_code,
+                SUM(mp.app_qty)                      AS total_app,
+                SUM(mp.actual_qty)                   AS total_actual,
+                SUM(mp.actual_qty) - SUM(mp.app_qty) AS over_amount,
+                so.customer_name,
+                so.delivery_date,
+                so.material_name
+            FROM cached_material_picking mp
+            LEFT JOIN (
+                SELECT mto_number, material_code,
+                       MAX(customer_name)  AS customer_name,
+                       MAX(delivery_date)  AS delivery_date,
+                       MAX(material_name)  AS material_name
+                FROM cached_sales_orders
+                GROUP BY mto_number, material_code
+            ) so
+              ON so.mto_number = mp.mto_number
+             AND so.material_code = mp.material_code
+            WHERE mp.app_qty IS NOT NULL AND mp.actual_qty IS NOT NULL
+            GROUP BY mp.mto_number, mp.material_code
+            HAVING SUM(mp.actual_qty) - SUM(mp.app_qty) > 0
+            ORDER BY over_amount DESC
+            LIMIT ?
+            """,
+            [limit],
+        )
+        alerts = [
+            {
+                "mto_number": r[0],
+                "material_code": r[1],
+                "app_qty": float(r[2] or 0),
+                "actual_qty": float(r[3] or 0),
+                "over_amount": float(r[4] or 0),
+                "customer_name": r[5] or "",
+                "delivery_date": r[6] or "",
+                "material_name": r[7] or "",
+                # 申请量=0 却实发>0 = 未申请直接发料,内控黑洞,单列严重档
+                "severe": float(r[2] or 0) == 0 and float(r[3] or 0) > 0,
+            }
+            for r in rows
+        ]
+        return {"alerts": alerts, "skipped_incomplete": skipped}
+
+    async def get_over_ship_alerts(self, limit: int = 200) -> dict:
+        """Deliveries exceeding the sales-order quantity (超发), per mto+material.
+
+        over = shipped(real_qty) - ordered(qty), flagged when > 0. Excludes closed
+        order lines (close_status='B'). Coarse mto+material grain (sums across aux
+        variants) — surfaced as "needs manual aux check" rather than forcing an
+        unreliable aux-level match. Exact equality join on mto_number+material_code
+        (no LIKE) to avoid cross-MTO contamination (bug-patterns #5).
+        """
+        null_rows = await self.db.execute_read(
+            """
+            SELECT COUNT(DISTINCT mto_number || '|' || material_code)
+            FROM cached_sales_delivery
+            WHERE real_qty IS NULL
+            """
+        )
+        skipped = int(null_rows[0][0] or 0) if null_rows and null_rows[0] else 0
+        if skipped:
+            logger.warning(
+                "overship_null_skip event=overship_null_skip skipped_materials=%d "
+                "(delivery rows with NULL real_qty excluded, not treated as 0)",
+                skipped,
+            )
+
+        rows = await self.db.execute_read(
+            """
+            SELECT
+                d.mto_number,
+                d.material_code,
+                o.total_qty,
+                d.total_real,
+                d.total_real - o.total_qty AS over_amount,
+                o.customer_name,
+                o.delivery_date,
+                o.material_name
+            FROM (
+                SELECT mto_number, material_code, SUM(real_qty) AS total_real
+                FROM cached_sales_delivery
+                WHERE real_qty IS NOT NULL
+                GROUP BY mto_number, material_code
+            ) d
+            JOIN (
+                SELECT mto_number, material_code,
+                       SUM(qty)            AS total_qty,
+                       MAX(customer_name)  AS customer_name,
+                       MAX(delivery_date)  AS delivery_date,
+                       MAX(material_name)  AS material_name
+                FROM cached_sales_orders
+                WHERE COALESCE(close_status, 'A') != 'B'
+                GROUP BY mto_number, material_code
+            ) o
+              ON o.mto_number = d.mto_number
+             AND o.material_code = d.material_code
+            WHERE d.total_real - o.total_qty > 0
+            ORDER BY over_amount DESC
+            LIMIT ?
+            """,
+            [limit],
+        )
+        alerts = [
+            {
+                "mto_number": r[0],
+                "material_code": r[1],
+                "order_qty": float(r[2] or 0),
+                "shipped_qty": float(r[3] or 0),
+                "over_amount": float(r[4] or 0),
+                "customer_name": r[5] or "",
+                "delivery_date": r[6] or "",
+                "material_name": r[7] or "",
+            }
+            for r in rows
+        ]
+        return {"alerts": alerts, "skipped_incomplete": skipped}
+
     def _is_fresh(self, synced_at: Optional[datetime]) -> bool:
         """Check if cache is within TTL.
 

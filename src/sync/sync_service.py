@@ -39,13 +39,21 @@ MTO_MAX_RETRIES = 2  # Retries for failed batches
 
 @dataclass
 class SyncResult:
-    """Result of a sync operation."""
+    """Result of a sync operation.
+
+    status is one of: "success" (all chunks ok), "partial" (some chunks
+    failed but <=50%, data is incomplete), "error" (sync aborted/raised).
+    Before 2026-05-29 a sync with up to 50% failed chunks was silently
+    recorded as "success" — see PLAN_freshness_and_alerts_2026-05-29.md.
+    """
 
     status: str
     days_back: int
     records_synced: int
     started_at: datetime
     finished_at: datetime
+    failed_chunks: int = 0
+    total_chunks: int = 0
 
 
 def date_chunks(
@@ -124,7 +132,7 @@ class SyncService:
                     await self._clear_cache()
 
                 self.progress.start(days_back)
-                records_synced = await self._sync_date_range(
+                records_synced, failed_indices, total_chunks = await self._sync_date_range(
                     days_back, chunk_days
                 )
                 self.progress.finish_success()
@@ -132,14 +140,24 @@ class SyncService:
                 # Run post-sync callbacks (e.g., clear memory cache)
                 await self._run_post_sync_callbacks()
 
+                # Partial failures (<=50% chunks) must not masquerade as success.
+                status = "partial" if failed_indices else "success"
+                error_message = None
+                if failed_indices:
+                    error_message = (
+                        f"Partial sync: {len(failed_indices)}/{total_chunks} "
+                        f"chunks failed (indices: {failed_indices})"
+                    )
                 result = SyncResult(
-                    status="success",
+                    status=status,
                     days_back=days_back,
                     records_synced=records_synced,
                     started_at=started_at,
                     finished_at=datetime.now(),
+                    failed_chunks=len(failed_indices),
+                    total_chunks=total_chunks,
                 )
-                await self._record_history(result)
+                await self._record_history(result, error_message=error_message)
                 return result
 
             except Exception as exc:
@@ -156,19 +174,25 @@ class SyncService:
             finally:
                 self._running = False
 
-    async def _sync_date_range(self, days_back: int, chunk_days: int) -> int:
+    async def _sync_date_range(
+        self, days_back: int, chunk_days: int
+    ) -> tuple[int, list[int], int]:
         """Sync all chunks in date range with parallel processing.
 
         Uses semaphore to limit concurrent chunk processing based on
         the parallel_chunks config setting (default: 2).
+
+        Returns (records_synced, failed_chunk_indices, total_chunks). A
+        non-empty failed_chunk_indices means the sync is PARTIAL — the
+        caller must not report it as a clean success.
         """
         end_date = date.today()
         start_date = end_date - timedelta(days=days_back)
         chunks = list(date_chunks(start_date, end_date, chunk_days))
         total = max(len(chunks), 1)
 
-        if total == 0:
-            return 0
+        if not chunks:
+            return 0, [], 0
 
         # Track progress across parallel chunks
         completed_chunks = 0
@@ -235,9 +259,15 @@ class SyncService:
                 raise SyncError(
                     f"Sync aborted: {len(exceptions)}/{len(results)} chunks failed (>50%)"
                 )
+            # <=50% failed: data is incomplete, not a clean success. Emit a
+            # structured, Loki-greppable line so partial syncs stop being silent.
+            logger.warning(
+                "sync_partial event=sync_partial failed_chunks=%d total_chunks=%d failed_indices=%s",
+                len(exceptions), len(results), failed_indices,
+            )
 
         self.progress.update("finalize", "Finalizing sync", records_synced=records_synced)
-        return records_synced
+        return records_synced, failed_indices, len(chunks)
 
     async def _sync_chunk(self, start_date: date, end_date: date) -> int:
         """Sync a single date chunk - all 9 data sources atomically.
