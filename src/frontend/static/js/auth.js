@@ -5,6 +5,12 @@ function loginForm() {
         error: null,
         loading: false,
 
+        init() {
+            if (api.isAuthenticated()) {
+                window.location.href = '/dashboard.html';
+            }
+        },
+
         async submit() {
             this.loading = true;
             this.error = null;
@@ -34,13 +40,26 @@ function authGuard() {
                 return;
             }
 
-            // Then verify token is still valid with server
+            // Then verify token is still valid with server.
             try {
                 await api.get('/auth/verify');
                 this.authenticated = true;
             } catch (error) {
-                // Token invalid/expired - redirect handled by api.request() on 401
-                console.log('Token verification failed, redirecting to login');
+                // Fail-OPEN on transient failures. A real 401 is already handled
+                // inside api.request() (clears token + redirects to login), so a
+                // surfaced error here means the gateway flaked (503/timeout/network)
+                // — the local token is still valid. Blanking the page on a transient
+                // 503 was making every protected page look "broken" whenever the
+                // shared nginx rate-limited /api/* under load. Show the page; real
+                // API calls still enforce auth (401 -> redirect) on their own.
+                if (error && error.message === 'Unauthorized') {
+                    return; // 401: api.request() already redirected to login
+                }
+                console.warn(
+                    'Token verify failed transiently, proceeding with local token:',
+                    error && error.message,
+                );
+                this.authenticated = true;
             }
         }
     };
