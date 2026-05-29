@@ -1085,6 +1085,22 @@ class TestOverPickAlerts:
         assert result["alerts"][0]["severe"] is True
 
     @pytest.mark.asyncio
+    async def test_sample_rows_not_filtered_in_cache_reader(self, test_database):
+        """Cache reader stays pure: sample (AY/DY) rows are NOT dropped here.
+
+        Sample exclusion lives in the alerts router so it can report
+        excluded_sample_count. Filtering inside the SQL would make that count
+        impossible and turn the filter into a silent failure. This guards the
+        layering: a Y-prefix MTO must still appear in the raw cache-reader output.
+        """
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._pick(test_database, "AY2510001", "05.01.001", 0, 50, "P-S")
+        result = await reader.get_over_pick_alerts()
+        mtos = {a["mto_number"] for a in result["alerts"]}
+        assert "AY2510001" in mtos
+        assert "excluded_sample_count" not in result  # not the reader's concern
+
+    @pytest.mark.asyncio
     async def test_within_application_not_flagged(self, test_database):
         reader = CacheReader(test_database, ttl_minutes=60)
         await self._pick(test_database, "AK3", "05.01.003", 100, 80, "P4")
@@ -1146,6 +1162,21 @@ class TestOverShipAlerts:
         await self._delivery(test_database, "AK2", "07.01.002", 80, "D3")
         result = await reader.get_over_ship_alerts()
         assert result["alerts"] == []
+
+    @pytest.mark.asyncio
+    async def test_sample_rows_not_filtered_in_cache_reader(self, test_database):
+        """Cache reader stays pure: sample (DY/AY) rows are NOT dropped here.
+
+        Sample exclusion + excluded_sample_count live in the alerts router. A
+        Y-prefix MTO must still surface in the raw cache-reader output.
+        """
+        reader = CacheReader(test_database, ttl_minutes=60)
+        await self._order(test_database, "DY251002S", "07.01.001", 100)
+        await self._delivery(test_database, "DY251002S", "07.01.001", 130, "D-S")
+        result = await reader.get_over_ship_alerts()
+        mtos = {a["mto_number"] for a in result["alerts"]}
+        assert "DY251002S" in mtos
+        assert "excluded_sample_count" not in result
 
     @pytest.mark.asyncio
     async def test_closed_order_excluded(self, test_database):

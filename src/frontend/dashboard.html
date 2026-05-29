@@ -164,6 +164,23 @@
                         <div class="flex items-center gap-2">
                             <span class="text-slate-500">计划</span>
                             <span class="text-slate-50 font-mono font-medium" x-text="parentItem?.mto_number"></span>
+                            <!-- 业务线 · 订单类型 徽标 — derived from the MTO prefix (1st letter=业务线, 2nd letter=订单类型).
+                                 Pure presentation, scoped to this element via x-data so it adds no component state
+                                 and does not touch the columns[] index array. 样品单 (2nd letter 'Y') is highlighted amber. -->
+                            <template x-if="parentItem?.mto_number">
+                                <span x-data="{
+                                          lines: { A: '外销', D: '内销', W: '瑞弧' },
+                                          types: { S: '完整订单', K: '备货半成品单', Y: '样品单' },
+                                          get code() { return (parentItem?.mto_number || '').trim().toUpperCase(); },
+                                          get lineLabel() { return this.lines[this.code[0]] || '未分类'; },
+                                          get typeLabel() { return this.types[this.code[1]] || '未分类'; },
+                                          get isSample() { return this.code[1] === 'Y'; }
+                                      }"
+                                      class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                                      :class="isSample ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700/60 text-slate-300'"
+                                      data-testid="mto-classification-badge"
+                                      x-text="lineLabel + ' · ' + typeLabel"></span>
+                            </template>
                         </div>
                         <div class="flex items-center gap-6">
                             <div class="flex items-center gap-2">
