@@ -1,8 +1,14 @@
 # Plan: 数据新鲜度仪表 + 静默失败修复 (QW-1) + 超领/超发预警中心 (QW-2)
 
-## Status: Deployed to dev ✓ (2026-05-29)
+## Status: Deployed to dev + prod ✓ (2026-05-29)
 
-> Merged to `main` (FF), pushed `main` + `develop`, CD auto-deployed dev (run 26613950247, 5m1s green). Live dev verified: `/alerts.html` 200, freshness/over-pick/over-ship endpoints return real data. **Feature already earned its keep**: freshness endpoint flagged `cached_sales_orders` as stale on dev (28h old vs 8h for the other 8 tables) — exactly the silent lag it was built to surface.
+> Merged to `main` (FF), CD-deployed **dev and prod** (both verified: `/alerts.html` 200, freshness/over-pick/over-ship return real data).
+>
+> **Follow-on fixes shipped same day:**
+> - `authGuard` fail-open (`ef7faea`) — a flaky `/api/auth/verify` 503 used to blank every protected page; now shows the page on transient failures (verified on dev under a forced 503).
+> - **nginx**: `/api/auth/verify` was bucketed under `zone=login` (5r/m) in the shared ops-nginx → normal browsing 503'd. Moved to `zone=api` (10r/s) via a `location = /api/auth/verify` exact-match in `20-quickpulse.conf` + `40-subdomains.conf` (dev+prod), `nginx -t` + reload OK. Verify now 15/15 200 on both envs. Backups: `*.bak-verify-20260529-105619`. See [[cvm-nginx-verify-ratelimited-as-login]].
+>
+> **Open observation**: `cached_sales_orders` runs ~28h stale on BOTH dev and prod while the other 8 tables are ~8h fresh — a recurring per-table lag the freshness card surfaced. Worth a separate look at why that one table lags.
 
 
 > 3 阶段全部落地,新增 21 个测试全绿(`1010 passed`)。真数据 smoke(`data/quickpulse.db`)验证:超领 927 条、超发 487 条(榜首=第一大客户刀刀超发 +64,736)、9 表新鲜度正常。
