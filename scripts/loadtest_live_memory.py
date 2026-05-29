@@ -119,6 +119,15 @@ class StubClient:
     async def lookup_aux_properties(self, ids):
         return {i: f"颜色{i}-尺寸{i}" for i in ids}
 
+    async def lookup_material_categories(self, material_codes):
+        # Mirror the real client's {code: category_name} return (added Phase 2a,
+        # commit 80d52b8). Cycle through realistic categories so the live path's
+        # non-自制 override filter keeps a representative subset — exercising the
+        # category-routing branch in _build_bom_joined_rows_from_live rather than
+        # short-circuiting it (which would understate memory).
+        cats = ("外销包材", "委外加工", "主料", "半成品", "包装成品")
+        return {c: cats[i % len(cats)] for i, c in enumerate(material_codes)}
+
 
 class StubReader:
     """Rebuilds fresh model objects every call (like the real reader parsing a fresh response)."""
