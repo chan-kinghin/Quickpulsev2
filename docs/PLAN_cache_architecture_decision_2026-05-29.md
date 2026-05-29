@@ -93,8 +93,20 @@ extreme @12 = 274 MB (54%); never OOM-killed. Memory is NOT a blocker.
   Valuable on its own even if we never collapse — it fixes live mislabeling users see today.
 - **Phase 2b — clean parity:** re-run parity on a fresh-synced cache (or same-inputs harness) so the
   comparison is staleness-free; require structural parity + explained routing before any cutover.
-- **Phase 3 — cutover + delete:** only after 2a/2b are green — route query path to live (+ result cache),
-  then delete `get_mto_bom_joined` + `_row_to_bom_joined` + cache-path dedup mirrors. Sync/raw tables stay for alerts.
+- **Phase 3 CUTOVER — DONE 2026-05-29 (`9043457`).** Default `get_status` path now serves the canonical
+  LIVE aggregation (fronted by L1 in-memory result cache); raw SQLite cache retired from the default,
+  reachable only via `?source=cache`. Verified: default `get_status('AS2603016')` → data_source='live',
+  purchased-主料 01.06.01.001 → 包材. `use_cache=True` still controls L1. Sync + raw tables stay for alerts.
+  Full suite 1062 green.
+- **Phase 3 DELETE — deliberately DEFERRED (deprecate-then-delete).** `get_mto_bom_joined` +
+  `_row_to_bom_joined` + dedup mirrors + `_try_cache` + ~1145 lines of `test_cache_reader_joined.py` are now
+  DEAD on the default path. Keep them as a `?source=cache` fallback DURING the cutover transition; delete
+  after live-only is confirmed in dev/prod, so we (a) retain a rollback path and (b) don't hastily drop the
+  Wave-4B/5B/6C regression coverage. Tracked as the one remaining cleanup.
+- **Phase 1b result cache — OPTIONAL, deferred.** L1 (in-memory, 300s TTL, 600 entries) covers repeat
+  queries for the 12-user load; cold/first queries are now 1–5s live. A persistent stale-while-revalidate
+  result cache would remove the cold-query latency + add downtime resilience — build only if cold latency
+  proves annoying in real use. Not required for correctness.
 
 ## Rollback
 - Phase 1: remove the flag / revert the two commits (no behavior depended on it).
