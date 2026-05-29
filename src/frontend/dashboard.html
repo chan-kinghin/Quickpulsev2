@@ -52,8 +52,7 @@
                        class="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition hover:bg-slate-800">
                         <span class="w-2 h-2 rounded-full"
                               :class="{ 'bg-emerald-500': verdict==='fresh', 'bg-amber-500': verdict==='stale', 'bg-slate-600': verdict==='loading', 'bg-rose-500': verdict==='error' }"></span>
-                        <!-- always visible: md:inline / lg:inline are NOT in the precompiled
-                             tailwind bundle, so a responsive-hide would permanently hide this -->
+                        <!-- always visible (freshness verdict matters at all widths) -->
                         <span class="whitespace-nowrap"
                               :class="{ 'text-slate-400': verdict==='fresh'||verdict==='stale', 'text-slate-500': verdict==='loading'||verdict==='error' }"
                               x-text="verdict==='fresh' ? '数据新鲜' : (verdict==='stale' ? ('数据滞后 '+stale) : (verdict==='loading' ? '检查中…' : '状态未知'))"></span>

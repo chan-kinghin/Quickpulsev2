@@ -1176,3 +1176,27 @@ body {
     display: inline-flex; align-items: center; justify-content: center;
 }
 /* === END STRIPE × FLUENT SKIN === */
+
+/* ===========================================================================
+   MISSING RESPONSIVE UTILITIES — precompiled tailwind.min.css gap
+   ---------------------------------------------------------------------------
+   The committed tailwind.min.css was purged WITHOUT several responsive variants
+   the markup actually uses. Effects before this block:
+     - `hidden md:inline` collapsed to display:none at ALL widths (date/timestamp
+       spans + the 退出 logout labels on every page — confirmed shipped regression).
+     - sync.html stats grid `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` was stuck
+       at one column because both responsive overrides were absent.
+   main.css loads AFTER the bundle, so these definitions win by source order.
+   GUARDED BY scripts/check_tailwind_classes.sh — CI fails if any responsive class
+   used in src/frontend/*.html is missing from both the bundle and this file.
+   Tailwind breakpoints: sm=640px, md=768px, lg=1024px.
+   =========================================================================== */
+@media (min-width: 640px) {
+  .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 768px) {
+  .md\:inline { display: inline; }
+}
+@media (min-width: 1024px) {
+  .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

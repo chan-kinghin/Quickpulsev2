@@ -26,6 +26,9 @@ jobs:
           python-version: '3.11'
       - run: pip install ruff
       - run: ruff check src/
+      # Fail if any responsive Tailwind class used in markup is absent from both
+      # the precompiled bundle and main.css (the silent-hide gap, e.g. md:inline).
+      - run: bash scripts/check_tailwind_classes.sh
 
   typecheck:
     runs-on: ubuntu-latest
