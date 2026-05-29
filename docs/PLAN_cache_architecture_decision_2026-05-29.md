@@ -66,7 +66,15 @@ extreme @12 = 274 MB (54%); never OOM-killed. Memory is NOT a blocker.
 
 ## Phased rollout (RE-SEQUENCED after the parity finding)
 - **Phase 1 — DONE (`266d2e2`):** warm SDK auth at startup. (1b result-cache layer deferred until Phase 2a proves the direction.)
-- **Phase 2a — NEW, critical prerequisite: make routing canonical.** PRECISE ROOT CAUSE (traced
+- **Phase 2a — DONE 2026-05-29 (`80d52b8` + `3a873e8`), live routing now canonical & VERIFIED.**
+  Wired `lookup_material_categories` into `_fetch_live`; the 4 synthetic blocks now set
+  `category_name` so `_bom_row_to_child` routes via `_CATEGORY_TO_TYPE`. Live-verified on the
+  ground-truth materials: `03.06.03.001` 包材+自制 → **包材+包材**; `08.12.02.18` stays **委外+委外**.
+  No migration (live reads category real-time). TDD: synthetic→包材, control no-category→自制,
+  PUR-block 委外加工→委外. Full gating suite 1062 green. (The cache path's own routing bug for
+  08.12.02.18 is intentionally left — the cache query path is being retired in Phase 3.)
+  ORIGINAL ROOT-CAUSE NOTES (for reference):
+  PRECISE ROOT CAUSE (traced
   2026-05-29): the routing MAP `_CATEGORY_TO_TYPE` (mto_handler.py:1592) is already correct
   (外销包材→包材, 委外加工→委外, 主料/半成品→自制). The bug is that synthetic/PUR-only rows lack
   `category_name`, so each path hits a different bad fallback:
