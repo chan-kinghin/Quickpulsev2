@@ -206,26 +206,14 @@ class MTOQueryHandler:
                     return self._memory_cache[mto_number]
                 self._memory_misses += 1
 
-        # L2: Try SQLite cache if enabled and cache reader available
-        result = None
-        if use_cache and self._cache_reader:
-            result = await self._try_cache(mto_number, strict_aux=strict_aux)
-            if result and result.children:
-                self._sqlite_hits += 1
-                logger.debug("L2 SQLite cache hit for MTO %s", mto_number)
-            else:
-                self._sqlite_misses += 1
-                # Cache returned no children - fall back to live mode
-                if result and not result.children:
-                    logger.info(
-                        "MTO %s: cache has no children, falling back to live mode",
-                        mto_number
-                    )
-                    result = None  # Force fallback to live
-
-        # L3: Fallback to live Kingdee API
-        if not result:
-            result = await self._fetch_live(mto_number, strict_aux=strict_aux)
+        # CUTOVER (docs/PLAN_cache_architecture_decision_2026-05-29.md, Phase 3): the raw
+        # SQLite cache (L2) is RETIRED from the default path. It re-derived the aggregation
+        # in SQL (get_mto_bom_joined) and produced routing divergences vs the live path
+        # (e.g. 委外加工 mislabeled 包材). The default now serves the canonical LIVE
+        # aggregation, fronted by the L1 in-memory result cache (above) for repeat queries.
+        # The raw cache stays reachable for power users via ?source=cache; sync + raw tables
+        # stay too — they feed the fleet-wide alerts/freshness scans, not this query path.
+        result = await self._fetch_live(mto_number, strict_aux=strict_aux)
 
         # Populate L1 cache with result — only for non-strict queries.
         if use_cache and not strict_aux and self._memory_cache is not None and result:
@@ -670,11 +658,33 @@ class MTOQueryHandler:
             )
             children.append(child)
 
+        # Phase 2a: synthetic / PUR-only rows (Step-2 blocks below) are NOT in PPBOM and
+        # carry no category, so historically they fell back to the legacy material_type
+        # (e.g. a 外销包材 box mislabeled 自制). Look up the authoritative BD_MATERIAL.CategoryID.
+        synthetic_codes = {
+            mc
+            for src in (prod_receipts, purchase_orders, prod_orders, material_picks)
+            for r in src
+            if (mc := getattr(r, "material_code", "")) and not mc.startswith("07.")
+        }
+        # Only let CategoryID OVERRIDE the block's source-based type toward the NON-自制 types
+        # (外销包材→包材, 委外加工→委外, 包装成品→成品). For 主料/辅料/半成品 (which map to 自制) the
+        # block's source is more reliable: a purchase-sourced row is 外购/包材, NOT 自制 — e.g.
+        # 外箱纸板 is category 主料 + IsPurchase=True but is packaging, so the crude 主料→自制 map
+        # would mislabel it. Filtering to override-categories keeps purchased main materials correct.
+        _override_cats = {c for c, (_t, lbl) in self._CATEGORY_TO_TYPE.items() if lbl != "自制"}
+        category_by_code = {
+            code: cat
+            for code, cat in (await self._client.lookup_material_categories(list(synthetic_codes))).items()
+            if cat in _override_cats
+        }
+
         # --- BOM children via shared path ---
         bom_rows = self._build_bom_joined_rows_from_live(
             production_bom, prod_orders, prod_receipts, material_picks,
             purchase_orders, purchase_receipts, subcontracting_orders,
             sales_deliveries,
+            category_by_code=category_by_code,
         )
 
         if strict_aux:
@@ -718,6 +728,7 @@ class MTOQueryHandler:
         purchase_receipts: list,
         subcontracting_orders: list,
         sales_deliveries: list,
+        category_by_code: Optional[dict] = None,
     ) -> list[BOMJoinedRow]:
         """Convert live API data into BOMJoinedRow format for shared enrichment.
 
@@ -1253,6 +1264,7 @@ class MTOQueryHandler:
                 material_type=m_type,
                 need_qty=_lookup_mo_qty(code, aux),
                 picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
@@ -1279,6 +1291,7 @@ class MTOQueryHandler:
                 aux_attributes=getattr(first, "aux_attributes", ""),
                 material_type=2,  # purchased
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
 
@@ -1323,6 +1336,7 @@ class MTOQueryHandler:
                 aux_attributes=getattr(first, "aux_attributes", ""),
                 material_type=1,  # self-made (PRD_MO implies production)
                 need_qty=mo_qty, picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
@@ -1349,6 +1363,7 @@ class MTOQueryHandler:
                 aux_attributes="",
                 material_type=m_type,
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
+                category_name=(category_by_code or {}).get(code, ""),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)

@@ -456,3 +456,55 @@ class KingdeeClient:
                 len(valid_ids), len(result),
             )
         return result
+
+    async def lookup_material_categories(self, material_codes: list[str]) -> dict[str, str]:
+        """Look up BD_MATERIAL.CategoryID.FName for a batch of material codes.
+
+        Used by the live MTO path to route synthetic / PUR-only rows (which are not in
+        PPBOM and so carry no category) by their AUTHORITATIVE category
+        (外销包材 / 委外加工 / 主料 / 半成品 / ...). See _CATEGORY_TO_TYPE in mto_handler:
+        routing by category fixes the divergence where synthetic rows fell back to the
+        unreliable legacy material_type (e.g. a 外销包材 box mislabeled 自制).
+
+        Returns {material_code: category_name}. Failure / sparse response logs a WARNING
+        and returns whatever resolved (callers default to "" → legacy fallback).
+        """
+        if not material_codes:
+            return {}
+        # FNumber goes into FilterString unparameterised — whitelist to dotted
+        # alphanumeric codes (same boundary as inventory.sanitize) to block injection.
+        safe = sorted({
+            c for c in material_codes
+            if c and len(c) <= 50 and all(ch.isalnum() or ch in ".-" for ch in c)
+        })
+        if not safe:
+            return {}
+        in_clause = ",".join(f"'{c}'" for c in safe)
+        try:
+            records = await self.query_all(
+                form_id="BD_MATERIAL",
+                field_keys=["FNumber", "FCategoryID.FName"],
+                filter_string=f"FNumber IN ({in_clause})",
+            )
+        except Exception:
+            logger.warning(
+                "material_category_lookup_failed: requested=%d sample=%s — returning empty; "
+                "synthetic-row routing will fall back to legacy material_type",
+                len(safe), safe[:5], exc_info=True,
+            )
+            return {}
+
+        result: dict[str, str] = {}
+        for r in records:
+            code = r.get("FNumber")
+            cat = r.get("FCategoryID.FName")
+            if code and cat and str(cat).strip():
+                result[str(code)] = str(cat).strip()
+
+        missing = len(safe) - len(result)
+        if missing > 0 and missing > len(safe) // 2:
+            logger.warning(
+                "material_category_lookup_sparse: requested=%d found=%d — routing may fall back",
+                len(safe), len(result),
+            )
+        return result

@@ -113,6 +113,25 @@
                 </div>
             </div>
 
+            <!-- Over-pick one-sided-metric explainer (why the total looks large) -->
+            <div x-show="activeTab === 'over-pick' && overPick.loaded" x-transition class="mb-4" x-cloak>
+                <div class="p-3 bg-slate-900 border border-slate-700 rounded text-slate-400 text-sm flex items-start gap-2">
+                    <i data-lucide="info" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                    <span>
+                        <b class="text-slate-200">单边口径</b>：本表只累加「实发 &gt; 申请」的正偏差，共
+                        <span class="font-semibold text-slate-200" x-text="overPick.summary.over_pairs"></span>
+                        项，合计
+                        <span class="font-semibold text-amber-400" x-text="'+' + formatQty(overPick.summary.over_total)"></span>。
+                        同期有
+                        <span class="font-semibold text-slate-200" x-text="overPick.summary.under_pairs"></span>
+                        项「实发 &lt; 申请」(少领)，全局<b>净领料偏差</b>为
+                        <span class="font-semibold" :class="overPick.summary.net_total < 0 ? 'text-emerald-400' : 'text-amber-400'"
+                              x-text="formatQty(overPick.summary.net_total)"></span>
+                        （负数 = 整体少领）。数字均为金蝶真实值、<b>非重复计算</b>；申请量常只填象征值，故个别倍数偏大。
+                    </span>
+                </div>
+            </div>
+
             <!-- Over-ship coarse-grain note -->
             <div x-show="activeTab === 'over-ship'" class="mb-4 text-xs text-slate-500" x-cloak>
                 ⓘ 超发按 mto + 物料 粗粒度比对（已发货量 vs 订单量，已排除已关闭订单）。含辅助属性差异时需人工复核。
@@ -204,8 +223,10 @@
                 activeTab: 'over-pick',
                 loading: false,
                 errorMsg: '',
-                overPick: { alerts: [], skipped: 0, total: 0, excludedSample: 0, loaded: false },
-                overShip: { alerts: [], skipped: 0, total: 0, excludedSample: 0, loaded: false },
+                overPick: { alerts: [], skipped: 0, total: 0, excludedSample: 0, loaded: false,
+                            summary: { over_total: 0, under_total: 0, net_total: 0, over_pairs: 0, under_pairs: 0 } },
+                overShip: { alerts: [], skipped: 0, total: 0, excludedSample: 0, loaded: false,
+                            summary: { over_total: 0, under_total: 0, net_total: 0, over_pairs: 0, under_pairs: 0 } },
 
                 initPage() {
                     this.loadTab('over-pick');
@@ -231,7 +252,8 @@
                             skipped: data.skipped_incomplete || 0,
                             total: data.total_count || 0,
                             excludedSample: data.excluded_sample_count || 0,
-                            loaded: true
+                            loaded: true,
+                            summary: data.summary || { over_total: 0, under_total: 0, net_total: 0, over_pairs: 0, under_pairs: 0 }
                         };
                         if (tab === 'over-pick') this.overPick = store;
                         else this.overShip = store;

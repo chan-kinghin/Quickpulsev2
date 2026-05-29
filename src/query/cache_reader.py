@@ -1145,6 +1145,38 @@ class CacheReader:
         )
         total_count = int(count_rows[0][0] or 0) if count_rows and count_rows[0] else 0
 
+        # One-sided-metric context: the alert list is only the POSITIVE tail
+        # (实发>申请). Globally, picking is dominated by UNDER-pick (实发<申请),
+        # so the gross over-pick total in isolation reads as alarmingly large.
+        # Expose the positive total, the negative (under-pick) total, and the
+        # net so the UI can prevent the "910K looks like a double count" misread.
+        # Whole-table (samples included — their ~40 rows are negligible vs the
+        # global net, which is the point of this summary).
+        summary_rows = await self.db.execute_read(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN dev > 0 THEN dev END), 0) AS over_total,
+                COALESCE(SUM(CASE WHEN dev < 0 THEN dev END), 0) AS under_total,
+                COALESCE(SUM(dev), 0)                            AS net_total,
+                COALESCE(SUM(CASE WHEN dev > 0 THEN 1 END), 0)   AS over_pairs,
+                COALESCE(SUM(CASE WHEN dev < 0 THEN 1 END), 0)   AS under_pairs
+            FROM (
+                SELECT SUM(actual_qty) - SUM(app_qty) AS dev
+                FROM cached_material_picking
+                WHERE app_qty IS NOT NULL AND actual_qty IS NOT NULL
+                GROUP BY mto_number, material_code
+            )
+            """
+        )
+        sr = summary_rows[0] if summary_rows and summary_rows[0] else (0, 0, 0, 0, 0)
+        summary = {
+            "over_total": float(sr[0] or 0),
+            "under_total": float(sr[1] or 0),
+            "net_total": float(sr[2] or 0),
+            "over_pairs": int(sr[3] or 0),
+            "under_pairs": int(sr[4] or 0),
+        }
+
         rows = await self.db.execute_read(
             """
             SELECT
@@ -1214,6 +1246,7 @@ class CacheReader:
             "alerts": alerts,
             "skipped_incomplete": skipped,
             "total_count": total_count,
+            "summary": summary,
         }
 
     async def get_over_ship_alerts(self, limit: int = 200) -> dict:

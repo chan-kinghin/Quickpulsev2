@@ -20,6 +20,10 @@ env/
 *.swp
 *.swo
 
+# Claude Code local state (machine-specific — never commit)
+.claude/settings.local.json
+.claude/*.lock
+
 # Generated data
 data/
 reports/
