@@ -198,10 +198,19 @@ class KingdeeClient:
                 errors = status.get("Errors", [])
                 error_msg = "; ".join(e.get("Message", "") for e in errors) if errors else "Unknown error"
                 msg_code = error_result.get("MsgCode", 0)
-                # MsgCode 4 = form not found, return empty instead of error
-                if msg_code == 4 or "业务对象不存在" in error_msg or "字段不存在" in error_msg:
-                    logger.warning("Form %s error (returning empty): %s", form_id, error_msg)
+                # MsgCode 4 / 业务对象不存在 = form not found or disabled. Returning empty is
+                # acceptable here (an optional/absent form legitimately yields no rows).
+                if msg_code == 4 or "业务对象不存在" in error_msg:
+                    logger.warning("Form %s not found or disabled (returning empty): %s", form_id, error_msg)
                     return []
+                # 字段不存在 = an invalid field key. This is ALWAYS a config/code bug, never a
+                # recoverable runtime condition. Swallowing it into [] is the documented root
+                # cause of bug-patterns Pattern 12: a wrong SAL_SaleOrder field key silently
+                # froze cached_sales_orders for ~2 days while sync recorded status="success".
+                # Fail loud so the caller (and sync_service's failed-chunk accounting) sees it.
+                if "字段不存在" in error_msg:
+                    logger.error("Query %s has an invalid field key (config bug, not recoverable): %s", form_id, error_msg)
+                    raise KingdeeQueryError(f"Query {form_id} has invalid field key(s): {error_msg}")
                 if not status.get("IsSuccess", True):
                     raise KingdeeQueryError(f"Query {form_id} failed: {error_msg}")
                 # Unexpected success format
