@@ -1,6 +1,19 @@
 # Decision: collapse the MTO-query dual-aggregation → live-only + result cache
 
-## Status: Proposed — awaiting go/no-go on Phase 2+ (Phase 1 is safe/additive)
+## Status: REVISED 2026-05-29 by the parity gate — Phase 3 cutover BLOCKED until routing is made canonical
+
+> **Parity-gate finding (the reason the plan changed).** Ran `scripts/parity_live_vs_cache.py`
+> (live vs cache on 8 real MTOs) + `scripts/diag_routing_divergence.py` (root-cause). Result:
+> the live and cache aggregations **disagree on routing in BOTH directions, and it is NOT staleness**:
+> - `03.06.03.001` (外销包材, IsPurchase=True): CACHE correct (包材/purchase), LIVE wrong (emits a spurious 自制 child + is_purchase=False).
+> - `08.12.02.18` (委外加工): LIVE correct (委外), CACHE wrong (包材).
+> Neither path is canonical — each has independent Pattern-3 routing bugs. Root cause: routing must
+> follow `BD_MATERIAL.CategoryID`, but the cache stores `category_name=''` for PUR-only/synthetic rows
+> (→ falls back to 包材) and the live path routes by receipt-form. **Therefore "delete the CTE, trust
+> live" is UNSAFE — it would ship live's bugs.** Phase 3 must NOT proceed until ONE canonical, correct
+> CategoryID-based routing exists and is verified. This is the dual-aggregation bug farm, confirmed.
+
+> Phase 1 (SDK auth warmup) shipped (`266d2e2`). Phase 1b/2/3 re-sequenced below.
 
 ## TL;DR recommendation
 Make the **MTO query path live-only**, fronted by the existing in-memory result cache (L1)
@@ -51,14 +64,18 @@ extreme @12 = 274 MB (54%); never OOM-killed. Memory is NOT a blocker.
 - **Delete**: `get_mto_bom_joined` + `_row_to_bom_joined` + cache-path dedup mirrors
   (`_apply_recv_partial_match_dedup`, etc.).
 
-## Phased rollout (each phase independently revertible)
-- **Phase 1 — additive, safe (no behavior change):** (a) warm SDK auth at startup; (b) build the
-  persistent result-cache layer + SWR read/write, behind a flag, default OFF. Nothing deleted.
-- **Phase 2 — cutover (flag flip):** MTO query default → live + result-cache. Keep the old cache
-  path callable behind a fallback flag. Run a **parity check** (live vs old-cache result) over a
-  sample of live MTOs; observe p50/p95 latency in dev, then prod. Reversible by flag.
-- **Phase 3 — delete the dup aggregation:** once Phase 2 is proven in dev+prod, remove
-  `get_mto_bom_joined` + `_row_to_bom_joined` + cache-path dedup mirrors. Sync/raw tables untouched.
+## Phased rollout (RE-SEQUENCED after the parity finding)
+- **Phase 1 — DONE (`266d2e2`):** warm SDK auth at startup. (1b result-cache layer deferred until Phase 2a proves the direction.)
+- **Phase 2a — NEW, now the critical prerequisite: make routing canonical.** Anchor routing on
+  `BD_MATERIAL.CategoryID` (+ IsPurchase) per `memory/kingdee-classification.md` — NOT receipt-form (live's bug),
+  NOT a 包材 fallback on empty category (cache's bug). Ensure the value is captured on EVERY row incl.
+  PUR-only/synthetic (cache stores `category_name=''` today). Verify against ground truth on the known
+  divergent set (外销包材, 委外加工, multi-variant). This is a routing-correctness fix, applied so ONE path
+  becomes trustworthy — it is the real precondition for collapsing, and it's valuable even if we never collapse.
+- **Phase 2b — clean parity:** re-run parity on a fresh-synced cache (or same-inputs harness) so the
+  comparison is staleness-free; require structural parity + explained routing before any cutover.
+- **Phase 3 — cutover + delete:** only after 2a/2b are green — route query path to live (+ result cache),
+  then delete `get_mto_bom_joined` + `_row_to_bom_joined` + cache-path dedup mirrors. Sync/raw tables stay for alerts.
 
 ## Rollback
 - Phase 1: remove the flag / revert the two commits (no behavior depended on it).
