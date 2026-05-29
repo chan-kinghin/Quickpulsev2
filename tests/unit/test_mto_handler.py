@@ -331,7 +331,8 @@ class TestMTOQueryHandler:
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
 
-        result = await handler.get_status("AS2509076", use_cache=True)
+        # raw SQLite cache is now opt-in via source="cache" (retired from the default path)
+        result = await handler.get_status("AS2509076", source="cache")
 
         assert result.data_source == "cache"
         assert result.cache_age_seconds is not None
@@ -452,7 +453,7 @@ class TestMTOQueryHandler:
         )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
-        result = await handler.get_status("AK2508006", use_cache=True)
+        result = await handler.get_status("AK2508006", source="cache")
 
         assert result.data_source == "cache"
         stickers = [c for c in result.children if c.material_code == "03.23.009"]
@@ -500,7 +501,7 @@ class TestMTOQueryHandler:
         )
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
-        result = await handler.get_status("AK2508006", use_cache=True)
+        result = await handler.get_status("AK2508006", source="cache")
 
         stickers = [c for c in result.children if c.material_code == "03.23.009"]
         assert len(stickers) == 1
@@ -539,7 +540,7 @@ class TestMTOQueryHandler:
         mock_readers["production_order"].client.lookup_aux_properties = lookup_mock
 
         handler = self.create_handler(mock_readers, cache_reader=mock_cache)
-        result = await handler.get_status("AS2509001", use_cache=True)
+        result = await handler.get_status("AS2509001", source="cache")
 
         children = [c for c in result.children if c.material_code == "03.01.010"]
         assert len(children) == 1

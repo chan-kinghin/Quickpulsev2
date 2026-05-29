@@ -206,26 +206,14 @@ class MTOQueryHandler:
                     return self._memory_cache[mto_number]
                 self._memory_misses += 1
 
-        # L2: Try SQLite cache if enabled and cache reader available
-        result = None
-        if use_cache and self._cache_reader:
-            result = await self._try_cache(mto_number, strict_aux=strict_aux)
-            if result and result.children:
-                self._sqlite_hits += 1
-                logger.debug("L2 SQLite cache hit for MTO %s", mto_number)
-            else:
-                self._sqlite_misses += 1
-                # Cache returned no children - fall back to live mode
-                if result and not result.children:
-                    logger.info(
-                        "MTO %s: cache has no children, falling back to live mode",
-                        mto_number
-                    )
-                    result = None  # Force fallback to live
-
-        # L3: Fallback to live Kingdee API
-        if not result:
-            result = await self._fetch_live(mto_number, strict_aux=strict_aux)
+        # CUTOVER (docs/PLAN_cache_architecture_decision_2026-05-29.md, Phase 3): the raw
+        # SQLite cache (L2) is RETIRED from the default path. It re-derived the aggregation
+        # in SQL (get_mto_bom_joined) and produced routing divergences vs the live path
+        # (e.g. 委外加工 mislabeled 包材). The default now serves the canonical LIVE
+        # aggregation, fronted by the L1 in-memory result cache (above) for repeat queries.
+        # The raw cache stays reachable for power users via ?source=cache; sync + raw tables
+        # stay too — they feed the fleet-wide alerts/freshness scans, not this query path.
+        result = await self._fetch_live(mto_number, strict_aux=strict_aux)
 
         # Populate L1 cache with result — only for non-strict queries.
         if use_cache and not strict_aux and self._memory_cache is not None and result:
