@@ -811,13 +811,13 @@ td.col-hidden {
     --slate-800: #f1f5f9;   /* hover 面/下拉/面板头 */
     --slate-700: #e2e8f0;   /* 默认 1px 边框 / 填充 chip */
     --slate-600: #cbd5e1;   /* 较强边框/填充 */
-    --slate-500: #94a3b8;   /* 提示/占位(比 400 更浅) */
+    --slate-500: #79838f;   /* 提示/次要标签(比 400 更浅但仍 AA-large 可读) */
     --slate-400: #64748b;   /* 标签/列头/次要(AA on white) */
     --slate-300: #475569;   /* 次正文/下拉项 */
     --slate-200: #334155;   /* 强正文/合计/数值 */
     --slate-50:  #0f172a;   /* 标题/最高对比数据 */
     --slate-700-tw: #e2e8f0;
-    --slate-500-tw: #94a3b8;
+    --slate-500-tw: #79838f;
     /* 单一强调色 emerald(白底 AA) */
     --emerald-500: #10b981; /* 主按钮填充/复选框/聚焦 */
     --emerald-400: #047857; /* 链接/active 文字(AA on white) */
@@ -853,7 +853,7 @@ body { background: var(--slate-950); color: var(--slate-50); }
 .text-slate-200 { color: #334155; }
 .text-slate-300 { color: #475569; }
 .text-slate-400 { color: #64748b; }
-.text-slate-500 { color: #94a3b8; }
+.text-slate-500 { color: #79838f; }
 .text-slate-600 { color: #cbd5e1; }
 .text-slate-700 { color: #cbd5e1; }
 .border-slate-950 { border-color: #e7ebf0; }

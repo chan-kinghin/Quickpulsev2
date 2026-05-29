@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuickPulse | 异常预警</title>
 
-    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260529">
     <script defer src="/static/js/alpine.min.js"></script>
     <script src="/static/js/lucide.min.js"></script>
-    <link rel="stylesheet" href="/static/css/main.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/main.css?v=20260529">
 
     <style>
         [x-cloak] { display: none !important; }
@@ -26,7 +26,7 @@
         <header class="bg-slate-900 border-b border-slate-800 no-print">
             <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
                 <div class="flex items-center gap-3">
-                    <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
+                    <h1 class="text-xl font-semibold text-slate-50">QuickPulse</h1>
                 </div>
 
                 <nav class="flex items-center gap-1" aria-label="主导航">
@@ -56,7 +56,7 @@
             <!-- Title + tabs -->
             <section class="mb-6">
                 <h2 class="text-lg font-semibold text-slate-50 mb-1 flex items-center gap-2">
-                    <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400"></i>
+                    <i data-lucide="alert-triangle" class="w-5 h-5 text-slate-500"></i>
                     异常预警中心
                 </h2>
                 <p class="text-sm text-slate-500 mb-4">
@@ -67,14 +67,14 @@
                 <div class="flex items-center gap-1 border-b border-slate-800">
                     <button @click="switchTab('over-pick')"
                             :class="activeTab === 'over-pick'
-                                    ? 'border-amber-500 text-amber-300'
+                                    ? 'border-slate-600 text-slate-50'
                                     : 'border-transparent text-slate-400 hover:text-slate-200'"
                             class="px-4 py-2 text-sm font-medium border-b-2 transition -mb-px">
                         超领 <span class="text-xs text-slate-500" x-show="overPick.loaded" x-text="'(' + overPick.alerts.length + ')'"></span>
                     </button>
                     <button @click="switchTab('over-ship')"
                             :class="activeTab === 'over-ship'
-                                    ? 'border-rose-500 text-rose-300'
+                                    ? 'border-slate-600 text-slate-50'
                                     : 'border-transparent text-slate-400 hover:text-slate-200'"
                             class="px-4 py-2 text-sm font-medium border-b-2 transition -mb-px">
                         超发 <span class="text-xs text-slate-500" x-show="overShip.loaded" x-text="'(' + overShip.alerts.length + ')'"></span>
@@ -92,7 +92,7 @@
 
             <!-- Skipped-incomplete banner (data integrity honesty) -->
             <div x-show="currentSkipped() > 0" x-transition class="mb-4" x-cloak>
-                <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-amber-300 text-sm flex items-start gap-2">
+                <div class="p-3 bg-slate-900 border border-slate-700 rounded text-slate-400 text-sm flex items-start gap-2">
                     <i data-lucide="info" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
                     <span>
                         有 <span class="font-semibold" x-text="currentSkipped()"></span>
@@ -128,8 +128,7 @@
                                     x-text="activeTab === 'over-pick' ? '申请量' : '订单量'"></th>
                                 <th scope="col" class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap"
                                     x-text="activeTab === 'over-pick' ? '实发量' : '发货量'"></th>
-                                <th scope="col" class="px-4 py-3 text-right font-medium bg-slate-900 whitespace-nowrap"
-                                    :class="activeTab === 'over-pick' ? 'text-amber-400' : 'text-rose-400'"
+                                <th scope="col" class="px-4 py-3 text-right font-medium bg-slate-900 whitespace-nowrap text-slate-400"
                                     x-text="activeTab === 'over-pick' ? '超领量' : '超发量'"></th>
                             </tr>
                         </thead>
@@ -138,12 +137,12 @@
                                 <tr role="row"
                                     @click="gotoMto(row.mto_number)"
                                     class="border-b border-slate-800 hover:bg-slate-800/60 transition cursor-pointer">
-                                    <td role="cell" class="px-4 py-3 font-mono text-xs text-emerald-300" x-text="row.mto_number"></td>
+                                    <td role="cell" class="px-4 py-3 font-mono text-xs text-slate-200" x-text="row.mto_number"></td>
                                     <td role="cell" class="px-4 py-3 font-mono text-xs text-slate-400" x-text="row.material_code"></td>
                                     <td role="cell" class="px-4 py-3 text-slate-300 truncate max-w-xs">
                                         <span x-text="row.material_name || '-'"></span>
                                         <span x-show="row.severe"
-                                              class="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-rose-600/50 text-rose-400 bg-rose-500/10">
+                                              class="ml-2 text-[10px] px-1.5 py-0.5 rounded text-rose-400">
                                             未申请直接发料
                                         </span>
                                     </td>
@@ -170,7 +169,7 @@
             <!-- Empty state -->
             <div x-show="!loading && currentLoaded() && currentAlerts().length === 0" x-transition x-cloak
                  class="text-center py-20">
-                <i data-lucide="shield-check" class="w-16 h-16 text-emerald-700/60 mx-auto mb-4"></i>
+                <i data-lucide="shield-check" class="w-16 h-16 text-slate-400 mx-auto mb-4"></i>
                 <h3 class="text-lg text-slate-400 mb-2">未发现异常</h3>
                 <p class="text-slate-600 text-sm"
                    x-text="activeTab === 'over-pick' ? '当前缓存数据中没有超领记录。' : '当前缓存数据中没有超发记录。'"></p>
@@ -182,7 +181,7 @@
         </main>
     </div>
 
-    <script src="/static/js/api.js?v=20260528"></script>
+    <script src="/static/js/api.js?v=20260529"></script>
     <script src="/static/js/auth.js?v=20260529"></script>
     <script>
         function alertsCenter() {

@@ -8,7 +8,7 @@
     <!-- Pre-built Tailwind CSS (no CDN dependency — reliable in China).
          Bump ?v= whenever you regenerate via scripts/build_tailwind.sh, or
          browsers will serve the stale cached file. -->
-    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260529">
 
     <!-- Serve Alpine.js locally for reliability in China -->
     <script defer src="/static/js/alpine.min.js"></script>
@@ -16,7 +16,7 @@
     <!-- SheetJS for Excel export (served locally for China reliability) -->
     <script src="/static/js/xlsx.full.min.js"></script>
 
-    <link rel="stylesheet" href="/static/css/main.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/main.css?v=20260529">
 </head>
 <body class="bg-slate-950 min-h-screen" x-data="authGuard()">
     <a href="#main-content"
@@ -31,7 +31,7 @@
             <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
                 <!-- Brand -->
                 <div class="flex items-center gap-3">
-                    <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
+                    <h1 class="text-xl font-semibold text-slate-50">QuickPulse</h1>
                 </div>
 
                 <!-- Nav tabs -->
@@ -51,11 +51,11 @@
                        :title="verdict === 'stale' ? (stale + ' 张数据表滞后，点击查看同步状态') : (verdict === 'fresh' ? '数据新鲜' : '数据状态未知')"
                        class="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition hover:bg-slate-800">
                         <span class="w-2 h-2 rounded-full"
-                              :class="{ 'bg-emerald-500': verdict==='fresh', 'bg-amber-500 animate-pulse': verdict==='stale', 'bg-slate-600': verdict==='loading', 'bg-rose-500': verdict==='error' }"></span>
+                              :class="{ 'bg-emerald-500': verdict==='fresh', 'bg-amber-500': verdict==='stale', 'bg-slate-600': verdict==='loading', 'bg-rose-500': verdict==='error' }"></span>
                         <!-- always visible: md:inline / lg:inline are NOT in the precompiled
                              tailwind bundle, so a responsive-hide would permanently hide this -->
                         <span class="whitespace-nowrap"
-                              :class="{ 'text-emerald-400': verdict==='fresh', 'text-amber-400': verdict==='stale', 'text-slate-500': verdict==='loading'||verdict==='error' }"
+                              :class="{ 'text-slate-400': verdict==='fresh'||verdict==='stale', 'text-slate-500': verdict==='loading'||verdict==='error' }"
                               x-text="verdict==='fresh' ? '数据新鲜' : (verdict==='stale' ? ('数据滞后 '+stale) : (verdict==='loading' ? '检查中…' : '状态未知'))"></span>
                     </a>
                     <span class="text-slate-500 text-xs font-mono hidden md:inline"
@@ -164,6 +164,23 @@
                         <div class="flex items-center gap-2">
                             <span class="text-slate-500">计划</span>
                             <span class="text-slate-50 font-mono font-medium" x-text="parentItem?.mto_number"></span>
+                            <!-- 业务线 · 订单类型 徽标 — derived from the MTO prefix (1st letter=业务线, 2nd letter=订单类型).
+                                 Pure presentation, scoped to this element via x-data so it adds no component state
+                                 and does not touch the columns[] index array. 样品单 (2nd letter 'Y') is highlighted amber. -->
+                            <template x-if="parentItem?.mto_number">
+                                <span x-data="{
+                                          lines: { A: '外销', D: '内销', W: '瑞弧' },
+                                          types: { S: '完整订单', K: '备货半成品单', Y: '样品单' },
+                                          get code() { return (parentItem?.mto_number || '').trim().toUpperCase(); },
+                                          get lineLabel() { return this.lines[this.code[0]] || '未分类'; },
+                                          get typeLabel() { return this.types[this.code[1]] || '未分类'; },
+                                          get isSample() { return this.code[1] === 'Y'; }
+                                      }"
+                                      class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                                      :class="isSample ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700/60 text-slate-300'"
+                                      data-testid="mto-classification-badge"
+                                      x-text="lineLabel + ' · ' + typeLabel"></span>
+                            </template>
                         </div>
                         <div class="flex items-center gap-6">
                             <div class="flex items-center gap-2">
@@ -336,7 +353,7 @@
                         <span class="filter-label">关闭状态:</span>
                         <button @click="toggleShowClosedRows()"
                                 class="filter-chip"
-                                :class="showClosedRows ? 'filter-chip-active bg-rose-900/60 text-rose-300 border-rose-700' : 'filter-chip-inactive'">
+                                :class="showClosedRows ? 'filter-chip-active bg-slate-700 text-slate-50 border-slate-600' : 'filter-chip-inactive'">
                             <span x-text="showClosedRows ? '显示已关闭' : '隐藏已关闭'"></span>
                         </button>
                     </div>
@@ -391,8 +408,8 @@
                                             <template x-if="col.sortable">
                                                 <span class="inline-flex items-center">
                                                     <i data-lucide="arrow-up-down" class="w-3 h-3 text-slate-600" x-show="sort.column !== col.key"></i>
-                                                    <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-400" x-show="sort.column === col.key && sort.direction === 'asc'"></i>
-                                                    <i data-lucide="arrow-down" class="w-3 h-3 text-emerald-400" x-show="sort.column === col.key && sort.direction === 'desc'"></i>
+                                                    <i data-lucide="arrow-up" class="w-3 h-3 text-slate-400" x-show="sort.column === col.key && sort.direction === 'asc'"></i>
+                                                    <i data-lucide="arrow-down" class="w-3 h-3 text-slate-400" x-show="sort.column === col.key && sort.direction === 'desc'"></i>
                                                 </span>
                                             </template>
                                         </div>
@@ -488,18 +505,18 @@
                                 <td :class="{ 'col-hidden': !colVisible('material_type') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <td :class="{ 'col-hidden': !colVisible('material_group_name') }" class="px-4 py-3 text-slate-400 bg-slate-800"></td>
                                 <!-- 绿色组合计 -->
-                                <td :class="{ 'col-hidden': !colVisible('sales_order_qty') }" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('sales_order_qty') }" class="px-4 py-3 text-right text-slate-200 bg-slate-800"
                                     x-text="formatNumber(totals.sales_order_qty)"></td>
-                                <td :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }" class="px-4 py-3 text-right text-slate-200 bg-slate-800"
                                     x-text="formatNumber(totals.prod_instock_must_qty)"></td>
-                                <td :class="{ 'col-hidden': !colVisible('purchase_order_qty') }" class="px-4 py-3 text-right text-emerald-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('purchase_order_qty') }" class="px-4 py-3 text-right text-slate-200 bg-slate-800"
                                     x-text="formatNumber(totals.purchase_order_qty)"></td>
                                 <!-- 领料/入库合计 -->
-                                <td :class="{ 'col-hidden': !colVisible('pick_actual_qty') }" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('pick_actual_qty') }" class="px-4 py-3 text-right text-slate-200 bg-slate-800"
                                     x-text="formatNumber(totals.pick_actual_qty)"></td>
-                                <td :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }" class="px-4 py-3 text-right text-slate-200 bg-slate-800"
                                     x-text="formatNumber(totals.prod_instock_real_qty)"></td>
-                                <td :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }" class="px-4 py-3 text-right text-sky-400 bg-slate-800"
+                                <td :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }" class="px-4 py-3 text-right text-slate-200 bg-slate-800"
                                     x-text="formatNumber(totals.purchase_stock_in_qty)"></td>
                                 <!-- 完成率合计 - 留空 (百分比合计无意义) -->
                                 <td :class="{ 'col-hidden': !colVisible('fulfillment_rate') }" class="px-4 py-3 text-center text-slate-500 bg-slate-800">-</td>
@@ -580,25 +597,7 @@
                     <div class="flex items-center justify-between text-sm">
                         <div class="text-slate-400">
                             显示 <span class="font-bold text-slate-200" x-text="getSortedItems().length"></span> / <span x-text="childItems.length"></span> 条记录
-                            <span x-show="hasActiveFilters()" class="ml-2 text-emerald-400">(已筛选)</span>
-                        </div>
-                        <div class="flex items-center gap-6 text-xs">
-                            <div class="flex items-center gap-2">
-                                <div class="w-3 h-3 bg-violet-500 rounded"></div>
-                                <span class="text-slate-400">成品</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <div class="w-3 h-3 bg-emerald-500 rounded"></div>
-                                <span class="text-slate-400">自制</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <div class="w-3 h-3 bg-sky-500 rounded"></div>
-                                <span class="text-slate-400">包材</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <div class="w-3 h-3 bg-amber-500 rounded"></div>
-                                <span class="text-slate-400">委外</span>
-                            </div>
+                            <span x-show="hasActiveFilters()" class="ml-2 text-slate-500">(已筛选)</span>
                         </div>
                     </div>
                 </div>
@@ -727,7 +726,7 @@
             <!-- Toggle button (always visible when chat is available) -->
             <button @click="toggleChat()"
                     x-show="!chatOpen"
-                    class="fixed bottom-6 right-6 z-40 w-12 h-12 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full shadow-lg flex items-center justify-center transition-all no-print"
+                    class="fixed bottom-6 right-6 z-40 w-12 h-12 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full flex items-center justify-center transition-all no-print"
                     title="AI 助手">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
@@ -937,9 +936,9 @@
         </div>
     </div>
 
-    <script src="/static/js/api.js?v=20260528"></script>
+    <script src="/static/js/api.js?v=20260529"></script>
     <script src="/static/js/auth.js?v=20260529"></script>
-    <script src="/static/js/dashboard.js?v=20260528"></script>
+    <script src="/static/js/dashboard.js?v=20260529"></script>
     <script>
         // Header data-freshness badge — named component (Alpine handles inline async
         // x-data poorly; a named function matches the rest of the codebase and avoids

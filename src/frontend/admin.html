@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuickPulse - 使用分析</title>
-    <link href="/static/css/tailwind.min.css?v=20260528" rel="stylesheet">
-    <link href="/static/css/main.css?v=20260528" rel="stylesheet">
+    <link href="/static/css/tailwind.min.css?v=20260529" rel="stylesheet">
+    <link href="/static/css/main.css?v=20260529" rel="stylesheet">
 </head>
 <body class="bg-slate-950 text-slate-300 min-h-screen">
 
@@ -17,7 +17,7 @@
                 <header class="bg-slate-900 border-b border-slate-800 no-print">
                     <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
                         <div class="flex items-center gap-3">
-                            <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
+                            <h1 class="text-xl font-semibold text-slate-50">QuickPulse</h1>
                         </div>
                         <nav class="flex items-center gap-1" aria-label="主导航">
                             <a href="/dashboard.html" class="nav-tab">MTO 查询</a>
@@ -40,7 +40,7 @@
 
                 <!-- Loading Spinner -->
                 <div x-show="loading" class="flex items-center justify-center py-32">
-                    <svg class="animate-spin h-8 w-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg class="animate-spin h-8 w-8 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                     </svg>
@@ -51,7 +51,7 @@
 
                     <!-- Error Banner -->
                     <div x-show="error" x-transition
-                         class="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 mb-6 text-sm">
+                         class="p-4 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 mb-6 text-sm">
                         <span x-text="error"></span>
                     </div>
 
@@ -62,7 +62,7 @@
                             <button @click="changeHours(opt.val)"
                                     class="px-4 py-2 rounded-lg text-sm font-medium transition"
                                     :class="hours === opt.val
-                                        ? 'bg-emerald-500 text-white'
+                                        ? 'bg-slate-700 text-slate-50'
                                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
                                     x-text="opt.label">
                             </button>
@@ -71,30 +71,30 @@
 
                     <!-- Summary Cards -->
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                            <p class="text-sm text-slate-500 tracking-wide">总请求数</p>
-                            <p class="text-3xl font-bold text-emerald-400 mt-2" x-text="summary.total_requests"></p>
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                            <p class="text-sm text-slate-500">总请求数</p>
+                            <p class="text-3xl font-semibold text-slate-50 mt-2" x-text="summary.total_requests"></p>
                         </div>
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                            <p class="text-sm text-slate-500 tracking-wide">独立 IP 数</p>
-                            <p class="text-3xl font-bold text-emerald-400 mt-2" x-text="summary.unique_ips"></p>
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                            <p class="text-sm text-slate-500">独立 IP 数</p>
+                            <p class="text-3xl font-semibold text-slate-50 mt-2" x-text="summary.unique_ips"></p>
                         </div>
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                            <p class="text-sm text-slate-500 tracking-wide">平均响应时间</p>
-                            <p class="text-3xl font-bold text-emerald-400 mt-2"
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                            <p class="text-sm text-slate-500">平均响应时间</p>
+                            <p class="text-3xl font-semibold text-slate-50 mt-2"
                                x-text="(summary.avg_response_time_ms != null ? summary.avg_response_time_ms.toFixed(1) + ' ms' : '-- ms')"></p>
                         </div>
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                            <p class="text-sm text-slate-500 tracking-wide">最热接口</p>
-                            <p class="text-lg font-bold text-emerald-400 mt-2 truncate"
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                            <p class="text-sm text-slate-500">最热接口</p>
+                            <p class="text-lg font-semibold text-slate-50 mt-2 truncate"
                                x-text="summary.top_endpoint || '--'"></p>
                         </div>
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                            <p class="text-sm text-slate-500 tracking-wide">
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                            <p class="text-sm text-slate-500">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 inline-block mr-1 -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                                 最多访问地区
                             </p>
-                            <p class="text-lg font-bold text-emerald-400 mt-2 truncate"
+                            <p class="text-lg font-semibold text-slate-50 mt-2 truncate"
                                x-text="summary.top_location || '--'"></p>
                         </div>
                     </div>
@@ -103,7 +103,7 @@
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
 
                         <!-- IP Usage Table -->
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 overflow-hidden">
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6 overflow-hidden">
                             <h2 class="text-lg font-semibold text-slate-50 mb-4">IP 请求统计</h2>
                             <div x-show="byIp.length === 0" class="text-center py-8">
                                 <p class="text-sm text-slate-500">该时间段暂无数据</p>
@@ -115,15 +115,15 @@
                                             <th class="pb-3 pr-4 font-medium">IP 地址</th>
                                             <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('location')">
                                                 地理位置
-                                                <span x-show="sortField === 'location'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
+                                                <span x-show="sortField === 'location'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-slate-300"></span>
                                             </th>
                                             <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('request_count')">
                                                 请求次数
-                                                <span x-show="sortField === 'request_count'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
+                                                <span x-show="sortField === 'request_count'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-slate-300"></span>
                                             </th>
                                             <th class="pb-3 pr-4 font-medium cursor-pointer select-none" @click="sortBy('last_seen')">
                                                 最后访问
-                                                <span x-show="sortField === 'last_seen'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-emerald-400"></span>
+                                                <span x-show="sortField === 'last_seen'" x-text="sortDir === 'desc' ? ' &#9660;' : ' &#9650;'" class="text-slate-300"></span>
                                             </th>
                                             <th class="pb-3 font-medium">最热接口</th>
                                         </tr>
@@ -144,7 +144,7 @@
                         </div>
 
                         <!-- Timeline Bar Chart -->
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                        <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
                             <h2 class="text-lg font-semibold text-slate-50 mb-4">请求时间线</h2>
                             <div x-show="timeline.length === 0" class="text-center py-8">
                                 <p class="text-sm text-slate-500">该时间段暂无数据</p>
@@ -154,7 +154,7 @@
                                     <div class="flex items-center gap-3 text-xs">
                                         <span class="w-20 text-slate-500 text-right shrink-0 font-mono" x-text="formatBucket(t.bucket_start)"></span>
                                         <div class="flex-1 bg-slate-800 rounded-r h-6 overflow-hidden">
-                                            <div class="bg-emerald-500 rounded-r h-6 transition-all duration-300"
+                                            <div class="bg-slate-500 rounded-r h-6 transition-all duration-300"
                                                  :style="'width:' + (t.request_count / maxTimelineCount * 100) + '%'">
                                             </div>
                                         </div>
@@ -166,7 +166,7 @@
                     </div>
 
                     <!-- Recent Logs Table -->
-                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                    <div class="bg-slate-900 border border-slate-800 rounded-lg p-6">
                         <div class="flex items-center justify-between mb-4">
                             <h2 class="text-lg font-semibold text-slate-50">最近请求</h2>
                             <p class="text-sm text-slate-500"
@@ -366,8 +366,8 @@
             },
 
             statusColor(code) {
-                if (code >= 200 && code < 300) return 'text-emerald-400';
-                if (code >= 300 && code < 400) return 'text-sky-400';
+                if (code >= 200 && code < 300) return 'text-slate-400';
+                if (code >= 300 && code < 400) return 'text-slate-400';
                 if (code >= 400 && code < 500) return 'text-amber-400';
                 if (code >= 500) return 'text-rose-400';
                 return 'text-slate-400';

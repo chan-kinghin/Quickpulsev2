@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuickPulse | 物料库存查询</title>
 
-    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260529">
     <script defer src="/static/js/alpine.min.js"></script>
     <script src="/static/js/lucide.min.js"></script>
-    <link rel="stylesheet" href="/static/css/main.css?v=20260528">
+    <link rel="stylesheet" href="/static/css/main.css?v=20260529">
 
     <style>
         [x-cloak] { display: none !important; }
@@ -27,7 +27,7 @@
             <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
                 <!-- Brand -->
                 <div class="flex items-center gap-3">
-                    <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
+                    <h1 class="text-xl font-semibold text-slate-50">QuickPulse</h1>
                 </div>
 
                 <!-- Nav tabs -->
@@ -97,7 +97,7 @@
                     <template x-for="cls in erpClassOptions" :key="cls.code">
                         <button @click="toggleErpClass(cls.code)"
                                 :class="erpClassFilter.includes(cls.code)
-                                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                                        ? 'bg-slate-700 border-slate-600 text-slate-50'
                                         : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'"
                                 class="px-3 py-1 text-xs border rounded transition"
                                 x-text="cls.label">
@@ -134,7 +134,7 @@
                             </span>
                         </h2>
                         <span x-show="resultsTotal >= 50"
-                              class="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded">
+                              class="text-xs text-slate-500 px-2 py-1 rounded">
                             结果较多，建议精确搜索。
                         </span>
                     </div>
@@ -160,7 +160,7 @@
                                                   :class="{
                                                       'border-slate-700 text-slate-500': src === 'name',
                                                       'border-violet-700/50 text-violet-400 bg-violet-500/5': src === 'aux',
-                                                      'border-amber-700/50 text-amber-400 bg-amber-500/5': src === 'customer',
+                                                      'border-slate-700 text-slate-500': src === 'customer',
                                                   }"
                                                   x-text="{ name: '名称', aux: '辅助属性', customer: '客户' }[src] || src">
                                             </span>
@@ -227,7 +227,7 @@
                         <div class="flex items-end gap-8">
                             <div class="text-right">
                                 <div class="text-xs text-slate-500 mb-1">总库存</div>
-                                <div class="text-2xl font-bold text-emerald-400"
+                                <div class="text-2xl font-semibold text-slate-50"
                                      x-text="formatQty(selectedMaterial?.total_qty)"></div>
                             </div>
                             <div class="text-right">
@@ -287,7 +287,7 @@
                                         辅助属性
                                     </th>
                                     <th scope="col"
-                                        class="px-4 py-3 text-right font-medium text-emerald-400 bg-slate-900 whitespace-nowrap">
+                                        class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap">
                                         数量
                                     </th>
                                     <!-- Stock org column: auto-hidden if all rows share one org -->
@@ -318,7 +318,7 @@
                                             x-text="row.aux_desc || '-'"></td>
                                         <td role="cell"
                                             class="px-4 py-3 text-right font-medium"
-                                            :class="row.base_qty > 0 ? 'text-emerald-400' : 'text-slate-500'"
+                                            :class="row.base_qty > 0 ? 'text-slate-200' : 'text-slate-500'"
                                             x-text="formatQty(row.base_qty)"></td>
                                         <td role="cell"
                                             x-show="multiOrg"
@@ -341,7 +341,7 @@
                             <tfoot x-show="getVisibleRows().length > 0" class="sticky bottom-0 z-10">
                                 <tr class="border-t-2 border-slate-600 bg-slate-800 font-semibold">
                                     <td class="px-4 py-3 text-slate-400" colspan="4">合计</td>
-                                    <td class="px-4 py-3 text-right text-emerald-400"
+                                    <td class="px-4 py-3 text-right text-slate-200"
                                         x-text="formatQty(getVisibleRows().reduce((s, r) => s + (r.base_qty || 0), 0))"></td>
                                     <td x-show="multiOrg" class="px-4 py-3"></td>
                                 </tr>
@@ -364,35 +364,6 @@
                 </div>
             </div>
 
-            <!-- Color legend (ErpClass 1/2/3/4/9) -->
-            <section class="mt-8 bg-slate-900/50 border border-slate-800 rounded px-4 py-3">
-                <div class="flex items-center justify-between flex-wrap gap-3 text-xs">
-                    <span class="text-slate-500">物料类型颜色说明</span>
-                    <div class="flex items-center gap-6 flex-wrap">
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 bg-sky-500 rounded"></div>
-                            <span class="text-slate-400">外购</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 bg-emerald-500 rounded"></div>
-                            <span class="text-slate-400">自制</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 bg-amber-500 rounded"></div>
-                            <span class="text-slate-400">委外</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 bg-slate-500 rounded"></div>
-                            <span class="text-slate-400">虚拟件</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 bg-violet-500 rounded"></div>
-                            <span class="text-slate-400">成品</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
         </main>
     </div>
 
@@ -401,7 +372,7 @@
          x-text="loading ? '正在加载...' : (errorMsg ? '发生错误: ' + errorMsg : '')">
     </div>
 
-    <script src="/static/js/api.js?v=20260528"></script>
+    <script src="/static/js/api.js?v=20260529"></script>
     <script src="/static/js/auth.js?v=20260529"></script>
     <script>
         function inventorySearch() {
