@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPulse | 异常预警</title>
+
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260528">
+    <script defer src="/static/js/alpine.min.js"></script>
+    <script src="/static/js/lucide.min.js"></script>
+    <link rel="stylesheet" href="/static/css/main.css?v=20260528">
+
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-slate-950 min-h-screen" x-data="authGuard()" x-init="init()">
+    <a href="#main-content"
+       class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:bg-slate-900 focus:text-slate-50 focus:px-4 focus:py-2 focus:rounded">
+        跳转到主要内容
+    </a>
+
+    <div x-show="authenticated" x-cloak x-data="alertsCenter()" x-init="initPage()">
+
+        <!-- Header -->
+        <header class="bg-slate-900 border-b border-slate-800 no-print">
+            <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
+                <div class="flex items-center gap-3">
+                    <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
+                </div>
+
+                <nav class="flex items-center gap-1" aria-label="主导航">
+                    <a href="/dashboard.html" class="nav-tab">MTO 查询</a>
+                    <a href="/inventory" class="nav-tab">库存查询</a>
+                    <a href="/alerts.html" class="nav-tab nav-tab-active">预警</a>
+                    <a href="/sync.html" class="nav-tab">同步</a>
+                    <a href="/admin.html" class="nav-tab">分析</a>
+                </nav>
+
+                <div class="flex items-center gap-3">
+                    <span class="text-slate-500 text-xs font-mono hidden md:inline"
+                          x-text="new Date().toLocaleString('zh-CN')"></span>
+                    <button @click="api.logout()"
+                            aria-label="退出登录"
+                            class="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        <span class="hidden md:inline">退出</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main content -->
+        <main id="main-content" class="max-w-7xl mx-auto px-6 py-8">
+
+            <!-- Title + tabs -->
+            <section class="mb-6">
+                <h2 class="text-lg font-semibold text-slate-50 mb-1 flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400"></i>
+                    异常预警中心
+                </h2>
+                <p class="text-sm text-slate-500 mb-4">
+                    基于本地缓存的确定性比对（mto + 物料 粒度）。数据可能滞后，关键决策前请到
+                    <a href="/sync.html" class="text-emerald-400 hover:underline">同步页</a> 确认新鲜度。
+                </p>
+
+                <div class="flex items-center gap-1 border-b border-slate-800">
+                    <button @click="switchTab('over-pick')"
+                            :class="activeTab === 'over-pick'
+                                    ? 'border-amber-500 text-amber-300'
+                                    : 'border-transparent text-slate-400 hover:text-slate-200'"
+                            class="px-4 py-2 text-sm font-medium border-b-2 transition -mb-px">
+                        超领 <span class="text-xs text-slate-500" x-show="overPick.loaded" x-text="'(' + overPick.alerts.length + ')'"></span>
+                    </button>
+                    <button @click="switchTab('over-ship')"
+                            :class="activeTab === 'over-ship'
+                                    ? 'border-rose-500 text-rose-300'
+                                    : 'border-transparent text-slate-400 hover:text-slate-200'"
+                            class="px-4 py-2 text-sm font-medium border-b-2 transition -mb-px">
+                        超发 <span class="text-xs text-slate-500" x-show="overShip.loaded" x-text="'(' + overShip.alerts.length + ')'"></span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Error banner -->
+            <div x-show="errorMsg" x-transition class="mb-6" x-cloak>
+                <div class="p-4 bg-rose-500/10 border border-rose-500/30 rounded text-rose-400 flex items-start gap-3">
+                    <i data-lucide="alert-circle" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                    <span x-text="errorMsg"></span>
+                </div>
+            </div>
+
+            <!-- Skipped-incomplete banner (data integrity honesty) -->
+            <div x-show="currentSkipped() > 0" x-transition class="mb-4" x-cloak>
+                <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-amber-300 text-sm flex items-start gap-2">
+                    <i data-lucide="info" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                    <span>
+                        有 <span class="font-semibold" x-text="currentSkipped()"></span>
+                        个物料因数量字段缺失（NULL）被跳过，未计入比对 —— 需人工核对，<b>未当作 0 处理</b>。
+                    </span>
+                </div>
+            </div>
+
+            <!-- Over-ship coarse-grain note -->
+            <div x-show="activeTab === 'over-ship'" class="mb-4 text-xs text-slate-500" x-cloak>
+                ⓘ 超发按 mto + 物料 粗粒度比对（已发货量 vs 订单量，已排除已关闭订单）。含辅助属性差异时需人工复核。
+            </div>
+
+            <!-- Loading -->
+            <div x-show="loading" class="text-center py-20" x-cloak>
+                <span class="inline-block w-8 h-8 border-2 border-slate-600 border-t-emerald-500 rounded-full animate-spin"></span>
+                <p class="text-slate-500 text-sm mt-3">加载中...</p>
+            </div>
+
+            <!-- Alerts table -->
+            <div x-show="!loading && currentAlerts().length > 0" x-transition x-cloak
+                 class="bg-slate-900 border border-slate-800 rounded overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table role="table" class="w-full text-sm">
+                        <thead>
+                            <tr role="row" class="border-b border-slate-700">
+                                <th scope="col" class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">计划跟踪号</th>
+                                <th scope="col" class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">物料编码</th>
+                                <th scope="col" class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">物料名称</th>
+                                <th scope="col" class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">客户</th>
+                                <th scope="col" class="px-4 py-3 text-left font-medium text-slate-400 bg-slate-900 whitespace-nowrap">交期</th>
+                                <th scope="col" class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap"
+                                    x-text="activeTab === 'over-pick' ? '申请量' : '订单量'"></th>
+                                <th scope="col" class="px-4 py-3 text-right font-medium text-slate-400 bg-slate-900 whitespace-nowrap"
+                                    x-text="activeTab === 'over-pick' ? '实发量' : '发货量'"></th>
+                                <th scope="col" class="px-4 py-3 text-right font-medium bg-slate-900 whitespace-nowrap"
+                                    :class="activeTab === 'over-pick' ? 'text-amber-400' : 'text-rose-400'"
+                                    x-text="activeTab === 'over-pick' ? '超领量' : '超发量'"></th>
+                            </tr>
+                        </thead>
+                        <tbody role="rowgroup">
+                            <template x-for="(row, index) in currentAlerts()" :key="index">
+                                <tr role="row"
+                                    @click="gotoMto(row.mto_number)"
+                                    class="border-b border-slate-800 hover:bg-slate-800/60 transition cursor-pointer">
+                                    <td role="cell" class="px-4 py-3 font-mono text-xs text-emerald-300" x-text="row.mto_number"></td>
+                                    <td role="cell" class="px-4 py-3 font-mono text-xs text-slate-400" x-text="row.material_code"></td>
+                                    <td role="cell" class="px-4 py-3 text-slate-300 truncate max-w-xs">
+                                        <span x-text="row.material_name || '-'"></span>
+                                        <span x-show="row.severe"
+                                              class="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-rose-600/50 text-rose-400 bg-rose-500/10">
+                                            未申请直接发料
+                                        </span>
+                                    </td>
+                                    <td role="cell" class="px-4 py-3 text-slate-400" x-text="row.customer_name || '-'"></td>
+                                    <td role="cell" class="px-4 py-3 text-slate-400 text-xs" x-text="formatDate(row.delivery_date)"></td>
+                                    <td role="cell" class="px-4 py-3 text-right text-slate-400"
+                                        x-text="formatQty(activeTab === 'over-pick' ? row.app_qty : row.order_qty)"></td>
+                                    <td role="cell" class="px-4 py-3 text-right text-slate-200"
+                                        x-text="formatQty(activeTab === 'over-pick' ? row.actual_qty : row.shipped_qty)"></td>
+                                    <td role="cell" class="px-4 py-3 text-right font-semibold"
+                                        :class="activeTab === 'over-pick' ? 'text-amber-400' : 'text-rose-400'"
+                                        x-text="'+' + formatQty(row.over_amount)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-slate-800/50 px-6 py-3 border-t border-slate-700 text-xs text-slate-500 flex justify-between">
+                    <span>点击行可下钻到该 MTO 明细</span>
+                    <span x-text="'共 ' + currentAlerts().length + ' 条'"></span>
+                </div>
+            </div>
+
+            <!-- Empty state -->
+            <div x-show="!loading && currentLoaded() && currentAlerts().length === 0" x-transition x-cloak
+                 class="text-center py-20">
+                <i data-lucide="shield-check" class="w-16 h-16 text-emerald-700/60 mx-auto mb-4"></i>
+                <h3 class="text-lg text-slate-400 mb-2">未发现异常</h3>
+                <p class="text-slate-600 text-sm"
+                   x-text="activeTab === 'over-pick' ? '当前缓存数据中没有超领记录。' : '当前缓存数据中没有超发记录。'"></p>
+            </div>
+
+            <!-- Live region inside the component scope so `loading`/`errorMsg` resolve -->
+            <div aria-live="polite" aria-atomic="true" class="sr-only"
+                 x-text="loading ? '正在加载...' : (errorMsg ? '发生错误: ' + errorMsg : '')"></div>
+        </main>
+    </div>
+
+    <script src="/static/js/api.js?v=20260528"></script>
+    <script src="/static/js/auth.js?v=20260528"></script>
+    <script>
+        function alertsCenter() {
+            return {
+                activeTab: 'over-pick',
+                loading: false,
+                errorMsg: '',
+                overPick: { alerts: [], skipped: 0, loaded: false },
+                overShip: { alerts: [], skipped: 0, loaded: false },
+
+                initPage() {
+                    this.loadTab('over-pick');
+                },
+
+                switchTab(tab) {
+                    this.activeTab = tab;
+                    const store = tab === 'over-pick' ? this.overPick : this.overShip;
+                    if (!store.loaded) {
+                        this.loadTab(tab);
+                    } else {
+                        this.$nextTick(() => lucide.createIcons());
+                    }
+                },
+
+                async loadTab(tab) {
+                    this.loading = true;
+                    this.errorMsg = '';
+                    try {
+                        const data = await api.request(`/alerts/${tab}?limit=500`);
+                        const store = { alerts: data.alerts || [], skipped: data.skipped_incomplete || 0, loaded: true };
+                        if (tab === 'over-pick') this.overPick = store;
+                        else this.overShip = store;
+                    } catch (err) {
+                        this.errorMsg = this._mapError(err);
+                    } finally {
+                        this.loading = false;
+                        this.$nextTick(() => lucide.createIcons());
+                    }
+                },
+
+                currentAlerts() {
+                    return (this.activeTab === 'over-pick' ? this.overPick : this.overShip).alerts;
+                },
+                currentSkipped() {
+                    return (this.activeTab === 'over-pick' ? this.overPick : this.overShip).skipped;
+                },
+                currentLoaded() {
+                    return (this.activeTab === 'over-pick' ? this.overPick : this.overShip).loaded;
+                },
+
+                gotoMto(mto) {
+                    if (mto) window.location.href = `/dashboard.html?mto=${encodeURIComponent(mto)}`;
+                },
+
+                formatQty(val) {
+                    if (val == null || isNaN(val)) return '-';
+                    return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(val);
+                },
+                formatDate(val) {
+                    if (!val) return '-';
+                    // delivery_date is ISO like 2026-03-05T00:00:00 — keep the date part
+                    return String(val).slice(0, 10);
+                },
+
+                _mapError(err) {
+                    const msg = err?.message || '';
+                    if (msg.includes('401') || msg === 'Unauthorized') return '登录已过期，正在跳转登录页…';
+                    if (msg.includes('429')) return '请求过于频繁，请稍后再试。';
+                    if (msg.includes('超时') || msg.includes('timeout')) return '请求超时，请检查网络后重试。';
+                    if (msg) return `查询失败：${msg}`;
+                    return '查询失败，请稍后重试。';
+                }
+            };
+        }
+
+        lucide.createIcons();
+        document.addEventListener('alpine:initialized', () => lucide.createIcons());
+    </script>
+</body>
+</html>

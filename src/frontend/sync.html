@@ -15,17 +15,26 @@
 </head>
 <body class="bg-slate-950 min-h-screen" x-data="authGuard()">
     <div x-data="syncPanel()" x-init="init()">
-        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4">
-            <div class="flex items-center justify-between max-w-4xl mx-auto">
-                <div class="flex items-center gap-4">
-                    <a href="/dashboard.html" class="text-slate-400 hover:text-slate-50 transition">
-                        <i data-lucide="arrow-left" class="w-5 h-5"></i>
-                    </a>
-                    <h1 class="text-xl font-semibold text-slate-50">同步管理</h1>
+        <header class="bg-slate-900 border-b border-slate-800 no-print">
+            <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
+                <div class="flex items-center gap-3">
+                    <h1 class="text-xl font-semibold text-slate-50 tracking-wide">QuickPulse</h1>
                 </div>
-                <button @click="api.logout()" class="text-slate-400 hover:text-slate-50 text-sm transition">
-                    退出登录
-                </button>
+                <nav class="flex items-center gap-1" aria-label="主导航">
+                    <a href="/dashboard.html" class="nav-tab">MTO 查询</a>
+                    <a href="/inventory" class="nav-tab">库存查询</a>
+                    <a href="/alerts.html" class="nav-tab">预警</a>
+                    <a href="/sync.html" class="nav-tab nav-tab-active">同步</a>
+                    <a href="/admin.html" class="nav-tab">分析</a>
+                </nav>
+                <div class="flex items-center gap-3">
+                    <button @click="api.logout()"
+                            aria-label="退出登录"
+                            class="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        <span class="hidden md:inline">退出</span>
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -60,6 +69,52 @@
                         <p class="text-slate-200 mt-1" x-text="status.records_synced || '-'"></p>
                     </div>
                 </div>
+            </div>
+
+            <!-- Data freshness health card: surfaces a silently-stalled cache table -->
+            <div class="bg-slate-900 border border-slate-800 rounded p-6 mb-6"
+                 x-data="freshnessCard()" x-init="load()">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-slate-50 flex items-center gap-2">
+                        <i data-lucide="database" class="w-5 h-5 text-slate-400"></i>
+                        数据新鲜度
+                    </h2>
+                    <div class="flex items-center gap-3">
+                        <span x-show="loaded && staleCount === 0" class="text-sm text-emerald-400 flex items-center gap-1">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i> 全部新鲜
+                        </span>
+                        <span x-show="loaded && staleCount > 0" class="text-sm text-amber-400 flex items-center gap-1">
+                            <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                            <span x-text="staleCount + ' 张表需关注'"></span>
+                        </span>
+                        <button @click="load()" :disabled="loading"
+                                class="text-slate-500 hover:text-slate-300" aria-label="刷新新鲜度">
+                            <i data-lucide="refresh-cw" class="w-4 h-4" :class="loading ? 'animate-spin' : ''"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <p x-show="errorMsg" class="text-rose-400 text-sm mb-3" x-text="errorMsg"></p>
+
+                <div x-show="loaded" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <template x-for="t in tables" :key="t.table">
+                        <div class="flex items-center justify-between bg-slate-800/40 border border-slate-800 rounded px-3 py-2">
+                            <div class="min-w-0">
+                                <div class="text-sm text-slate-200 truncate" x-text="t.label"></div>
+                                <div class="text-[11px] text-slate-500 font-mono" x-text="fmtAge(t)"></div>
+                            </div>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <span class="text-[11px] text-slate-500" x-text="fmtRows(t.row_count)"></span>
+                                <span class="w-2.5 h-2.5 rounded-full"
+                                      :class="{ 'bg-emerald-500': t.verdict==='fresh', 'bg-amber-500': t.verdict==='stale', 'bg-slate-600': t.verdict==='empty' }"
+                                      :title="t.verdict"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <p x-show="loaded" class="text-[11px] text-slate-600 mt-3"
+                   x-text="'滞后判定阈值 ' + thresholdHours + ' 小时（依据自动同步时间表推算）。灰点 = 空表。'"></p>
             </div>
 
             <!-- Manual Sync -->
@@ -315,6 +370,44 @@
     <script src="/static/js/auth.js?v=20260528"></script>
     <script src="/static/js/sync.js?v=20260528"></script>
     <script>
+        function freshnessCard() {
+            return {
+                loading: false,
+                loaded: false,
+                errorMsg: '',
+                tables: [],
+                staleCount: 0,
+                thresholdHours: 0,
+                async load() {
+                    this.loading = true;
+                    this.errorMsg = '';
+                    try {
+                        const d = await api.request('/sync/freshness');
+                        this.tables = d.tables || [];
+                        this.staleCount = d.stale_count || 0;
+                        this.thresholdHours = d.threshold_hours;
+                        this.loaded = true;
+                    } catch (e) {
+                        this.errorMsg = '无法加载数据新鲜度：' + (e?.message || '未知错误');
+                    } finally {
+                        this.loading = false;
+                        this.$nextTick(() => lucide.createIcons());
+                    }
+                },
+                fmtAge(t) {
+                    if (t.verdict === 'empty' || t.age_hours == null) return '无数据';
+                    const h = t.age_hours;
+                    if (h < 1) return Math.round(h * 60) + ' 分钟前';
+                    if (h < 48) return h.toFixed(1) + ' 小时前';
+                    return (h / 24).toFixed(1) + ' 天前';
+                },
+                fmtRows(n) {
+                    if (n == null) return '0 行';
+                    return new Intl.NumberFormat('zh-CN').format(n) + ' 行';
+                }
+            };
+        }
+
         lucide.createIcons();
         let iconRefreshTimeout = null;
         function refreshIcons() {

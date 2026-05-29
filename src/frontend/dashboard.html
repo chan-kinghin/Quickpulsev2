@@ -36,14 +36,28 @@
 
                 <!-- Nav tabs -->
                 <nav class="flex items-center gap-1" aria-label="主导航">
-                    <a href="/" class="nav-tab nav-tab-active">MTO 查询</a>
+                    <a href="/dashboard.html" class="nav-tab nav-tab-active">MTO 查询</a>
                     <a href="/inventory" class="nav-tab">库存查询</a>
+                    <a href="/alerts.html" class="nav-tab">预警</a>
                     <a href="/sync.html" class="nav-tab">同步</a>
                     <a href="/admin.html" class="nav-tab">分析</a>
                 </nav>
 
                 <!-- Right cluster -->
                 <div class="flex items-center gap-3">
+                    <!-- Data-freshness badge: reads /api/sync/freshness; surfaces a
+                         silently-stalled cache table instead of trusting a green status -->
+                    <a href="/sync.html" x-data="freshnessBadge()" x-init="load()"
+                       :title="verdict === 'stale' ? (stale + ' 张数据表滞后，点击查看同步状态') : (verdict === 'fresh' ? '数据新鲜' : '数据状态未知')"
+                       class="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition hover:bg-slate-800">
+                        <span class="w-2 h-2 rounded-full"
+                              :class="{ 'bg-emerald-500': verdict==='fresh', 'bg-amber-500 animate-pulse': verdict==='stale', 'bg-slate-600': verdict==='loading', 'bg-rose-500': verdict==='error' }"></span>
+                        <!-- always visible: md:inline / lg:inline are NOT in the precompiled
+                             tailwind bundle, so a responsive-hide would permanently hide this -->
+                        <span class="whitespace-nowrap"
+                              :class="{ 'text-emerald-400': verdict==='fresh', 'text-amber-400': verdict==='stale', 'text-slate-500': verdict==='loading'||verdict==='error' }"
+                              x-text="verdict==='fresh' ? '数据新鲜' : (verdict==='stale' ? ('数据滞后 '+stale) : (verdict==='loading' ? '检查中…' : '状态未知'))"></span>
+                    </a>
                     <span class="text-slate-500 text-xs font-mono hidden md:inline"
                           x-text="new Date().toLocaleString('zh-CN')"></span>
                     <button @click="api.logout()"
@@ -927,6 +941,25 @@
     <script src="/static/js/auth.js?v=20260528"></script>
     <script src="/static/js/dashboard.js?v=20260528"></script>
     <script>
+        // Header data-freshness badge — named component (Alpine handles inline async
+        // x-data poorly; a named function matches the rest of the codebase and avoids
+        // aborting the surrounding header subtree on a parse error).
+        function freshnessBadge() {
+            return {
+                verdict: 'loading',
+                stale: 0,
+                async load() {
+                    try {
+                        const d = await api.request('/sync/freshness');
+                        this.stale = d.stale_count || 0;
+                        this.verdict = this.stale > 0 ? 'stale' : 'fresh';
+                    } catch (e) {
+                        this.verdict = 'error';
+                    }
+                }
+            };
+        }
+
         // Initialize Lucide icons once on page load
         lucide.createIcons();
 
