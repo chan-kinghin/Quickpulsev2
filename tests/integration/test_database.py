@@ -152,14 +152,16 @@ class TestCacheOperations:
             ["AK001", "MO001", "Workshop A", "M001", "Material1", "", "", 100],
         )
 
-        # Upsert with same bill_no (unique constraint)
+        # Upsert with same key. UNIQUE includes mto_number (migration 010, bug-patterns
+        # Pattern 5): a bill_no can legitimately span MTOs, so the 4-col key is required.
+        # Do NOT narrow this back to (bill_no, material_code, aux_prop_id).
         await test_database.execute_write(
             """
             INSERT INTO cached_production_orders
             (mto_number, bill_no, workshop, material_code, material_name,
              specification, aux_attributes, qty)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(bill_no, material_code, aux_prop_id) DO UPDATE SET
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
                 qty = excluded.qty,
                 material_name = excluded.material_name
             """,
