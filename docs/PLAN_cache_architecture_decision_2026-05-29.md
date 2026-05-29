@@ -66,13 +66,16 @@ extreme @12 = 274 MB (54%); never OOM-killed. Memory is NOT a blocker.
 
 ## Phased rollout (RE-SEQUENCED after the parity finding)
 - **Phase 1 — DONE (`266d2e2`):** warm SDK auth at startup. (1b result-cache layer deferred until Phase 2a proves the direction.)
-- **Phase 2a — DONE 2026-05-29 (`80d52b8` + `3a873e8`), live routing now canonical & VERIFIED.**
-  Wired `lookup_material_categories` into `_fetch_live`; the 4 synthetic blocks now set
-  `category_name` so `_bom_row_to_child` routes via `_CATEGORY_TO_TYPE`. Live-verified on the
-  ground-truth materials: `03.06.03.001` 包材+自制 → **包材+包材**; `08.12.02.18` stays **委外+委外**.
-  No migration (live reads category real-time). TDD: synthetic→包材, control no-category→自制,
-  PUR-block 委外加工→委外. Full gating suite 1062 green. (The cache path's own routing bug for
-  08.12.02.18 is intentionally left — the cache query path is being retired in Phase 3.)
+- **Phase 2a — DONE 2026-05-29 (`80d52b8` + `3a873e8` + `05bd364`), live routing canonical & BROADLY VERIFIED.**
+  Wired `lookup_material_categories` into `_fetch_live`; synthetic blocks route via `_CATEGORY_TO_TYPE`.
+  The parity RE-RUN caught a regression in the first pass (routing ALL synthetic rows by category mislabeled
+  purchased 主料 like 外箱纸板/01.06.01.001 as 自制 — the 主料→自制 map is only valid for self-made).
+  Refined (`05bd364`): only let category override toward NON-自制 types (外销包材→包材, 委外加工→委外,
+  包装成品→成品); 主料/辅料/半成品 keep the block's source-based type (purchase→包材, production→自制).
+  VERIFIED on real data: 03.06.03.001 (外销包材)→包材✓; 08.xx family (委外加工)→委外✓; 01.06.01.001
+  (purchased 主料)→包材✓ (regression gone, AS2603016 routing_mismatch 1→0). Remaining parity
+  routing_mismatches are all `08.xx live=委外 vs cache=包材` = the CACHE's own bug (live is right) →
+  vanish at Phase-3 cutover. No migration. Full gating suite 1062 green.
   ORIGINAL ROOT-CAUSE NOTES (for reference):
   PRECISE ROOT CAUSE (traced
   2026-05-29): the routing MAP `_CATEGORY_TO_TYPE` (mto_handler.py:1592) is already correct
