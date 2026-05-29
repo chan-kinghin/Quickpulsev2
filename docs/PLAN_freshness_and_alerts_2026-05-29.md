@@ -8,7 +8,7 @@
 > - `authGuard` fail-open (`ef7faea`) — a flaky `/api/auth/verify` 503 used to blank every protected page; now shows the page on transient failures (verified on dev under a forced 503).
 > - **nginx**: `/api/auth/verify` was bucketed under `zone=login` (5r/m) in the shared ops-nginx → normal browsing 503'd. Moved to `zone=api` (10r/s) via a `location = /api/auth/verify` exact-match in `20-quickpulse.conf` + `40-subdomains.conf` (dev+prod), `nginx -t` + reload OK. Verify now 15/15 200 on both envs. Backups: `*.bak-verify-20260529-105619`. See [[cvm-nginx-verify-ratelimited-as-login]].
 >
-> **Open observation**: `cached_sales_orders` runs ~28h stale on BOTH dev and prod while the other 8 tables are ~8h fresh — a recurring per-table lag the freshness card surfaced. Worth a separate look at why that one table lags.
+> **Resolved (the freshness card earned its keep)**: the `cached_sales_orders` staleness was NOT a sync-cadence quirk — it was a silent regression from the close-status feature (`SAL_SaleOrder` queried the non-existent field `FSaleOrderEntry_FMrpCloseStatus` → Kingdee failed the whole query → 0 sales orders in sync AND live, fleet-wide, for ~2 days). Fixed in `f10632d` (bare field names `FMrpCloseStatus`/`FMANUALROWCLOSE` + regression guard), deployed dev+prod, re-synced both (sales_orders 5346→~7600 rows, stale_count=0), live MTO query restored (customer/delivery/order qty back). See bug-patterns.md Pattern 12.
 
 
 > 3 阶段全部落地,新增 21 个测试全绿(`1010 passed`)。真数据 smoke(`data/quickpulse.db`)验证:超领 927 条、超发 487 条(榜首=第一大客户刀刀超发 +64,736)、9 表新鲜度正常。
