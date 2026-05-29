@@ -786,3 +786,178 @@ td.col-hidden {
         margin-right: 0 !important;
     }
 }
+
+/* ============================================================================
+   LIGHT SAAS SKIN — 2026-05-29  (feat/saas-ui-restyle)
+   ----------------------------------------------------------------------------
+   把整站从「近黑底 + 5 色霓虹」改成「白底 + emerald 单一强调色 + 灰阶结构」。
+   实现策略（重要，给后续维护者）:
+     1) tailwind.min.css 是预编译裁剪包(249 selectors)且 utility 硬编码 RGB,
+        所以单改 :root 变量对内联 `bg-slate-900` 等无效。
+     2) main.css 在 tailwind.min.css 之后加载、utility 单类特异性 → 在此重写
+        同名 utility 即可覆盖,无需 !important。
+     3) 因此本块同时:(a) 重声明 :root 亮色 token(覆盖 var() 型组件规则);
+        (b) 重写用到的中性/装饰 utility 值;(c) 覆盖硬编码颜色的组件类。
+   ⚠ 类名语义不变、值变亮:HTML 里写 `bg-slate-900` 仍渲染为近白 #f8fafc。
+   ⚠ 对比度排序已按实际用法修正:text-slate-400(标签,常用) 比 text-slate-500
+     (提示) 更深更可读 —— 切勿按 slate 数字直觉对调。
+   整段可删除以回滚到暗色主题。
+   ============================================================================ */
+
+:root {
+    /* 中性阶梯(暗→亮,保持对比度排序) */
+    --slate-950: #ffffff;   /* 页面底 */
+    --slate-900: #f8fafc;   /* 卡片/面板 */
+    --slate-800: #f1f5f9;   /* hover 面/下拉/面板头 */
+    --slate-700: #e2e8f0;   /* 默认 1px 边框 / 填充 chip */
+    --slate-600: #cbd5e1;   /* 较强边框/填充 */
+    --slate-500: #94a3b8;   /* 提示/占位(比 400 更浅) */
+    --slate-400: #64748b;   /* 标签/列头/次要(AA on white) */
+    --slate-300: #475569;   /* 次正文/下拉项 */
+    --slate-200: #334155;   /* 强正文/合计/数值 */
+    --slate-50:  #0f172a;   /* 标题/最高对比数据 */
+    --slate-700-tw: #e2e8f0;
+    --slate-500-tw: #94a3b8;
+    /* 单一强调色 emerald(白底 AA) */
+    --emerald-500: #10b981; /* 主按钮填充/复选框/聚焦 */
+    --emerald-400: #047857; /* 链接/active 文字(AA on white) */
+    --emerald-950: #ecfdf5; /* 薄荷洗:active nav / 用户气泡 */
+    /* 仅状态色(白底 AA) */
+    --amber-500:  #d97706;  --amber-400: #b45309;   /* 警示 only */
+    --rose-500:   #dc2626;  --rose-400:  #b91c1c;   /* 超量/错误 only */
+    /* 装饰色删除 → 中性灰 */
+    --sky-500:    #cbd5e1;  --sky-400:   #475569;
+    --violet-500: #cbd5e1;  --violet-400:#475569;
+    /* ERP 物料类 → 单一灰点 */
+    --erp-finished:    #64748b;  --erp-self-made:  #64748b;
+    --erp-purchased:   #64748b;  --erp-subcontract:#64748b;
+    --erp-virtual:     #94a3b8;
+    /* 圆角 + 2 级阴影 */
+    --radius-sm: 4px;  --radius-md: 6px;
+    --shadow-1: 0 1px 2px 0 rgb(15 23 42 / 0.04);      /* 静置卡片/输入 */
+    --shadow-2: 0 4px 12px -2px rgb(15 23 42 / 0.10);  /* 浮层 only */
+}
+
+body { background: var(--slate-950); color: var(--slate-50); }
+
+/* ---- 中性 utility 重写(暗→亮) ---- */
+.bg-slate-950 { background-color: #ffffff; }
+.bg-slate-900 { background-color: #f8fafc; }
+.bg-slate-800 { background-color: #f1f5f9; }
+.bg-slate-700 { background-color: #e2e8f0; }
+.bg-slate-600 { background-color: #cbd5e1; }
+.bg-slate-500 { background-color: #94a3b8; }
+.bg-slate-400 { background-color: #cbd5e1; }
+.text-slate-950 { color: #020617; }   /* emerald 按钮上的深色文字 */
+.text-slate-50  { color: #0f172a; }
+.text-slate-200 { color: #334155; }
+.text-slate-300 { color: #475569; }
+.text-slate-400 { color: #64748b; }
+.text-slate-500 { color: #94a3b8; }
+.text-slate-600 { color: #cbd5e1; }
+.text-slate-700 { color: #cbd5e1; }
+.border-slate-950 { border-color: #e7ebf0; }
+.border-slate-800 { border-color: #e7ebf0; }
+.border-slate-700 { border-color: #e2e8f0; }
+.border-slate-600 { border-color: #cbd5e1; }
+.border-slate-400 { border-color: #94a3b8; }
+.divide-slate-800 > :not([hidden]) ~ :not([hidden]) { border-color: #e7ebf0; }
+.placeholder-slate-500::placeholder { color: #94a3b8; }
+
+/* ---- 装饰色 sky/violet → 中性灰(全局清除) ---- */
+.text-sky-400, .text-violet-400 { color: #475569; }
+.bg-sky-500, .bg-violet-500 { background-color: #cbd5e1; }
+.bg-sky-500\/20 { background-color: rgb(148 163 184 / 0.18); }
+.bg-violet-500\/5 { background-color: rgb(148 163 184 / 0.06); }
+.border-violet-700\/50 { border-color: #e2e8f0; }
+.bg-sky-950\/10, .bg-emerald-950\/10 { background-color: transparent; }  /* 列底色条 → 去 */
+
+/* ---- 强调色文字白底 AA(填充按钮值保持,见下) ---- */
+.text-emerald-400, .text-emerald-300, .text-emerald-500 { color: #047857; }
+.text-amber-400, .text-amber-300 { color: #b45309; }
+.text-rose-400, .text-rose-300 { color: #b91c1c; }
+
+/* ---- 徽章:5 色 → 单一中性 chip(文字承担含义) ---- */
+.badge-finished, .badge-self-made, .badge-purchased,
+.badge-subcontract, .badge-virtual {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+}
+
+/* ---- 筛选 chip:单一中性 active(去 per-type 彩色) ---- */
+.filter-chip { border-radius: var(--radius-sm); }
+.filter-chip-inactive {
+    background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0;
+}
+.filter-chip-inactive:hover {
+    background: #e2e8f0; color: #475569;
+}
+.filter-chip-active,
+.filter-chip-finished.filter-chip-active,
+.filter-chip-self-made.filter-chip-active,
+.filter-chip-purchased.filter-chip-active,
+.filter-chip-subcontract.filter-chip-active {
+    background: #e2e8f0; color: #0f172a; border-color: #cbd5e1;
+}
+
+/* ---- nav tab:安静薄荷 active(去饱和 pill) ---- */
+.nav-tab { color: #64748b; }
+.nav-tab:hover { color: #0f172a; background: #f1f5f9; }
+.nav-tab-active, .nav-tab-active:hover {
+    color: #047857; background: #ecfdf5;
+}
+
+/* ---- 聚焦:单环,删 4px 双环发光 ---- */
+.glow-emerald:focus {
+    box-shadow: 0 0 0 3px rgb(16 185 129 / 0.15);
+    border-color: #10b981;
+}
+.filter-search input {
+    background: #ffffff; border-color: #e2e8f0; color: #334155;
+}
+.filter-search input:focus {
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgb(16 185 129 / 0.15);
+}
+.filter-search input::placeholder { color: #94a3b8; }
+
+/* ---- 浮层:仅 shadow-2 + 亮底 + 发丝边 ---- */
+.dropdown-menu, .search-history {
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: var(--radius-md); box-shadow: var(--shadow-2);
+}
+.dropdown-item:hover, .search-history-item:hover,
+.column-settings-item:hover:not(.column-settings-item-locked) { background: #f1f5f9; }
+.chat-sidebar {
+    background: #f8fafc; border-left: 1px solid #e2e8f0;
+    box-shadow: var(--shadow-2);
+}
+
+/* ---- 骨架:静态块,去 shimmer ---- */
+.skeleton { background: #f1f5f9; animation: none; }
+
+/* ---- 列宽拖拽:中性灰,去 emerald 渐变 + sky 发光 ---- */
+.resize-handle:hover, .resize-handle.active {
+    background: #cbd5e1;
+}
+.resize-handle:hover::after { background: #94a3b8; }
+.resize-guide-line { background: #94a3b8; opacity: 0.8; box-shadow: none; }
+
+/* ---- 源单树:统一中性,root 去发光 ---- */
+.tree-node {
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: var(--radius-md); box-shadow: var(--shadow-1);
+}
+.tree-root {
+    border-color: #cbd5e1; background: #f8fafc; box-shadow: var(--shadow-1);
+}
+.tree-sales, .tree-production, .tree-purchase { border-color: #e2e8f0; }
+.tree-doc { background: #f8fafc; }
+.tree-branch::before, .tree-children { border-color: #e2e8f0; }
+.tree-value { color: #0f172a; }
+.tree-label { color: #64748b; }
+
+/* ---- 打印保持白底(已有规则兼容) ---- */
+/* === END LIGHT SAAS SKIN === */
