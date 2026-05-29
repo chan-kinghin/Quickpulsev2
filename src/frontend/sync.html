@@ -101,10 +101,10 @@
                         <div class="flex items-center justify-between bg-slate-800/40 border border-slate-800 rounded px-3 py-2">
                             <div class="min-w-0">
                                 <div class="text-sm text-slate-200 truncate" x-text="t.label"></div>
-                                <div class="text-[11px] text-slate-500 font-mono" x-text="fmtAge(t)"></div>
+                                <div class="text-xs text-slate-500 font-mono" x-text="fmtAge(t)"></div>
                             </div>
                             <div class="flex items-center gap-2 flex-shrink-0">
-                                <span class="text-[11px] text-slate-500" x-text="fmtRows(t.row_count)"></span>
+                                <span class="text-xs text-slate-500" x-text="fmtRows(t.row_count)"></span>
                                 <span class="w-2.5 h-2.5 rounded-full"
                                       :class="{ 'bg-slate-500': t.verdict==='fresh', 'bg-amber-500': t.verdict==='stale', 'bg-slate-600': t.verdict==='empty' }"
                                       :title="t.verdict"></span>
@@ -113,7 +113,7 @@
                     </template>
                 </div>
 
-                <p x-show="loaded" class="text-[11px] text-slate-600 mt-3"
+                <p x-show="loaded" class="text-xs text-slate-600 mt-3"
                    x-text="'滞后判定阈值 ' + thresholdHours + ' 小时（依据自动同步时间表推算）。灰点 = 空表。'"></p>
             </div>
 

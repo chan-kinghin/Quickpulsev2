@@ -961,3 +961,218 @@ body { background: var(--slate-950); color: var(--slate-50); }
 
 /* ---- 打印保持白底(已有规则兼容) ---- */
 /* === END LIGHT SAAS SKIN === */
+
+/* === STRIPE × FLUENT SKIN (2026-05-29) — appended after light skin; remove to revert ===
+   Adopts the Stripe design language — white canvas, deep-navy headings, geometric
+   system type with negative tracking + tabular numerals, blue-tinted multi-layer
+   shadows, conservative 4–8px radii — with the Fluent brand blue (#3171A8) as the
+   SINGLE interactive accent, replacing the emerald accent of the base light skin.
+   CSS-ONLY, additive, removable. Re-declares same-name utilities (last-wins, no
+   !important) + documented component classes. Remaps EVERY emerald/green utility
+   found in the markup (audited) so no stray non-blue accent survives. Status stays
+   rose (over-qty/error) + amber (warn); "success/fresh" reads as brand blue. */
+
+/* ---------------------------------------------------------------------------
+   A. TOKENS — Fluent blue ramp + Stripe neutral ramp + blue-tinted shadows
+   --------------------------------------------------------------------------- */
+:root {
+    /* Fluent brand blue — 3 governed interactive roles */
+    --fluent-fill: #3171A8;   /* primary fill / accent (white text = 5.16:1 AA) */
+    --fluent-deep: #1E4D78;   /* hover / pressed / active / accent-on-text */
+    --fluent-wash: #E8F1F8;   /* subtle wash: active nav, info chips, row select */
+    /* emerald tokens → Fluent blue (so any var()-based component rule follows) */
+    --emerald-500: #3171A8;
+    --emerald-600: #1E4D78;
+    --emerald-400: #2e6699;   /* the green-text role → blue link text (AA on white) */
+    --emerald-950: #E8F1F8;
+    /* Stripe neutral ramp: deep-navy heading → slate body (rank preserved) */
+    --slate-50:  #0d2840;     /* headings — deep navy (Stripe #061b31 family) */
+    --slate-200: #1f2d3d;     /* strong body / totals / numbers */
+    --slate-300: #3c4a5a;     /* secondary body / dropdown items */
+    --slate-400: #273951;     /* labels / column heads (Stripe label slate) */
+    --slate-500: #64748d;     /* body / hint (Stripe body slate) */
+    --slate-500-tw: #64748d;
+    /* Stripe blue-tinted shadow scale */
+    --shadow-1: rgba(50,50,93,0.08) 0 2px 5px -1px, rgba(0,0,0,0.05) 0 1px 3px -1px;
+    --shadow-2: rgba(50,50,93,0.18) 0 13px 27px -5px, rgba(0,0,0,0.12) 0 8px 16px -8px;
+    --radius-sm: 5px; --radius-md: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   B. ELEVATION — Stripe model: near-white page, white cards, blue-tinted
+   shadow + soft blue border do the lifting (not a gray page).
+   --------------------------------------------------------------------------- */
+body { background: #f6f9fc; color: #0d2840; }
+.bg-slate-950 { background-color: #f6f9fc; }   /* page — faint Stripe tint */
+.bg-slate-900 { background-color: #ffffff; }   /* cards / panels / sticky cells */
+.bg-slate-800 { background-color: #f6f9fc; }   /* hover surface / card-header strip */
+/* alpha-variant dark leftovers (base skin only remapped the solid utilities, not
+   the /40 /50 /60 alphas) — pin them to light neutrals so no dark patch survives.
+   bg-slate-700/60 is the parent 业务线·订单类型 classification badge. */
+.bg-slate-800\/50, .bg-slate-800\/60, .bg-slate-800\/40 { background-color: #f6f9fc; }
+.bg-slate-700\/60 { background-color: #eef2f7; }
+
+/* the two real card wrappers + page header lift off the tint */
+.bg-slate-900.border.border-slate-800.rounded,
+.bg-slate-900.border.border-slate-800.rounded.overflow-hidden {
+    box-shadow: var(--shadow-1);
+    border-color: #e5edf5;
+}
+header.bg-slate-900 { box-shadow: var(--shadow-1); border-color: #e5edf5; }
+
+/* card header strip reads as a quiet band on the white card */
+.bg-slate-900 .bg-slate-800.px-6.py-4 {
+    background-color: #f6f9fc;
+    border-bottom: 1px solid #e5edf5;
+}
+
+/* borders → Stripe soft blue */
+.border-slate-800, .border-slate-700 { border-color: #e5edf5; }
+.divide-slate-800 > :not([hidden]) ~ :not([hidden]) { border-color: #e5edf5; }
+
+/* floating layers get the dramatic Stripe elevated shadow */
+.dropdown-menu, .search-history, .chat-sidebar {
+    box-shadow: var(--shadow-2); border-color: #e5edf5;
+}
+
+/* ---------------------------------------------------------------------------
+   C. TEXT RAMP — Stripe navy heading → slate body. Rank preserved, AA on white.
+   --------------------------------------------------------------------------- */
+.text-slate-50  { color: #0d2840; }   /* headings — deep navy */
+.text-slate-200 { color: #1f2d3d; }   /* strong body / numbers */
+.text-slate-300 { color: #3c4a5a; }   /* secondary body */
+.text-slate-400 { color: #273951; }   /* labels / column heads */
+.text-slate-500 { color: #64748d; }   /* body / hint (Stripe slate) */
+.text-slate-600, .text-slate-700 { color: #97a4b6; }  /* faint / decorative only */
+
+/* ---------------------------------------------------------------------------
+   D. ACCENT — every emerald/green utility → Fluent blue. Single accent.
+   --------------------------------------------------------------------------- */
+/* solid fills */
+.bg-emerald-500 { background-color: #3171A8; }
+.bg-emerald-600 { background-color: #3171A8; }
+.hover\:bg-emerald-400:hover,
+.hover\:bg-emerald-500:hover,
+button.bg-emerald-500:hover, button.bg-emerald-600:hover { background-color: #1E4D78; }
+/* accent buttons carry WHITE text on the blue fill (was text-slate-950 dark — would
+   fail AA on blue). ALL text-slate-950 usages are on emerald-fill buttons (audited). */
+.text-slate-950 { color: #ffffff; }
+.border-slate-950 { border-color: rgba(255,255,255,0.7); }  /* spinner ring on button */
+
+/* accent text + links */
+.text-emerald-400, .text-emerald-300, .text-emerald-500, .text-green-400 { color: #2e6699; }
+.hover\:text-emerald-400:hover { color: #1E4D78; }
+.mto-link, .mto-link:hover { color: #2e6699; }
+
+/* accent tints (alpha utilities) */
+.bg-emerald-500\/10 { background-color: rgba(49,113,168,0.10); }
+.bg-emerald-500\/15 { background-color: rgba(49,113,168,0.12); }
+.bg-emerald-500\/20 { background-color: rgba(49,113,168,0.14); }
+.bg-emerald-900\/60 { background-color: #E8F1F8; }
+.hover\:bg-emerald-500\/25:hover { background-color: rgba(49,113,168,0.20); }
+/* accent borders */
+.border-emerald-500\/30 { border-color: rgba(49,113,168,0.30); }
+.border-emerald-500\/40 { border-color: rgba(49,113,168,0.40); }
+.border-emerald-700 { border-color: #cdddec; }
+
+/* focus / ring → Fluent blue */
+.glow-emerald:focus,
+.filter-search input:focus,
+.focus\:border-emerald-500:focus,
+.focus\:ring-emerald-500:focus {
+    border-color: #3171A8;
+    box-shadow: 0 0 0 3px rgba(49,113,168,0.18);
+    outline: none;
+}
+.ring-emerald-500 { --tw-ring-color: #3171A8; }
+
+/* active nav: blue-on-wash */
+.nav-tab-active, .nav-tab-active:hover { color: #1E4D78; background: #E8F1F8; }
+.nav-tab:hover { color: #0d2840; background: #f0f4f9; }
+
+/* DISABLED BUTTON FIX — disabled:bg-slate-700 rendered the original dark #334155
+   (the "ugly dark 查询 button" bug). Pin disabled to a quiet light neutral. */
+.disabled\:bg-slate-700:disabled { background-color: #e5edf5; }
+.disabled\:bg-slate-700:disabled.text-slate-950,
+button.disabled\:bg-slate-700:disabled { color: #97a4b6; }
+.disabled\:text-slate-500:disabled { color: #97a4b6; }
+
+/* ---------------------------------------------------------------------------
+   E. TYPOGRAPHY — Stripe geometric system stack + negative tracking + tabular.
+   (sohne-var is proprietary; system stack is the closest faithful fallback.
+   Data weight kept at 400+ for ERP legibility — not Stripe's hero weight 300.)
+   --------------------------------------------------------------------------- */
+body {
+    /* Reuse the app's single shared sans stack so every page renders identically.
+       No extra Latin faces piled in front of the CJK fonts, and NO negative
+       letter-spacing — negative tracking is a Latin-display trick that cramps
+       汉字 and was the main source of the "incoherent / not-Chinese" feel. */
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+/* tabular numerals for any numeric/right-aligned data */
+.text-right, .font-mono, td.text-right, td.text-center, tfoot td {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+}
+
+/* ---------------------------------------------------------------------------
+   F. BOM TABLE — Stripe data grid: quiet navy thead, faint zebra, blue
+   row-hover wash, emphasized 合计 footer. Scoped to .bom-table.
+   --------------------------------------------------------------------------- */
+.bom-table table[role="table"] { border-collapse: separate; border-spacing: 0; }
+.bom-table table[role="table"] td,
+.bom-table table[role="table"] th { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+
+.bom-table table[role="table"] thead th {
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    color: #273951;                    /* label slate; darker than body, < heading */
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5edf5;
+}
+.bom-table table[role="table"] thead th.sortable-header:hover { background-color: #f0f4f9; }
+
+/* Body cells single-line + ellipsis: getColumnStyle() sets overflow:hidden +
+   text-overflow:ellipsis inline but omitted white-space:nowrap, so long codes
+   (05.02.03.006), specs (LK-GL12（R右）) and BOM names wrapped to 2 lines and made
+   every row tall + ragged. nowrap restores the ellipsis and gives uniform dense
+   rows. Headers are left to wrap (2 lines OK) so long labels stay readable. */
+.bom-table table[role="table"] tbody td { white-space: nowrap; }
+
+.bom-table table[role="table"] tbody tr:nth-child(even) td { background-color: #fafcfe; }
+.bom-table table[role="table"] tbody tr:hover td,
+.bom-table table[role="table"] tbody tr.hover\:bg-slate-800\/50:hover td {
+    background-color: #eef4fa;          /* Fluent-blue-tinted row wash */
+}
+.bom-table table[role="table"] tbody tr:nth-child(even) td.bg-slate-900 { background-color: #f6f9fc; }
+.bom-table table[role="table"] tbody tr:hover td.bg-slate-900 { background-color: #e6eef7; }
+
+/* 合计 footer — summary band: top hairline + tint + bold navy totals */
+.bom-table table[role="table"] tfoot.sticky.bottom-0 tr { box-shadow: inset 0 2px 0 0 #cdddec; }
+.bom-table table[role="table"] tfoot.sticky.bottom-0 td,
+.bom-table table[role="table"] tfoot.sticky.bottom-0 td.bg-slate-800 {
+    background-color: #eef3f8; font-weight: 600;
+}
+.bom-table table[role="table"] tfoot.sticky.bottom-0 td.text-right {
+    color: #0d2840; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   G. SEARCH ROW — align the 查询 button to the INPUT, not the column bottom.
+   The row is `flex items-end`, but the left column is [label + input + hint]
+   so items-end drops the button to the bottom of the hint line. Anchor the
+   button's TOP to the input's top instead: shift down by the label band
+   (text-sm 20px + mb-2 8px = 28px) and equalize heights so bottoms align too.
+   --------------------------------------------------------------------------- */
+.flex.items-end > div > input.glow-emerald,
+.flex.items-end > button.bg-emerald-500 {
+    box-sizing: border-box; height: 46px; line-height: 1.25;
+}
+.flex.items-end > button.bg-emerald-500 {
+    align-self: flex-start;          /* opt out of items-end (which tracks hint) */
+    margin-top: 28px;                /* = label line-height (20px) + mb-2 (8px) */
+    display: inline-flex; align-items: center; justify-content: center;
+}
+/* === END STRIPE × FLUENT SKIN === */
