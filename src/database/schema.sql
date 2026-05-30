@@ -145,13 +145,17 @@ CREATE TABLE IF NOT EXISTS cached_material_picking (
     id INTEGER PRIMARY KEY,
     mto_number TEXT NOT NULL,
     material_code TEXT NOT NULL,
+    bill_no TEXT,  -- 领料单号 (FBillNo); part of the row's logical identity
     app_qty REAL,
     actual_qty REAL,
     ppbom_bill_no TEXT,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(mto_number, material_code, ppbom_bill_no, aux_prop_id)
+    -- bill_no MUST be in the key: one (mto, material, ppbom, aux) is picked
+    -- across multiple 领料单 — omitting bill_no collapsed them to the last doc
+    -- and under-counted actual_qty (bug-patterns.md Pattern 5; see migration 018).
+    UNIQUE(bill_no, mto_number, material_code, ppbom_bill_no, aux_prop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pick_mto ON cached_material_picking(mto_number);
 CREATE INDEX IF NOT EXISTS idx_pick_mto_synced ON cached_material_picking(mto_number, synced_at DESC);

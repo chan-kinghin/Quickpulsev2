@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.exceptions import SyncError
-from src.readers.models import ProductionOrderModel, SubcontractingOrderModel
+from src.readers.models import (
+    MaterialPickingModel,
+    ProductionOrderModel,
+    SubcontractingOrderModel,
+)
 from src.sync.sync_service import SyncResult, SyncService, date_chunks, model_to_json
 
 
@@ -260,6 +264,86 @@ class TestSyncService:
         # In-memory dedup retains the LAST record per (bill_no, mto_number,
         # material_code, aux_prop_id), so qty=780 wins.
         assert float(rows[0][0]) == 780.0
+
+    @pytest.mark.asyncio
+    async def test_picking_upsert_preserves_distinct_bills(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """bug-patterns.md #5 (Pattern 5) regression guard for cached_material_picking
+        (migration 018).
+
+        One (mto, material, ppbom, aux) picked across TWO 领料单 (different
+        bill_no) must persist as TWO rows so SUM(actual_qty) is complete. Before
+        018 the UNIQUE omitted bill_no, collapsing them to the last document and
+        silently UNDER-counting actual_qty — live proof: DK261025S / 03.11.002
+        cache over=43,280 vs live over=81,360 (3 rows, 2 bills)."""
+        service = self.create_service(mock_readers, test_database, mock_sync_progress)
+
+        records = [
+            MaterialPickingModel(
+                bill_no="LL_A", mto_number="DK261025S", material_code="03.11.002",
+                app_qty=Decimal("1920"), actual_qty=Decimal("45200"),
+                ppbom_bill_no="PPBOM_X", aux_prop_id=0,
+            ),
+            MaterialPickingModel(
+                bill_no="LL_B", mto_number="DK261025S", material_code="03.11.002",
+                app_qty=Decimal("1920"), actual_qty=Decimal("40000"),
+                ppbom_bill_no="PPBOM_X", aux_prop_id=0,
+            ),
+        ]
+
+        await service._upsert_material_picking_no_commit(records)
+        await test_database._connection.commit()
+
+        async with test_database._connection.execute(
+            "SELECT bill_no, actual_qty FROM cached_material_picking "
+            "WHERE mto_number = ? AND material_code = ? ORDER BY bill_no",
+            ("DK261025S", "03.11.002"),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        assert len(rows) == 2, (
+            f"Expected 2 rows (one per 领料单); got {len(rows)}. If 1, the collapse "
+            "bug is back: bill_no missing from the UNIQUE / ON CONFLICT key set, so "
+            "actual_qty under-counts. See bug-patterns.md #5 / migration 018."
+        )
+        assert {r[0] for r in rows} == {"LL_A", "LL_B"}
+        # SUM across both bills is now complete (was only the last bill before fix).
+        assert sum(float(r[1]) for r in rows) == 85200.0
+
+    @pytest.mark.asyncio
+    async def test_picking_upsert_dedups_within_same_bill(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Idempotent within a 领料单: two records with identical UNIQUE key
+        (same bill_no, mto, material, ppbom, aux) collapse to one, later qty wins."""
+        service = self.create_service(mock_readers, test_database, mock_sync_progress)
+
+        records = [
+            MaterialPickingModel(
+                bill_no="LL_DUP", mto_number="DK261025S", material_code="03.11.002",
+                app_qty=Decimal("100"), actual_qty=Decimal("200"),
+                ppbom_bill_no="PPBOM_X", aux_prop_id=0,
+            ),
+            MaterialPickingModel(
+                bill_no="LL_DUP", mto_number="DK261025S", material_code="03.11.002",
+                app_qty=Decimal("100"), actual_qty=Decimal("350"),
+                ppbom_bill_no="PPBOM_X", aux_prop_id=0,
+            ),
+        ]
+
+        await service._upsert_material_picking_no_commit(records)
+        await test_database._connection.commit()
+
+        async with test_database._connection.execute(
+            "SELECT actual_qty FROM cached_material_picking "
+            "WHERE bill_no = ? AND mto_number = ?",
+            ("LL_DUP", "DK261025S"),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        assert len(rows) == 1
+        assert float(rows[0][0]) == 350.0
 
     @pytest.mark.asyncio
     async def test_production_orders_upsert_preserves_distinct_mtos(

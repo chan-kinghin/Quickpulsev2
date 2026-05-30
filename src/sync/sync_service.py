@@ -875,7 +875,11 @@ class SyncService:
         records_list = list(records)
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (r.mto_number, r.material_code, r.ppbom_bill_no, getattr(r, 'aux_prop_id', 0) or 0)
+            # bill_no is part of the logical identity: one (mto, material, ppbom,
+            # aux) is picked across multiple 领料单. Omitting it collapses them to
+            # the last doc and under-counts actual_qty (Pattern 5; migration 018).
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code,
+                   r.ppbom_bill_no, getattr(r, 'aux_prop_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
         mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
@@ -886,7 +890,8 @@ class SyncService:
                 mto_numbers,
             )
         rows = [
-            (r.mto_number, r.material_code, str(r.app_qty), str(r.actual_qty),
+            (getattr(r, 'bill_no', '') or '',
+             r.mto_number, r.material_code, str(r.app_qty), str(r.actual_qty),
              r.ppbom_bill_no,
              getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
              model_to_json(r))
@@ -894,10 +899,10 @@ class SyncService:
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_MATERIAL_PICKING} (
-                mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
+                bill_no, mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
                 aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(mto_number, material_code, ppbom_bill_no, aux_prop_id) DO UPDATE SET
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, ppbom_bill_no, aux_prop_id) DO UPDATE SET
                 app_qty=excluded.app_qty, actual_qty=excluded.actual_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
