@@ -83,7 +83,7 @@
             </section>
 
             <!-- Error banner -->
-            <div x-show="errorMsg" x-transition class="mb-6" x-cloak>
+            <div x-show="errorMsg" class="mb-6" x-cloak>
                 <div class="p-4 bg-rose-500/10 border border-rose-500/30 rounded text-rose-400 flex items-start gap-3">
                     <i data-lucide="alert-circle" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
                     <span x-text="errorMsg"></span>
@@ -91,7 +91,7 @@
             </div>
 
             <!-- Skipped-incomplete banner (data integrity honesty) -->
-            <div x-show="currentSkipped() > 0" x-transition class="mb-4" x-cloak>
+            <div x-show="currentSkipped() > 0" class="mb-4" x-cloak>
                 <div class="p-3 bg-slate-900 border border-slate-700 rounded text-slate-400 text-sm flex items-start gap-2">
                     <i data-lucide="info" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
                     <span>
@@ -102,7 +102,7 @@
             </div>
 
             <!-- Capped banner (only when the API limit was actually hit) -->
-            <div x-show="currentCapped()" x-transition class="mb-4" x-cloak>
+            <div x-show="currentCapped()" class="mb-4" x-cloak>
                 <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-amber-400 text-sm flex items-start gap-2">
                     <i data-lucide="alert-triangle" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
                     <span>
@@ -114,7 +114,10 @@
             </div>
 
             <!-- Over-pick one-sided-metric explainer (why the total looks large) -->
-            <div x-show="activeTab === 'over-pick' && overPick.loaded" x-transition class="mb-4" x-cloak>
+            <!-- NO x-transition: it raced with the async initPage load and left the
+                 banner stuck at display:none on first paint (x-show expr was true but
+                 a stale leave-transition clobbered display). Verified on dev 2026-05-30. -->
+            <div x-show="activeTab === 'over-pick' && overPick.loaded" class="mb-4" x-cloak>
                 <div class="p-3 bg-slate-900 border border-slate-700 rounded text-slate-400 text-sm flex items-start gap-2">
                     <i data-lucide="info" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
                     <span>
