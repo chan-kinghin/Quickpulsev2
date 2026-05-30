@@ -38,6 +38,10 @@
                 </nav>
 
                 <div class="flex items-center gap-3">
+                    <a href="/help.html" aria-label="使用说明" title="使用说明"
+                       class="px-2 py-1.5 text-slate-400 hover:text-slate-200 transition flex items-center">
+                        <i data-lucide="help-circle" class="w-4 h-4"></i>
+                    </a>
                     <span class="text-slate-500 text-xs font-mono hidden md:inline"
                           x-text="new Date().toLocaleString('zh-CN')"></span>
                     <button @click="api.logout()"

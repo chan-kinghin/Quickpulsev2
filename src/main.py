@@ -387,6 +387,13 @@ async def alerts_page():
     return FileResponse("src/frontend/alerts.html")
 
 
+@app.get("/help.html")
+async def help_page():
+    """Static usage guide. No auth gate server-side — client authGuard redirects
+    unauthenticated users, matching dashboard/alerts/sync."""
+    return FileResponse("src/frontend/help.html")
+
+
 @app.get("/admin.html")
 async def admin_page(request: Request):
     """Serve admin page only if the user has a valid auth token.

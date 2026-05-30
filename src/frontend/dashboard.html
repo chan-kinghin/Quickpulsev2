@@ -45,6 +45,10 @@
 
                 <!-- Right cluster -->
                 <div class="flex items-center gap-3">
+                    <a href="/help.html" aria-label="使用说明" title="使用说明"
+                       class="px-2 py-1.5 text-slate-400 hover:text-slate-200 transition flex items-center">
+                        <i data-lucide="help-circle" class="w-4 h-4"></i>
+                    </a>
                     <!-- Data-freshness badge: reads /api/sync/freshness; surfaces a
                          silently-stalled cache table instead of trusting a green status -->
                     <a href="/sync.html" x-data="freshnessBadge()" x-init="load()"

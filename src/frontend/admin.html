@@ -27,7 +27,11 @@
                             <a href="/admin.html" class="nav-tab nav-tab-active">分析</a>
                         </nav>
                         <div class="flex items-center gap-3">
-                            <!-- admin.html does not load lucide — inline SVG for the logout icon -->
+                            <!-- admin.html does not load lucide — inline SVG for both icons -->
+                            <a href="/help.html" aria-label="使用说明" title="使用说明"
+                               class="px-2 py-1.5 text-slate-400 hover:text-slate-200 transition flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                            </a>
                             <button @click="api.logout()"
                                     aria-label="退出登录"
                                     class="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">

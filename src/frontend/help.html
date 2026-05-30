@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPulse | 使用说明</title>
+
+    <link rel="stylesheet" href="/static/css/tailwind.min.css?v=20260529">
+    <script defer src="/static/js/alpine.min.js"></script>
+    <script src="/static/js/lucide.min.js"></script>
+    <link rel="stylesheet" href="/static/css/main.css?v=20260529">
+
+    <style>
+        [x-cloak] { display: none !important; }
+        /* Native <details> styling — keep it boring: theme the disclosure, no JS. */
+        details > summary { list-style: none; cursor: pointer; }
+        details > summary::-webkit-details-marker { display: none; }
+        details > summary .chevron { transition: transform .15s ease; }
+        details[open] > summary .chevron { transform: rotate(90deg); }
+    </style>
+</head>
+<body class="bg-slate-950 min-h-screen" x-data="authGuard()" x-init="init()">
+    <a href="#main-content"
+       class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:bg-slate-900 focus:text-slate-50 focus:px-4 focus:py-2 focus:rounded">
+        跳转到主要内容
+    </a>
+
+    <div x-show="authenticated" x-cloak>
+
+        <!-- Header (mirrors the unified nav on every page) -->
+        <header class="bg-slate-900 border-b border-slate-800 no-print">
+            <div class="flex items-center justify-between max-w-7xl mx-auto px-6 py-3">
+                <div class="flex items-center gap-3">
+                    <h1 class="text-xl font-semibold text-slate-50">QuickPulse</h1>
+                </div>
+
+                <nav class="flex items-center gap-1" aria-label="主导航">
+                    <a href="/dashboard.html" class="nav-tab">MTO 查询</a>
+                    <a href="/inventory" class="nav-tab">库存查询</a>
+                    <a href="/alerts.html" class="nav-tab">预警</a>
+                    <a href="/sync.html" class="nav-tab">同步</a>
+                    <a href="/admin.html" class="nav-tab">分析</a>
+                </nav>
+
+                <div class="flex items-center gap-3">
+                    <a href="/help.html" aria-label="使用说明" title="使用说明"
+                       class="px-2 py-1.5 text-emerald-400 transition flex items-center gap-1.5">
+                        <i data-lucide="help-circle" class="w-4 h-4"></i>
+                    </a>
+                    <button @click="api.logout()"
+                            aria-label="退出登录"
+                            class="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        <span>退出</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main content -->
+        <main id="main-content" class="max-w-4xl mx-auto px-6 py-8">
+
+            <!-- Intro -->
+            <section class="mb-8">
+                <h2 class="text-lg font-semibold text-slate-50 mb-2 flex items-center gap-2">
+                    <i data-lucide="book-open" class="w-5 h-5 text-slate-500"></i>
+                    使用说明
+                </h2>
+                <div class="bg-slate-900 border border-slate-800 rounded p-5 text-sm text-slate-300 leading-relaxed">
+                    <p class="mb-2">
+                        <b class="text-slate-100">QuickPulse</b> 是「产品状态明细表」看板：输入一个
+                        <b class="text-emerald-400">计划跟踪号</b>（MTO，如 <span class="font-mono">AK2510034</span>），
+                        系统会从金蝶 <span class="font-mono">K3Cloud</span> ERP 把这张单子下面每个物料的
+                        <b>需求 / 入库 / 领料 / 发货</b> 拼齐，让你一眼看清齐套进度。
+                    </p>
+                    <p class="text-slate-400">
+                        下面先讲<b class="text-slate-200">每个页面是干嘛的</b>（业务向），再讲
+                        <b class="text-slate-200">系统背后那套金蝶取数逻辑</b>（点开折叠块看）。
+                    </p>
+                </div>
+            </section>
+
+            <!-- ───────── 页面导览 ───────── -->
+            <section class="mb-10">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4 flex items-center gap-2">
+                    <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                    页面导览
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <!-- MTO 查询 -->
+                    <a href="/dashboard.html"
+                       class="block bg-slate-900 border border-slate-800 rounded p-5 transition hover:border-slate-700">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="search" class="w-5 h-5 text-emerald-400"></i>
+                            <span class="text-base font-semibold text-slate-50">MTO 查询</span>
+                            <span class="text-xs text-slate-600 font-mono ml-auto">/dashboard</span>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-2">
+                            主力页。输入<b class="text-slate-300">计划跟踪号</b>，看这张单下每个物料的明细表：
+                            需求数、已入库、已领料、已发货、齐套率、超领标红。
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            <b>怎么读</b>：齐套率接近 100% = 料齐；某行<span class="text-rose-400">标红</span> = 超领（领的比申请的多）。
+                        </p>
+                    </a>
+
+                    <!-- 库存查询 -->
+                    <a href="/inventory"
+                       class="block bg-slate-900 border border-slate-800 rounded p-5 transition hover:border-slate-700">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="boxes" class="w-5 h-5 text-emerald-400"></i>
+                            <span class="text-base font-semibold text-slate-50">库存查询</span>
+                            <span class="text-xs text-slate-600 font-mono ml-auto">/inventory</span>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-2">
+                            按<b class="text-slate-300">物料名称 / 规格 / 编码</b>模糊搜，查金蝶
+                            <b class="text-slate-300">即时库存</b>（按仓库 / 批号 / 辅助属性）。
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            <b>注意</b>：这页是<b class="text-amber-400">实时</b>直连金蝶、不走缓存，
+                            所以每次查询稍慢（1–5 秒），但数字是当下最新的。
+                        </p>
+                    </a>
+
+                    <!-- 预警 -->
+                    <a href="/alerts.html"
+                       class="block bg-slate-900 border border-slate-800 rounded p-5 transition hover:border-slate-700">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400"></i>
+                            <span class="text-base font-semibold text-slate-50">预警</span>
+                            <span class="text-xs text-slate-600 font-mono ml-auto">/alerts</span>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-2">
+                            两个标签：<b class="text-slate-300">超领</b>（实发 &gt; 申请）和
+                            <b class="text-slate-300">超发</b>（已发货 &gt; 订单量）。点任意一行可下钻到该 MTO 明细。
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            <b>口径</b>：只看「正偏差」单边量，不是重复计算；样品单（Y 单）默认已排除。详见下方折叠块。
+                        </p>
+                    </a>
+
+                    <!-- 同步 -->
+                    <a href="/sync.html"
+                       class="block bg-slate-900 border border-slate-800 rounded p-5 transition hover:border-slate-700">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="refresh-cw" class="w-5 h-5 text-emerald-400"></i>
+                            <span class="text-base font-semibold text-slate-50">同步</span>
+                            <span class="text-xs text-slate-600 font-mono ml-auto">/sync</span>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-2">
+                            把金蝶数据批量拉进<b class="text-slate-300">本地缓存</b>，并显示各数据表的
+                            <b class="text-slate-300">新鲜度</b>（最后同步时间、是否滞后）。
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            <b>什么时候用</b>：缓存类报表（如预警）依赖它。看到「数据滞后」就来这页触发一次同步。
+                        </p>
+                    </a>
+
+                    <!-- 分析 -->
+                    <a href="/admin.html"
+                       class="block bg-slate-900 border border-slate-800 rounded p-5 transition hover:border-slate-700">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="bar-chart-3" class="w-5 h-5 text-emerald-400"></i>
+                            <span class="text-base font-semibold text-slate-50">分析</span>
+                            <span class="text-xs text-slate-600 font-mono ml-auto">/admin</span>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-2">
+                            按时间范围看<b class="text-slate-300">接单 / 出货</b>等汇总分析视图。
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            <b>提示</b>：偏管理视角的聚合数据，按需选时间段。
+                        </p>
+                    </a>
+
+                </div>
+            </section>
+
+            <!-- ───────── 金蝶数据逻辑 ───────── -->
+            <section class="mb-10">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-2">
+                    <i data-lucide="database" class="w-4 h-4"></i>
+                    金蝶数据逻辑（点开看）
+                </h3>
+                <p class="text-xs text-slate-500 mb-4">
+                    下面是系统从金蝶取数、对账时遵循的规则 —— 都是踩过坑后校正过的版本。看不懂可以跳过，不影响日常使用。
+                </p>
+
+                <div class="space-y-3">
+
+                    <!-- B1 数据从哪来 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">① 数据从哪来：BOM 优先 + 三源入库合并</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <p class="mb-3 mt-3">查一个 MTO 时，系统的取数路径是：</p>
+                            <div class="bg-slate-950 border border-slate-800 rounded p-4 font-mono text-xs text-slate-400 leading-relaxed mb-3">
+                                <div><span class="text-emerald-400">PRD_MO</span> (生产订单) → 拿到母件信息 + 单号</div>
+                                <div class="text-slate-600">  │ 按 FMOBillNO 关联</div>
+                                <div><span class="text-emerald-400">PRD_PPBOM</span> (生产用料清单) → 这张单<b class="text-slate-300">到底有哪些物料</b></div>
+                                <div class="text-slate-600">  │ 每个物料并行查三个入库来源，全部合并：</div>
+                                <div>  ├─ <span class="text-amber-400">PRD_INSTOCK</span>  (SCRKD02_SYS · 生产入库)</div>
+                                <div>  ├─ <span class="text-amber-400">STK_InStock</span>  (RKD01_SYS · 标准采购入库)</div>
+                                <div>  └─ <span class="text-amber-400">STK_InStock</span>  (RKD03_SYS · 委外入库)</div>
+                                <div class="text-slate-600">  ▼ 跨表把 FRealQty 求和</div>
+                                <div>聚合 → 产品状态明细表</div>
+                            </div>
+                            <p>
+                                <b class="text-slate-300">BOM 优先</b>：以 PPBOM 作为「这张单有哪些物料」的唯一真相。
+                                <b class="text-slate-300">三源合并</b>：同一个物料编码可能同时在三种入库单里有记录，
+                                所以永远是把三处<b class="text-slate-200">并集求和</b>，绝不只看一处。
+                            </p>
+                        </div>
+                    </details>
+
+                    <!-- B2 物料怎么分类 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">② 物料怎么分类（自制 / 外购 / 委外）</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <p class="mb-3 mt-3">
+                                <b class="text-slate-300">收料去哪张单</b>，由物料主数据上的
+                                <span class="font-mono text-slate-300">BD_MATERIAL.FErpClsID</span> 决定：
+                            </p>
+                            <div class="overflow-x-auto mb-3">
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="border-b border-slate-700 text-slate-400">
+                                            <th class="px-3 py-2 text-left font-medium">ErpClsID</th>
+                                            <th class="px-3 py-2 text-left font-medium">类型</th>
+                                            <th class="px-3 py-2 text-left font-medium">主要收料单</th>
+                                            <th class="px-3 py-2 text-left font-medium">次要（也要查）</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-slate-400">
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">1</td><td class="px-3 py-2">外购</td>
+                                            <td class="px-3 py-2 font-mono">STK_InStock RKD01</td><td class="px-3 py-2 font-mono">PRD_INSTOCK</td>
+                                        </tr>
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">2</td><td class="px-3 py-2">自制</td>
+                                            <td class="px-3 py-2 font-mono">PRD_INSTOCK SCRKD02</td><td class="px-3 py-2 font-mono">RKD01 / RKD03</td>
+                                        </tr>
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">3</td><td class="px-3 py-2">委外</td>
+                                            <td class="px-3 py-2 font-mono text-amber-400">STK_InStock RKD03</td><td class="px-3 py-2 font-mono">PRD_INSTOCK</td>
+                                        </tr>
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">4</td><td class="px-3 py-2">虚拟件</td>
+                                            <td class="px-3 py-2 text-slate-600">（无收料）</td><td class="px-3 py-2 text-slate-600">—</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-3 py-2 font-mono">9</td><td class="px-3 py-2">成品（福伦特自定义）</td>
+                                            <td class="px-3 py-2 font-mono">PRD_INSTOCK SCRKD02</td><td class="px-3 py-2 font-mono">RKD01</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="mb-2">
+                                <b class="text-slate-300">显示标签</b>（主料 / 辅料 / 外销包材 / 半成品 / 委外加工）则另走一条线：
+                                用 <span class="font-mono text-slate-300">CategoryID.FName</span>（经 PPBOM 的
+                                <span class="font-mono">FMaterialId.FCategoryId</span>）—— 因为 ErpClsID 做标签不靠谱
+                                （抽样里 22/23 都返回 "2"，连外箱、委外瓶盖都算 2）。
+                            </p>
+                            <p class="text-rose-400/90">
+                                <b>反例（别这么干）</b>：① 按物料编码前缀（07/05/03…）路由 —— 在 02/03/06/08 类里错 30–67%；
+                                ② 按 <span class="font-mono">PPBOM.FMaterialType</span> 路由 —— 这租户里 99.94% 都是 1，毫无信息量。
+                            </p>
+                        </div>
+                    </details>
+
+                    <!-- B3 入库单类型 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">③ 入库单类型速查（委外是 RKD03，不是 RKD02）</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <div class="overflow-x-auto mb-3 mt-3">
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="border-b border-slate-700 text-slate-400">
+                                            <th class="px-3 py-2 text-left font-medium">单据</th>
+                                            <th class="px-3 py-2 text-left font-medium">单据类型号</th>
+                                            <th class="px-3 py-2 text-left font-medium">含义</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-slate-400">
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">PRD_INSTOCK</td><td class="px-3 py-2 font-mono">SCRKD02_SYS</td><td class="px-3 py-2">生产入库（自制）</td>
+                                        </tr>
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">STK_InStock</td><td class="px-3 py-2 font-mono">RKD01_SYS</td><td class="px-3 py-2">标准采购入库（外购）</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-3 py-2 font-mono">STK_InStock</td><td class="px-3 py-2 font-mono text-amber-400">RKD03_SYS</td><td class="px-3 py-2">委外入库</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="mb-2 text-amber-400/90">
+                                <b>易错点</b>：委外入库在 <span class="font-mono">RKD03_SYS</span>，
+                                不是 <span class="font-mono">RKD02_SYS</span>（RKD02 查出来是 0 行）。旧代码 / 旧文档多处搞错过，已校正。
+                            </p>
+                            <p>
+                                <b class="text-slate-300">同一物料可多源并存</b>：一个物料编码在一个 MTO 内可能同时有
+                                PRD_INSTOCK + RKD01 + RKD03 的记录 —— 始终<b class="text-slate-200">并集</b>，不要假设单一来源。
+                            </p>
+                        </div>
+                    </details>
+
+                    <!-- B4 计划跟踪号前缀 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">④ 计划跟踪号（MTO）前缀含义</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <p class="mb-3 mt-3">以 <span class="font-mono text-slate-300">AK2510034</span> 为例，开头两个字母各有含义：</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                <div class="bg-slate-950 border border-slate-800 rounded p-4">
+                                    <div class="text-xs text-slate-500 mb-2">第 1 个字母 = 业务线</div>
+                                    <div class="text-sm"><span class="font-mono text-emerald-400">A</span> = 外销（MARES 等）</div>
+                                    <div class="text-sm"><span class="font-mono text-emerald-400">D</span> = 内销（刀刀 / 凯瑞克）</div>
+                                </div>
+                                <div class="bg-slate-950 border border-slate-800 rounded p-4">
+                                    <div class="text-xs text-slate-500 mb-2">第 2 个字母 = 订单类型</div>
+                                    <div class="text-sm"><span class="font-mono text-emerald-400">S</span> = 完整订单</div>
+                                    <div class="text-sm"><span class="font-mono text-emerald-400">K</span> = 备货 / 半成品单</div>
+                                    <div class="text-sm"><span class="font-mono text-emerald-400">Y</span> = 样品单</div>
+                                </div>
+                            </div>
+                            <p>
+                                <b class="text-slate-300">出口（A）= 按单备货</b>：AK 与 AS 通过「号码 + SKU 辅助属性」桥接成立。
+                                <b class="text-slate-300">内销（D）= 自有品牌按库存</b>：DS 自包含，号码配对纯属巧合，不要硬桥。
+                            </p>
+                        </div>
+                    </details>
+
+                    <!-- B5 单据状态码 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">⑤ 单据状态码（A 排除，B/C/D 计入）</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <div class="overflow-x-auto mt-3">
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="border-b border-slate-700 text-slate-400">
+                                            <th class="px-3 py-2 text-left font-medium">状态码</th>
+                                            <th class="px-3 py-2 text-left font-medium">含义</th>
+                                            <th class="px-3 py-2 text-left font-medium">是否计入查询</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-slate-400">
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">A</td><td class="px-3 py-2">创建（草稿）</td><td class="px-3 py-2 text-rose-400">排除</td>
+                                        </tr>
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">B</td><td class="px-3 py-2">已审核</td><td class="px-3 py-2 text-emerald-400">计入</td>
+                                        </tr>
+                                        <tr class="border-b border-slate-800">
+                                            <td class="px-3 py-2 font-mono">C</td><td class="px-3 py-2">已确认</td><td class="px-3 py-2 text-emerald-400">计入</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-3 py-2 font-mono">D</td><td class="px-3 py-2">重新审核</td><td class="px-3 py-2 text-emerald-400">计入</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="mt-3 text-amber-400/90">
+                                收料类查询一律过滤 <span class="font-mono">FDocumentStatus IN ('B','C','D')</span> ——
+                                <b>不能只取 ('C','D')</b>，否则会漏掉「已审核未确认」的单。
+                            </p>
+                        </div>
+                    </details>
+
+                    <!-- B6 缓存 vs 实时 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">⑥ 缓存 vs 实时：两条数据路径</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 mt-3">
+                                <div class="bg-slate-950 border border-slate-800 rounded p-4">
+                                    <div class="text-sm font-semibold text-slate-300 mb-1">实时（Live）</div>
+                                    <p class="text-xs text-slate-500">直连金蝶 API，1–5 秒，数字最新。MTO 查询<b class="text-slate-400">默认走实时</b>，库存查询<b class="text-slate-400">只走实时</b>。</p>
+                                </div>
+                                <div class="bg-slate-950 border border-slate-800 rounded p-4">
+                                    <div class="text-sm font-semibold text-slate-300 mb-1">缓存（Cache）</div>
+                                    <p class="text-xs text-slate-500">本地 SQLite 快照，&lt;100ms，需先「同步」。预警等批量比对类报表走缓存。</p>
+                                </div>
+                            </div>
+                            <p>
+                                缓存可能滞后，所以 <span class="font-mono">/health</span> 同时是<b class="text-slate-300">存活探针</b>
+                                和<b class="text-slate-300">新鲜度闸门</b>（同步超过 24 小时会判定不健康）。关键决策前先到「同步」页确认新鲜度。
+                            </p>
+                        </div>
+                    </details>
+
+                    <!-- B7 预警口径 -->
+                    <details class="bg-slate-900 border border-slate-800 rounded">
+                        <summary class="flex items-center gap-2 px-5 py-4 text-slate-200">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 chevron"></i>
+                            <span class="text-sm font-semibold">⑦ 预警口径（超领 / 超发怎么算）</span>
+                        </summary>
+                        <div class="px-5 pb-5 pt-1 text-sm text-slate-400 leading-relaxed border-t border-slate-800">
+                            <p class="mb-2 mt-3">
+                                <b class="text-slate-300">超领</b>：在 mto + 物料 粒度上，<span class="font-mono">实发 &gt; 申请</span> 的
+                                <b class="text-slate-200">单边正偏差</b>之和 —— <b class="text-emerald-400">不是重复计算</b>。
+                                注意申请量常只填象征值，所以个别倍数会偏大；页面同时给出「净领料偏差」（含少领），整体往往是<b>少领</b>。
+                            </p>
+                            <p class="mb-2">
+                                <b class="text-slate-300">超发</b>：mto + 物料 <b>粗粒度</b>比对（已发货 vs 订单量，已排除已关闭订单）。
+                                含辅助属性差异时需人工复核。
+                            </p>
+                            <p class="text-amber-400/90">
+                                <b>两条诚实规则</b>：① 数量字段缺失（NULL）的物料<b>被跳过、不当 0 处理</b>，需人工核对；
+                                ② 样品单（订单类型 Y）<b>默认排除</b>，不算超领 / 超发。
+                            </p>
+                        </div>
+                    </details>
+
+                </div>
+            </section>
+
+            <!-- Footer note -->
+            <footer class="text-center text-xs text-slate-600 pb-12">
+                数据来源：金蝶 K3Cloud ERP · 本页为只读说明，不触发任何查询
+            </footer>
+        </main>
+    </div>
+
+    <script src="/static/js/api.js?v=20260529"></script>
+    <script src="/static/js/auth.js?v=20260529"></script>
+    <script>
+        lucide.createIcons();
+        document.addEventListener('alpine:initialized', () => lucide.createIcons());
+    </script>
+</body>
+</html>
