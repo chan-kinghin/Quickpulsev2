@@ -148,6 +148,14 @@ th.resizable {
     word-break: break-word;
 }
 
+/* Secondary data tables (alerts / inventory / sync / admin / help) are w-full
+   auto-layout. Let their headers WRAP instead of being pinned to one line, so
+   long labels never push the table past the viewport — no horizontal scroll on
+   narrow screens. Higher specificity than the .whitespace-nowrap utility, and
+   main.css loads after the tailwind bundle, so this wins. The dashboard table is
+   NOT .w-full (it uses .bom-table + style width:100%), so it is unaffected. */
+table.w-full th { white-space: normal; }
+
 /* Safari-safe column hiding (x-show display:none breaks td in Safari) */
 th.col-hidden,
 td.col-hidden {
@@ -1134,12 +1142,17 @@ body {
 }
 .bom-table table[role="table"] thead th.sortable-header:hover { background-color: #f0f4f9; }
 
-/* Body cells single-line + ellipsis: getColumnStyle() sets overflow:hidden +
-   text-overflow:ellipsis inline but omitted white-space:nowrap, so long codes
-   (05.02.03.006), specs (LK-GL12（R右）) and BOM names wrapped to 2 lines and made
-   every row tall + ragged. nowrap restores the ellipsis and gives uniform dense
-   rows. Headers are left to wrap (2 lines OK) so long labels stay readable. */
-.bom-table table[role="table"] tbody td { white-space: nowrap; }
+/* Body cells WRAP to fit content (single-line cap removed 2026-06-02 per user
+   request — "列高都是定死的…把这一条给去掉"). The previous rule pinned every row
+   to one line via `white-space: nowrap`, so long codes (05.02.03.006), specs
+   (LK-GL12（R右）) and BOM names truncated with an ellipsis. `normal` lets them
+   wrap; rows now auto-grow to fit. vertical-align:top keeps multi-line rows
+   aligned at the top; overflow:hidden + word-break (above) still guard against
+   horizontal blow-out, and text-overflow:ellipsis is inert once wrapping is on. */
+.bom-table table[role="table"] tbody td {
+    white-space: normal;
+    vertical-align: top;
+}
 
 .bom-table table[role="table"] tbody tr:nth-child(even) td { background-color: #fafcfe; }
 .bom-table table[role="table"] tbody tr:hover td,

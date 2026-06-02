@@ -502,7 +502,18 @@ function mtoSearch() {
 
         getColumnStyle(columnKey) {
             const col = this.columns.find(c => c.key === columnKey);
-            return col ? `width: ${col.width}px; min-width: ${col.minWidth}px; max-width: ${col.maxWidth}px; overflow: hidden; text-overflow: ellipsis;` : '';
+            if (!col) return '';
+            // Adaptive widths: emit each column as a PERCENTAGE of the visible-column
+            // total, so the width:100% table always fits the screen exactly — no fixed
+            // px, no horizontal scroll, no screen-size guessing. The config px values are
+            // now relative WEIGHTS; resize/auto-fit change a column's share (clamped to
+            // its min/maxWidth weights in doResize), not the table's absolute width.
+            // Percentages over visible columns sum to 100%, so hidden columns leave no gap.
+            const visibleTotal = this.columns
+                .filter(c => c.visible)
+                .reduce((sum, c) => sum + c.width, 0) || 1;
+            const pct = (col.width / visibleTotal) * 100;
+            return `width: ${pct.toFixed(4)}%; overflow: hidden; text-overflow: ellipsis;`;
         },
 
         // Double-click resize handle to auto-fit column width to content
