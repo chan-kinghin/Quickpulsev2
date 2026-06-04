@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>自制包材「没有订单数量」诊断 — AS2603021</title>
+<style>
+:root{
+  --abyss-900:#060e1d;--abyss-850:#0a1830;--abyss-800:#0d1f3d;--abyss-700:#123057;
+  --cobalt-600:#0b4a96;--cobalt-500:#1a63bd;--cobalt-400:#3f88e0;--sky-300:#82b4ef;
+  --dawn:#f2b441;--dawn-bright:#ffd36b;--ember:#e8702a;--ember-red:#c8402a;
+  --parchment:#ece2cd;--ink-900:#1c160d;
+  --velvet:#6e2440;--velvet-soft:#b85c78;
+  --text:#e9e7df;--text-dim:#9fb0c9;--hair-gold:rgba(242,180,65,.42);--hair-cool:rgba(120,160,220,.16);
+  --serif-display:"Didot","Bodoni 72",Georgia,"Songti SC",serif;
+  --serif-body:"Iowan Old Style","Palatino",Charter,Georgia,"Songti SC","STSong",serif;
+  --cjk:"Songti SC","STSong","Source Han Serif SC",serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--abyss-900);color:var(--text);font-family:var(--serif-body);line-height:1.72;font-size:16px;-webkit-font-smoothing:antialiased}
+.grain{position:fixed;inset:0;pointer-events:none;z-index:9000;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.wrap{max-width:980px;margin:0 auto;padding:46px 30px 70px}
+h1,h2,h3{font-family:var(--serif-display);font-weight:400;color:#fff}
+h1{font-size:2.3rem;line-height:1.2;margin-bottom:6px}
+h2{font-size:1.35rem;margin:42px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--hair-cool)}
+.kicker{font-family:var(--mono);text-transform:uppercase;letter-spacing:.26em;font-size:.68rem;color:var(--dawn)}
+.sub{color:var(--text-dim);font-size:1.02rem;margin-top:4px}
+p{margin:10px 0}
+code{font-family:var(--mono);font-size:.88em;color:var(--dawn-bright);background:rgba(242,180,65,.08);padding:1px 6px;border-radius:3px}
+.cjk{font-family:var(--cjk)}
+.row{display:flex;gap:18px;flex-wrap:wrap}
+.col{flex:1;min-width:280px}
+/* boxes */
+.box{border-radius:4px;padding:16px 18px;border:1px solid var(--hair-cool);background:linear-gradient(160deg,var(--abyss-850),var(--abyss-800))}
+.box .bl{font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;font-size:.62rem;color:var(--text-dim)}
+.box .bt{font-family:var(--serif-display);font-size:1.12rem;color:#fff;margin-top:3px}
+.box .bd{font-size:.92rem;color:var(--text-dim);margin-top:6px}
+.flow{display:flex;flex-direction:column;align-items:stretch;gap:0}
+.node{border-radius:4px;padding:14px 18px;border:1px solid var(--hair-cool);background:linear-gradient(160deg,var(--abyss-850),var(--abyss-800))}
+.node .nl{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim)}
+.node .nt{font-size:1.04rem;color:#fff;margin-top:2px}
+.node .nd{font-size:.9rem;color:var(--text-dim);margin-top:5px}
+.node code{font-size:.82em}
+.arrow{align-self:center;color:var(--dawn);font-size:1.3rem;line-height:1;margin:7px 0}
+.arrow.bad{color:var(--velvet-soft)}
+.good{border-left:3px solid var(--dawn)}
+.bad{border-left:3px solid var(--velvet-soft)}
+.bad-bg{background:linear-gradient(160deg,#2a1320,#241018);border-color:rgba(184,92,120,.3)}
+/* admonition */
+.adm{border-radius:4px;padding:16px 20px;margin:18px 0;border:1px solid var(--hair-cool);position:relative}
+.adm .at{font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em;font-size:.66rem;margin-bottom:7px}
+.adm.warn{background:rgba(232,112,42,.08);border-color:rgba(232,112,42,.35)}
+.adm.warn .at{color:var(--ember)}
+.adm.insight{background:rgba(242,180,65,.07);border-color:rgba(242,180,65,.3)}
+.adm.insight .at{color:var(--dawn)}
+.adm.velvet{background:linear-gradient(160deg,#2a1320,#1a0c14);border-color:rgba(184,92,120,.35)}
+.adm.velvet .at{color:var(--velvet-soft)}
+/* table */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.9rem}
+th{font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em;font-size:.6rem;color:var(--dawn);text-align:left;padding:9px 12px;border-bottom:2px solid var(--hair-gold)}
+td{padding:9px 12px;border-bottom:1px solid var(--hair-cool);font-size:.92rem}
+tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+.num{font-family:var(--mono);text-align:right}
+.zero{color:var(--velvet-soft)}
+.real{color:var(--dawn-bright)}
+.tag{display:inline-block;font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;padding:2px 8px;border-radius:3px;border:1px solid var(--hair-cool)}
+.tag.pkg{color:var(--sky-300);border-color:rgba(63,136,224,.4)}
+.tag.self{color:var(--dawn);border-color:var(--hair-gold)}
+.signoff{display:flex;justify-content:center;margin-top:54px}
+.ring{width:88px;height:88px;border-radius:50%;border:1.5px solid var(--hair-gold);position:relative;display:flex;align-items:center;justify-content:center}
+.ring::before{content:"·AMOR·FATI·";position:absolute;font-family:var(--mono);font-size:.52rem;letter-spacing:.34em;color:var(--dawn);text-transform:uppercase;width:100%;text-align:center;top:-9px}
+.ring .sun{width:13px;height:13px;border-radius:50%;background:radial-gradient(circle,var(--dawn-bright),var(--dawn))}
+.fileref{font-family:var(--mono);font-size:.78rem;color:var(--text-dim);margin-top:4px}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="wrap">
+
+  <div class="kicker">QuickPulse · 回归诊断 + 修复 · 2026-06-04</div>
+  <h1>自制包材为何<span style="color:var(--velvet-soft)">「没有订单数量」</span></h1>
+  <div class="sub cjk">案例：AS2603021 · 外销·完整订单 · Speedo / 巴西 MULTISPORT — 吸塑盒 / 跟型内衬 一栏空白，完成率 0%</div>
+  <div class="adm insight" style="margin-top:18px">
+    <div class="at">✓ 已修复 · fix/baocai-self-made-order-qty</div>
+    <span class="cjk">这是一次<b>回归</b>（旧版有、约 3 个月前丢的），不是从未实现。根因 + 时间线 + 全量审计 + 修复见下。改动仅 <code>mto_handler.py</code> 一处分支，前端/语义/配置零改动，951 测试全绿，真实数据已验证。</span>
+  </div>
+
+  <!-- 现象 -->
+  <h2>① 你看到的现象</h2>
+  <p class="cjk">截图里三条 <code>03.02.*</code> 物料（泳镜内衬、对折吸塑），物料类型挂着「<span class="tag pkg">包材</span> / <span class="tag self">自制</span>」双标签，但：</p>
+  <table>
+    <tr><th>物料</th><th>类型</th><th class="num">销售订单.数量</th><th class="num">采购订单.数量</th><th class="num">生产领料.实发</th><th class="num">完成率</th></tr>
+    <tr><td class="cjk">03.02.02.089 GS56 泳镜PET跟型内衬</td><td><span class="tag pkg">包材</span><span class="tag self">自制</span></td><td class="num zero">—</td><td class="num zero">0</td><td class="num real">7,296</td><td class="num zero">0%</td></tr>
+    <tr><td class="cjk">03.02.02.151 K4 透明儿童内衬</td><td><span class="tag pkg">包材</span><span class="tag self">自制</span></td><td class="num zero">—</td><td class="num zero">0</td><td class="num real">54,000</td><td class="num zero">0%</td></tr>
+    <tr><td class="cjk">03.02.04.021 S15 呼吸管对折吸塑</td><td><span class="tag pkg">包材</span><span class="tag self">自制</span></td><td class="num zero">—</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0%</td></tr>
+  </table>
+  <p class="cjk"><b>销售订单空 ＝ 正常</b>（包材不是成品，本就不会出现在销售订单）。<b>真正的问题是中间那栏</b>：采购订单 = 0，于是没有任何「需求基线」，完成率永远算成 0%。</p>
+
+  <!-- 数据真相 -->
+  <h2>② 数据真相：需求其实存在，只是被丢掉了</h2>
+  <p class="cjk">查本地缓存（同款物料、其它 MTO 实测）——它们在 BOM 里有真实 <code>need_qty</code>，根本不是「没需求」：</p>
+  <table>
+    <tr><th>物料</th><th>category_name</th><th>is_purchase</th><th class="num">BOM need_qty</th></tr>
+    <tr><td class="cjk">03.02.02.089 GS56 PET 跟型内衬</td><td class="cjk">外销包材</td><td class="zero">0 (自制)</td><td class="num real">170,880</td></tr>
+    <tr><td class="cjk">03.02.02.151 K4 透明儿童内衬</td><td class="cjk">外销包材</td><td class="zero">0 (自制)</td><td class="num real">5,760</td></tr>
+    <tr><td class="cjk">03.02.04.021 S15 呼吸管对折吸塑</td><td class="cjk">外销包材</td><td class="zero">0 (自制)</td><td class="num real">924</td></tr>
+  </table>
+  <div class="adm insight">
+    <div class="at">○ 关键事实</div>
+    <span class="cjk">缓存里共 <b>541 条</b>「外销包材 + 自制(is_purchase=0)」物料，其中 <b>540 条</b>有 need_qty。这是一个系统性的口径缺口，不是个例。</span>
+  </div>
+
+  <!-- 路由流程图 -->
+  <h2>③ 根因：包材一栏只认「采购订单」，而自制包材没有采购单</h2>
+
+  <div class="flow">
+    <div class="node">
+      <div class="nl">物料主数据 · BD_MATERIAL</div>
+      <div class="nt cjk">CategoryID.FName = 外销包材</div>
+      <div class="nd cjk">同时 IsPurchase = <b>False</b>（吸塑/跟型件是厂内自制，不是外购）</div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="node">
+      <div class="nl cjk">路由表 · mto_handler.py</div>
+      <div class="nt"><code>_CATEGORY_TO_TYPE["外销包材"] = (2, "包材")</code></div>
+      <div class="nd cjk">→ effective_type = 2，挂上「包材」chip（chip 是对的：包材是<b>类别</b>，不是采购标志）</div>
+    </div>
+    <div class="arrow bad">↓</div>
+    <div class="node bad bad-bg">
+      <div class="nl cjk" style="color:var(--velvet-soft)">ChildItem 组装 · effective_type==2 分支</div>
+      <div class="nt cjk">需求列 ← purchase_order_qty（采购订单数量）</div>
+      <div class="nd cjk">这条分支<b>只</b>读采购侧字段，<b>不</b>读 need_qty / 生产入库。对外购包材没问题，对<b>自制</b>包材是致命的——</div>
+    </div>
+    <div class="arrow bad">↓</div>
+    <div class="row" style="margin-top:4px">
+      <div class="col node bad">
+        <div class="nl cjk" style="color:var(--velvet-soft)">结果：采购订单 = 0</div>
+        <div class="nd cjk">自制件没有采购订单 → 需求基线为 0</div>
+      </div>
+      <div class="col node bad">
+        <div class="nl cjk" style="color:var(--velvet-soft)">need_qty = 170,880 被丢弃</div>
+        <div class="nd cjk">真实需求挂在 row 上，分支没读 → 永远不显示</div>
+      </div>
+      <div class="col node bad">
+        <div class="nl cjk" style="color:var(--velvet-soft)">完成率 = 0 / 0 → 0%</div>
+        <div class="nd cjk">无基线 → 无法衡量是否齐套</div>
+      </div>
+    </div>
+  </div>
+  <div class="fileref">根因位置：src/query/mto_handler.py:1682 — <code>elif effective_type == 2:</code> 分支</div>
+
+  <!-- 对比 -->
+  <h2>④ 为什么「外购包材」没事，「自制包材」就坏了</h2>
+  <div class="row">
+    <div class="col box good">
+      <div class="bl cjk">外购包材 · is_purchase = True</div>
+      <div class="bt cjk">外箱 / 内盒 / 纸卡</div>
+      <div class="bd cjk">有采购订单 → purchase_order_qty 有值 → 需求、累计入库、完成率全部正确。当前逻辑天然适配。✓</div>
+    </div>
+    <div class="col box bad">
+      <div class="bl cjk" style="color:var(--velvet-soft)">自制包材 · is_purchase = False</div>
+      <div class="bt cjk">吸塑 / 跟型内衬 / 对折盒</div>
+      <div class="bd cjk">无采购订单。需求应来自 <code>need_qty</code>（BOM 用量 × 母件数量），齐套应看<b>生产入库</b>而非采购入库。当前逻辑读错了源头。✗</div>
+    </div>
+  </div>
+
+  <!-- 回归时间线 -->
+  <h2>⑤ 它是哪一版丢的（回归时间线）</h2>
+  <p class="cjk">你没记错——自制包材以前显示订单数量，<b>跑了约 3 个月</b>。丢失是两个相隔 <b>2 分钟</b>的 commit 造成的：</p>
+  <table>
+    <tr><th>时间</th><th>commit</th><th>对自制包材</th><th>订单数量</th></tr>
+    <tr><td class="cjk">02-28</td><td>e493de8</td><td class="cjk">有工段→走自制路径</td><td class="real">✅ 显示 need_qty</td></tr>
+    <tr><td class="cjk">05-22</td><td>2957933</td><td class="cjk">BOM 重构改用 CategoryID：外销包材→包材(采购口径)</td><td class="zero">❌ 丢</td></tr>
+    <tr><td class="cjk">05-22 15:43</td><td>2724bcf</td><td class="cjk">按 IsPurchase 再拆→自制</td><td class="real">✅ 恢复</td></tr>
+    <tr><td class="cjk">05-22 15:45</td><td>e3d12a2</td><td class="cjk"><b>revert</b>（同事：吸塑属包材 chip）→ 整分支退回</td><td class="zero">❌ 再丢（至今 13 天）</td></tr>
+  </table>
+  <div class="adm insight">
+    <div class="at">○ 同事对、你也对——revert 把两件正交的事当成一件退了</div>
+    <span class="cjk"><b>chip 归类</b>（吸塑∈包材 ✓ 同事）和 <b>数据口径</b>（吸塑是自制件，看生产入库 ✓ 你）本互不相干，却都绑在同一个 <code>effective_type</code> 上。同事只想改 chip，却连口径一起退了——误伤。</span>
+  </div>
+
+  <!-- 修复 -->
+  <h2>⑥ 修复（已实现）</h2>
+  <p class="cjk">前端早有「双键」设计：<b>chip + 筛选认 <code>material_type</code> 名称</b>，<b>列 + 语义认 <code>material_type_code</code> 整数</b>。所以一处后端分流即可，<b>前端零改</b>：</p>
+  <table>
+    <tr><th>包材子类</th><th>code (口径)</th><th>name (chip)</th><th>需求列</th><th>完成率</th></tr>
+    <tr><td class="cjk">外购 (is_purchase=1)</td><td>2</td><td class="cjk">包材</td><td class="cjk">采购订单数量（不变）</td><td>入库/订单</td></tr>
+    <tr><td class="cjk real">自制 (is_purchase=0)</td><td class="real">1</td><td class="cjk">包材</td><td class="cjk real">生产入库.应收 = need_qty</td><td>实收/need_qty</td></tr>
+  </table>
+  <div class="fileref">改动点：src/query/mto_handler.py — <code>elif effective_type == 2 and type_label == "包材" and not row_is_purchase</code>（仅当确认是 外销包材 类别时分流，fallback 路径不动）</div>
+  <div class="adm insight" style="margin-top:14px">
+    <div class="at">✓ 真实数据验证（AS2603021-5 · 03.02.07.006 EP-5耳塞热压吸塑）</div>
+    <span class="cjk">经真实缓存 JOIN 跑通：TYPE = <code>1 / 包材</code>，需求(应收) = <b class="real">21,600</b>（修复前是空/0），采购订单 = 0。951 单测全绿。</span>
+  </div>
+
+  <!-- 审计 -->
+  <h2>⑦ 「还丢了什么」全量审计（旧 7 路径 vs 现 BOM-first）</h2>
+  <p class="cjk">把旧版（7 个并联纳入路径）和现版逐条比对的结论——好消息：默认 live 路径已悄悄长出 2a/2c/2d 合成行，自愈了大部分。真正面向用户的回归<b>只有第 1 条</b>。</p>
+  <table>
+    <tr><th>#</th><th>项目</th><th>判定</th></tr>
+    <tr><td>1</td><td class="cjk">自制包材订单数量 + 生产入库（工段路由）</td><td class="real cjk">真回归 · 本次已修</td></tr>
+    <tr><td>2</td><td class="cjk">包材无采购单时需求回退 need_qty（旧 Path 6）</td><td class="cjk">同根小尾巴（采购包材未下单显 0）</td></tr>
+    <tr><td>3</td><td class="cjk"><code>?source=cache</code> 下入库-only/MO-only/领料-only 行</td><td class="cjk">缓存路径变弱（默认 live 不受影响，单独评估）</td></tr>
+    <tr><td>4</td><td class="cjk">委外-only（有 SUB 无 PPBOM）</td><td class="cjk">非回归（旧版也丢；有 PPBOM 的委外现在更好）</td></tr>
+    <tr><td>5</td><td class="cjk">出库列 / 超领列 / 申请领料列</td><td class="cjk">非回归（两版都算了就扔，从没显示过）</td></tr>
+  </table>
+
+  <div class="signoff"><div class="ring"><div class="sun"></div></div></div>
+</div>
+</body>
+</html>

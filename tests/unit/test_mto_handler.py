@@ -1713,13 +1713,23 @@ class TestBomRowToChild:
         assert child.purchase_stock_in_qty == Decimal("60")
 
     def test_category_baocai_with_is_purchase_false_still_routes_as_baocai(self):
-        """外销包材 + IsPurchase=False → 包材 (Fluent's self-made plastic parts).
+        """外销包材 + IsPurchase=False → 包材 CHIP, but 自制 (生产入库) 口径.
 
-        Per colleague's 2026-05-22 clarification: 包材 is a category, not a
-        sourcing flag. Self-made plastic packaging (吸塑/跟型件) belongs
-        in the 包材 chip alongside purchased packaging (外箱/纸卡). The
-        IsPurchase field stays on the row for downstream filtering, but
-        DOES NOT affect chip routing.
+        Two orthogonal axes that an earlier revert (e3d12a2, 2026-05-22)
+        accidentally welded together, dropping the order quantity for
+        self-made packaging (吸塑/跟型件) — the regression this test now locks:
+
+        - CHIP / filter axis  → `material_type_name` == "包材". Per the
+          colleague's clarification, 包材 is a CATEGORY: self-made plastic
+          packaging sits in the 包材 chip alongside purchased 外箱/纸卡.
+        - DATA 口径 axis      → `material_type` code == SELF_MADE(1). A
+          self-made part has NO purchase order, so its demand must come
+          from BOM `need_qty` (生产入库.应收) and fulfilment from
+          `prod_receipt_real_qty` (生产入库.实收), exactly like a 05.xx
+          self-made item. This restores the pre-BOM-first behaviour
+          (工段 routing, commit e493de8). The frontend keys columns off
+          the code and the chip/filter off the name, so this single split
+          gives 包材 chip + 生产入库 columns with no frontend change.
         """
         row = BOMJoinedRow(
             mo_bill_no="MO_XISU",
@@ -1735,7 +1745,7 @@ class TestBomRowToChild:
             no_picked_qty=Decimal("200"),
             prod_receipt_real_qty=Decimal("150"),
             prod_receipt_must_qty=Decimal("200"),
-            pick_actual_qty=Decimal("0"),
+            pick_actual_qty=Decimal("30"),
             pick_app_qty=Decimal("0"),
             purchase_order_qty=Decimal("0"),
             purchase_stock_in_qty=Decimal("0"),
@@ -1748,8 +1758,71 @@ class TestBomRowToChild:
         )
         child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
 
-        assert child.material_type == MaterialType.PURCHASED
+        # CHIP / filter axis — stays 包材 (colleague's requirement).
         assert child.material_type_name == "包材"
+        # DATA 口径 axis — self-made, so the demand/fulfilment columns are
+        # populated from production, NOT from a (non-existent) purchase order.
+        assert child.material_type == MaterialType.SELF_MADE
+        assert child.prod_instock_must_qty == Decimal("200"), "需求应来自 BOM need_qty"
+        assert child.prod_instock_real_qty == Decimal("150"), "齐套应来自生产入库.实收"
+        assert child.pick_actual_qty == Decimal("30")
+        # The purchase-order demand column must NOT carry a value — a
+        # self-made part has no PO; leaking 0 here is what showed "0 订单数量".
+        assert not child.purchase_order_qty
+        # is_purchase stays on the child for downstream filtering.
+        assert child.is_purchase is False
+
+    def test_self_made_baocai_gets_meaningful_fulfillment_rate(self):
+        """End-to-end: a self-made 外销包材 child must resolve to a real
+        fulfillment_rate via the self_made semantic config (实收/need_qty),
+        not collapse to 0/None the way the 包材→采购 口径 did.
+
+        Locks the full chain through the REAL config: 包材 chip (name) +
+        SELF_MADE code → engine.detect_class_id_by_type(1, is_finished_goods
+        =False) → self_made → rate = prod_instock_real_qty /
+        prod_instock_must_qty. Uses build_metric_engine() so config drift
+        (e.g. someone flipping self_made's material_type_id) breaks here.
+        """
+        from src.mto_config import MTOConfig
+
+        row = BOMJoinedRow(
+            mo_bill_no="MO_XISU2",
+            mto_number="AS2603021-4",
+            material_code="03.02.02.089",
+            material_name="GS56泳镜 PET 跟型内衬",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("200"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("0"),
+            prod_receipt_real_qty=Decimal("150"),
+            prod_receipt_must_qty=Decimal("200"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="外销包材",
+            is_purchase=False,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+        engine = MTOConfig("config/mto_config.json").build_metric_engine()
+
+        # The chip says 包材, but the engine must see a self-made item.
+        class_id = engine.detect_class_id_by_type(
+            child.material_type, getattr(child, "is_finished_goods", False)
+        )
+        assert class_id == "self_made"
+
+        metrics = engine.compute_for_item(child, class_id)
+        assert metrics["fulfillment_rate"].value == Decimal("0.75"), (
+            "150/200 — self-made 口径, not 0/0"
+        )
 
     def test_category_weiwai_routes_as_subcontracted(self):
         """category_name=委外加工 → 委外, regardless of FMaterialType.
