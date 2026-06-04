@@ -201,8 +201,8 @@ tr:nth-child(even) td{background:rgba(255,255,255,.015)}
   <table>
     <tr><th>#</th><th>项目</th><th>判定</th></tr>
     <tr><td>1</td><td class="cjk">自制包材订单数量 + 生产入库（工段路由）</td><td class="real cjk">真回归 · 本次已修</td></tr>
-    <tr><td>2</td><td class="cjk">包材无采购单时需求回退 need_qty（旧 Path 6）</td><td class="cjk">同根小尾巴（采购包材未下单显 0）</td></tr>
-    <tr><td>3</td><td class="cjk"><code>?source=cache</code> 下入库-only/MO-only/领料-only 行</td><td class="cjk">缓存路径变弱（默认 live 不受影响，单独评估）</td></tr>
+    <tr><td>2</td><td class="cjk">包材无采购单时需求回退 need_qty（旧 Path 6）</td><td class="real cjk">已修复（采购/委外 demand→need_qty 回退）</td></tr>
+    <tr><td>3</td><td class="cjk"><code>?source=cache</code> 下入库-only/MO-only/领料-only 行</td><td class="cjk">仅 power-user opt-in；L2 原始缓存已从默认路径退役(line 216 走 _fetch_live)且计划删除 → <b>不重建</b></td></tr>
     <tr><td>4</td><td class="cjk">委外-only（有 SUB 无 PPBOM）</td><td class="cjk">非回归（旧版也丢；有 PPBOM 的委外现在更好）</td></tr>
     <tr><td>5</td><td class="cjk">出库列 / 超领列 / 申请领料列</td><td class="cjk">非回归（两版都算了就扔，从没显示过）</td></tr>
   </table>

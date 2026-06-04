@@ -1712,6 +1712,84 @@ class TestBomRowToChild:
         assert child.purchase_order_qty == Decimal("100")
         assert child.purchase_stock_in_qty == Decimal("60")
 
+    def test_purchased_baocai_no_po_falls_back_to_need_qty(self):
+        """外购包材 with a BOM line but no purchase order yet → the demand
+        column must fall back to need_qty, not blank to 0.
+
+        Restores old Path-6 behaviour (_build_purchased_child_from_ppbom set
+        purchase_order_qty = PPBOM need_qty). Without this, packaging that is
+        needed but not-yet-ordered shows "0 订单数量 / 0% 完成率" — the same
+        empty-demand symptom as the self-made case, for a different reason.
+        Uses the de-inflated row.need_qty (PRD_MO-resolved), so no Pattern-10
+        inflation is reintroduced.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO_PO0",
+            mto_number="AS2510999",
+            material_code="03.02.23.004.01",
+            material_name="PC894内吸塑",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("200"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("0"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),   # not ordered yet
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="外销包材",
+            is_purchase=True,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "包材"
+        assert child.purchase_order_qty == Decimal("200"), "无 PO 时回退到 need_qty"
+        # When a real PO exists it still wins (regression guard for the
+        # is_purchase_true test above: 100 PO stays 100, not need_qty).
+
+    def test_subcontract_no_order_falls_back_to_need_qty(self):
+        """委外 with a BOM line but no 委外订单 yet → demand falls back to
+        need_qty (same Path-6 restoration, subcontract source)."""
+        row = BOMJoinedRow(
+            mo_bill_no="MO_SUB0",
+            mto_number="AS2510888",
+            material_code="08.01.69",
+            material_name="成人PU帽",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("725"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("0"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),   # no 委外订单 yet
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="委外加工",
+            is_purchase=False,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SUBCONTRACTED
+        assert child.material_type_name == "委外"
+        assert child.purchase_order_qty == Decimal("725"), "无委外订单时回退 need_qty"
+
     def test_category_baocai_with_is_purchase_false_still_routes_as_baocai(self):
         """外销包材 + IsPurchase=False → 包材 CHIP, but 自制 (生产入库) 口径.
 

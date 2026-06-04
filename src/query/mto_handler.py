@@ -1735,7 +1735,12 @@ class MTOQueryHandler:
                 material_type_name=type_label or "包材",
                 material_group_name=group_name,
                 is_purchase=row_is_purchase,
-                purchase_order_qty=row.purchase_order_qty,
+                # Demand falls back to BOM need_qty when there is no purchase
+                # order yet (restores old Path-6: _build_purchased_child_from_
+                # ppbom showed need_qty as the demand). A real PO always wins.
+                # row.need_qty is the de-inflated (PRD_MO-resolved) value, so
+                # no Pattern-10 inflation is reintroduced.
+                purchase_order_qty=row.purchase_order_qty or row.need_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
@@ -1751,7 +1756,9 @@ class MTOQueryHandler:
                 material_type_name=type_label or "委外",
                 material_group_name=group_name,
                 is_purchase=row_is_purchase,
-                purchase_order_qty=row.subcontract_order_qty,
+                # Same Path-6 fallback for 委外: demand → need_qty when there
+                # is no 委外订单 yet (subcontract_order_qty always wins if set).
+                purchase_order_qty=row.subcontract_order_qty or row.need_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
