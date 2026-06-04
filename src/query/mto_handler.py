@@ -1679,7 +1679,53 @@ class MTOQueryHandler:
                 match_quality_breakdown=match_quality,
                 photo_file_ids=photos,
             )
-        elif effective_type == 2:  # 外购/包材
+        elif effective_type == 2 and type_label == "包材" and not row_is_purchase:
+            # NOTE the `type_label == "包材"` guard: it fires ONLY when the
+            # BD_MATERIAL category was positively recognized as 外销包材 (the
+            # one category that mixes purchased 外箱/纸卡 with self-made
+            # 吸塑/跟型件). On the fallback path (unknown/empty category,
+            # type_label is None) is_purchase=False is just the column
+            # default, NOT a real signal — so legacy type-2 rows keep the
+            # purchased 口径 below. is_purchase is reliable for real 外销包材
+            # rows (synced from FIsPurchase + backfilled, commit 2724bcf).
+            #
+            # 自制包材 (吸塑/跟型件/对折盒 etc): 包材 is the CATEGORY — it
+            # stays in the 包材 chip + filter — but it is produced in-house,
+            # so it has NO purchase order. Its demand must come from BOM
+            # need_qty (生产入库.应收) and fulfilment from production receipts
+            # (生产入库.实收), exactly like a 05.xx self-made item.
+            #
+            # This restores the pre-BOM-first behaviour (工段 routing,
+            # commit e493de8, ~3 months in production) that the e3d12a2
+            # revert dropped: that revert correctly put 吸塑 under the 包材
+            # chip, but in doing so also forced the采购 口径, collapsing
+            # demand to the (always-0) purchase_order_qty and showing
+            # "0 订单数量 / 0% 完成率" for ~540 self-made packaging rows.
+            #
+            # The two axes are orthogonal and the frontend already separates
+            # them: chip + type filter key off material_type_NAME ("包材"),
+            # column selection + the semantic engine key off the material_type
+            # CODE (SELF_MADE → 生产入库 columns + self_made fulfillment_rate).
+            # So this single split needs no frontend/semantic/config change.
+            return ChildItem(
+                material_code=row.material_code,
+                material_name=row.material_name,
+                specification=row.specification,
+                aux_attributes=aux_attrs,
+                material_type=MaterialType.SELF_MADE,
+                material_type_name=type_label or "包材",
+                material_group_name=group_name,
+                is_purchase=False,
+                # REGRESSION GUARD (bug-patterns.md #10): use row.need_qty as
+                # demand — same rule as the 自制 branch above. Never sum PPBOM
+                # lines or use prod_receipt_must_qty (both inflate).
+                prod_instock_must_qty=row.need_qty,
+                prod_instock_real_qty=row.prod_receipt_real_qty,
+                pick_actual_qty=row.pick_actual_qty,
+                match_quality_breakdown=match_quality,
+                photo_file_ids=photos,
+            )
+        elif effective_type == 2:  # 外购/包材 (is_purchase=True — 外箱/纸卡/说明书)
             return ChildItem(
                 material_code=row.material_code,
                 material_name=row.material_name,
@@ -1689,7 +1735,12 @@ class MTOQueryHandler:
                 material_type_name=type_label or "包材",
                 material_group_name=group_name,
                 is_purchase=row_is_purchase,
-                purchase_order_qty=row.purchase_order_qty,
+                # Demand falls back to BOM need_qty when there is no purchase
+                # order yet (restores old Path-6: _build_purchased_child_from_
+                # ppbom showed need_qty as the demand). A real PO always wins.
+                # row.need_qty is the de-inflated (PRD_MO-resolved) value, so
+                # no Pattern-10 inflation is reintroduced.
+                purchase_order_qty=row.purchase_order_qty or row.need_qty,
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
@@ -1705,7 +1756,9 @@ class MTOQueryHandler:
                 material_type_name=type_label or "委外",
                 material_group_name=group_name,
                 is_purchase=row_is_purchase,
-                purchase_order_qty=row.subcontract_order_qty,
+                # Same Path-6 fallback for 委外: demand → need_qty when there
+                # is no 委外订单 yet (subcontract_order_qty always wins if set).
+                purchase_order_qty=row.subcontract_order_qty or row.need_qty,
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
                 match_quality_breakdown=match_quality,
