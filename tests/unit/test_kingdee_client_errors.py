@@ -71,3 +71,32 @@ async def test_msgcode_4_returns_empty():
     result = await client.query("SOME_FORM", ["FId"])
 
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_date_range_end_is_whole_day_inclusive():
+    """Chunk-boundary hole regression (2026-06-10).
+
+    Kingdee compares datetime: `FCreateDate<='2026-04-20'` excludes everything
+    created after midnight that day, so with 7-day chunking each chunk's last
+    day belonged to NO chunk. The date-window purge then deleted those rows
+    permanently (dev lost all PRD_MO created 2026-04-20, e.g. MO260405711).
+    The filter must use an exclusive next-day upper bound.
+    """
+    from datetime import date as _date
+
+    client = KingdeeClient(MagicMock())
+    client.query_all = AsyncMock(return_value=[])
+
+    await client.query_by_date_range(
+        form_id="PRD_MO",
+        field_keys=["FBillNo"],
+        date_field="FCreateDate",
+        start_date=_date(2026, 4, 14),
+        end_date=_date(2026, 4, 20),
+    )
+
+    filter_string = client.query_all.call_args.kwargs["filter_string"]
+    assert "FCreateDate>='2026-04-14'" in filter_string
+    assert "FCreateDate<'2026-04-21'" in filter_string
+    assert "<='2026-04-20'" not in filter_string

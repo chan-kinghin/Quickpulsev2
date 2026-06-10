@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, TYPE_CHECKING
 
 from k3cloud_webapi_sdk.main import K3CloudApiSdk
@@ -300,10 +300,20 @@ class KingdeeClient:
         end_date: date,
         extra_filter: str = "",
     ) -> list[dict]:
-        """Query by date range."""
+        """Query by date range (end_date inclusive of the whole day).
+
+        Kingdee compares datetime fields, so `field <= '2026-04-20'` means
+        <= 2026-04-20T00:00:00 and silently excludes every record created
+        later that day. With 7-day chunking ([start, start+6], next chunk
+        starts end+1) each chunk's LAST day fell into no chunk at all —
+        harmless while syncs only upserted, but the 2026-06-10 date-window
+        purge turned the gap into permanent deletion (live proof: dev lost
+        all PRD_MO created 2026-04-20, e.g. MO260405711). Use an exclusive
+        next-day bound so the whole end day is covered.
+        """
         filter_parts = [
             f"{date_field}>='{start_date.isoformat()}'",
-            f"{date_field}<='{end_date.isoformat()}'",
+            f"{date_field}<'{(end_date + timedelta(days=1)).isoformat()}'",
         ]
 
         if extra_filter:
