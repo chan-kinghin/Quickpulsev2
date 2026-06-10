@@ -481,21 +481,21 @@
                                         class="px-4 py-3 text-slate-300 text-sm break-words"
                                         :title="item.material_group_name || ''"
                                         x-text="item.material_group_name || '-'"></td>
-                                    <!-- 绿色组: 数量列 (根据物料类型显示) -->
+                                    <!-- 绿色组: 数量列 (非零值一律显示; '-' 仅当值为零且列不适用该类型 — qtyCellText) -->
                                     <td :class="{ 'col-hidden': !colVisible('sales_order_qty') }" role="cell"
                                         class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
-                                        x-text="item.is_finished_goods ? formatNumber(item.sales_order_qty) : '-'"></td>
+                                        x-text="qtyCellText(item, 'sales_order_qty')"></td>
                                     <td :class="{ 'col-hidden': !colVisible('prod_instock_must_qty') }" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
-                                        x-text="(item.material_type_code === 1 && !item.is_finished_goods) ? formatNumber(item.prod_instock_must_qty) : '-'"></td>
+                                        x-text="qtyCellText(item, 'prod_instock_must_qty')"></td>
                                     <td :class="{ 'col-hidden': !colVisible('purchase_order_qty') }" role="cell" class="px-4 py-3 text-right font-medium text-slate-200 bg-emerald-950/10"
-                                        x-text="(item.material_type_code === 2 || item.material_type_code === 3) ? formatNumber(item.purchase_order_qty) : '-'"></td>
+                                        x-text="qtyCellText(item, 'purchase_order_qty')"></td>
                                     <!-- 领料/入库列 -->
                                     <td :class="{ 'col-hidden': !colVisible('pick_actual_qty') }" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
-                                        x-text="!item.is_finished_goods ? formatNumber(item.pick_actual_qty) : '-'"></td>
+                                        x-text="qtyCellText(item, 'pick_actual_qty')"></td>
                                     <td :class="{ 'col-hidden': !colVisible('prod_instock_real_qty') }" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
-                                        x-text="item.material_type_code === 1 ? formatNumber(item.prod_instock_real_qty) : '-'"></td>
+                                        x-text="qtyCellText(item, 'prod_instock_real_qty')"></td>
                                     <td :class="{ 'col-hidden': !colVisible('purchase_stock_in_qty') }" role="cell" class="px-4 py-3 text-right text-slate-300 bg-sky-950/10"
-                                        x-text="(item.material_type_code === 2 || item.material_type_code === 3) ? formatNumber(item.purchase_stock_in_qty) : '-'"></td>
+                                        x-text="qtyCellText(item, 'purchase_stock_in_qty')"></td>
                                     <!-- 完成率 -->
                                     <td role="cell"
                                         class="px-4 py-3 text-center font-medium"
@@ -564,29 +564,29 @@
                                     <span class="bom-card-label">物料分组</span>
                                     <span class="bom-card-value" x-text="item.material_group_name"></span>
                                 </div>
-                                <!-- 数量列：根据物料类型显示 -->
-                                <div class="bom-card-item" x-show="item.is_finished_goods">
+                                <!-- 数量列：非零值一律显示; 隐藏仅当值为零且列不适用该类型 (qtyCellVisible) -->
+                                <div class="bom-card-item" x-show="qtyCellVisible(item, 'sales_order_qty')">
                                     <span class="bom-card-label">销售订单.数量</span>
                                     <span class="bom-card-value" x-text="formatNumber(item.sales_order_qty)"></span>
                                 </div>
-                                <div class="bom-card-item" x-show="item.material_type_code === 1 && !item.is_finished_goods">
+                                <div class="bom-card-item" x-show="qtyCellVisible(item, 'prod_instock_must_qty')">
                                     <span class="bom-card-label">生产入库单.应收数量</span>
                                     <span class="bom-card-value" x-text="formatNumber(item.prod_instock_must_qty)"></span>
                                 </div>
-                                <div class="bom-card-item" x-show="item.material_type_code === 2 || item.material_type_code === 3">
+                                <div class="bom-card-item" x-show="qtyCellVisible(item, 'purchase_order_qty')">
                                     <span class="bom-card-label" x-text="item.material_type_code === 3 ? '委外订单.数量' : '采购订单.数量'"></span>
                                     <span class="bom-card-value" x-text="formatNumber(item.purchase_order_qty)"></span>
                                 </div>
                                 <!-- 领料/入库列 -->
-                                <div class="bom-card-item" x-show="!item.is_finished_goods">
+                                <div class="bom-card-item" x-show="qtyCellVisible(item, 'pick_actual_qty')">
                                     <span class="bom-card-label">生产领料单.实发数量</span>
                                     <span class="bom-card-value" x-text="formatNumber(item.pick_actual_qty)"></span>
                                 </div>
-                                <div class="bom-card-item" x-show="item.material_type_code === 1">
+                                <div class="bom-card-item" x-show="qtyCellVisible(item, 'prod_instock_real_qty')">
                                     <span class="bom-card-label">生产入库单.实收数量</span>
                                     <span class="bom-card-value" x-text="formatNumber(item.prod_instock_real_qty)"></span>
                                 </div>
-                                <div class="bom-card-item" x-show="item.material_type_code === 2 || item.material_type_code === 3">
+                                <div class="bom-card-item" x-show="qtyCellVisible(item, 'purchase_stock_in_qty')">
                                     <span class="bom-card-label" x-text="item.material_type_code === 3 ? '委外.累计入库数量' : '采购订单.累计入库数量'"></span>
                                     <span class="bom-card-value" x-text="formatNumber(item.purchase_stock_in_qty)"></span>
                                 </div>

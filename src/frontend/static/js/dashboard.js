@@ -778,12 +778,12 @@ function mtoSearch() {
 
                 if (format === 'xlsx' && typeof XLSX !== 'undefined') {
                     // Client-side Excel export using SheetJS
-                    // 使用物料类型字段控制列显示
+                    // 数量列与表格同口径：非零值一律导出，'-' 仅当值为零且列不适用该类型
                     const exportData = items.map((item, index) => {
                         const isFinished = item.is_finished_goods;
-                        const typeCode = item.material_type_code;
-                        const isSelfMade = typeCode === 1 && !isFinished;
-                        const isPurchasedOrSubcontract = typeCode === 2 || typeCode === 3;
+                        const qtyCell = (field) => this.qtyCellVisible(item, field)
+                            ? parseFloat(item[field]) || 0
+                            : '-';
 
                         const rate = this.getFulfillmentRate(item);
                         return {
@@ -794,12 +794,12 @@ function mtoSearch() {
                             'BOM简称': isFinished ? (item.bom_short_name || '-') : '-',
                             '辅助属性': item.aux_attributes || '-',
                             '物料类型': item.material_type,
-                            '销售订单.数量': isFinished ? parseFloat(item.sales_order_qty) || 0 : '-',
-                            '生产入库单.应收数量': isSelfMade ? parseFloat(item.prod_instock_must_qty) || 0 : '-',
-                            '采购/委外订单.数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_order_qty) || 0 : '-',
-                            '生产领料单.实发数量': !isFinished ? parseFloat(item.pick_actual_qty) || 0 : '-',
-                            '生产入库单.实收数量': typeCode === 1 ? parseFloat(item.prod_instock_real_qty) || 0 : '-',
-                            '采购/委外.累计入库数量': isPurchasedOrSubcontract ? parseFloat(item.purchase_stock_in_qty) || 0 : '-',
+                            '销售订单.数量': qtyCell('sales_order_qty'),
+                            '生产入库单.应收数量': qtyCell('prod_instock_must_qty'),
+                            '采购/委外订单.数量': qtyCell('purchase_order_qty'),
+                            '生产领料单.实发数量': qtyCell('pick_actual_qty'),
+                            '生产入库单.实收数量': qtyCell('prod_instock_real_qty'),
+                            '采购/委外.累计入库数量': qtyCell('purchase_stock_in_qty'),
                             '完成率': rate !== null ? `${(rate * 100).toFixed(0)}%` : '-'
                         };
                     });
@@ -877,6 +877,32 @@ function mtoSearch() {
                 'not_started': 'bg-slate-500/10'
             };
             return colors[status] || '';
+        },
+
+        // === Quantity Cell Gating (cross-source unmasking) ===
+        // Receipts can land cross-typed (e.g. 07.xx 成品 supplied by a sister
+        // plant books into purchase_stock_in_qty, not prod_instock_real_qty).
+        // A qty cell therefore shows its value whenever it is NONZERO,
+        // regardless of type code; '-' only when the value is zero AND the
+        // column doesn't apply to the row's type.
+        qtyColumnApplies(item, field) {
+            switch (field) {
+                case 'sales_order_qty': return !!item.is_finished_goods;
+                case 'prod_instock_must_qty': return item.material_type_code === 1 && !item.is_finished_goods;
+                case 'purchase_order_qty': return item.material_type_code === 2 || item.material_type_code === 3;
+                case 'pick_actual_qty': return !item.is_finished_goods;
+                case 'prod_instock_real_qty': return item.material_type_code === 1;
+                case 'purchase_stock_in_qty': return item.material_type_code === 2 || item.material_type_code === 3;
+                default: return true;
+            }
+        },
+
+        qtyCellVisible(item, field) {
+            return this.qtyColumnApplies(item, field) || (parseFloat(item[field]) || 0) !== 0;
+        },
+
+        qtyCellText(item, field) {
+            return this.qtyCellVisible(item, field) ? this.formatNumber(item[field]) : '-';
         },
 
         // === Utility Methods ===
@@ -1295,28 +1321,25 @@ function mtoSearch() {
         },
 
         // === Summary Calculations for Footer ===
-        // 使用物料类型字段计算合计
+        // 与单元格同口径 (qtyCellVisible)：列适用的行 + 任何非零跨类型值都计入合计
         calculateTotals() {
             const items = this.getSortedItems();
+            const sumQty = (field) => items
+                .filter(i => this.qtyCellVisible(i, field))
+                .reduce((sum, i) => sum + (parseFloat(i[field]) || 0), 0);
             return {
                 // 销售订单.数量 (成品)
-                sales_order_qty: items.filter(i => i.is_finished_goods)
-                    .reduce((sum, i) => sum + parseFloat(i.sales_order_qty || 0), 0),
+                sales_order_qty: sumQty('sales_order_qty'),
                 // 生产入库单.应收数量 (自制件, type=1 非成品)
-                prod_instock_must_qty: items.filter(i => i.material_type_code === 1 && !i.is_finished_goods)
-                    .reduce((sum, i) => sum + parseFloat(i.prod_instock_must_qty || 0), 0),
+                prod_instock_must_qty: sumQty('prod_instock_must_qty'),
                 // 采购/委外订单.数量 (外购 type=2 / 委外 type=3)
-                purchase_order_qty: items.filter(i => i.material_type_code === 2 || i.material_type_code === 3)
-                    .reduce((sum, i) => sum + parseFloat(i.purchase_order_qty || 0), 0),
+                purchase_order_qty: sumQty('purchase_order_qty'),
                 // 生产领料单.实发数量 (非成品)
-                pick_actual_qty: items.filter(i => !i.is_finished_goods)
-                    .reduce((sum, i) => sum + parseFloat(i.pick_actual_qty || 0), 0),
+                pick_actual_qty: sumQty('pick_actual_qty'),
                 // 生产入库单.实收数量 (type=1: 成品+自制件)
-                prod_instock_real_qty: items.filter(i => i.material_type_code === 1)
-                    .reduce((sum, i) => sum + parseFloat(i.prod_instock_real_qty || 0), 0),
+                prod_instock_real_qty: sumQty('prod_instock_real_qty'),
                 // 采购/委外.累计入库数量 (外购 type=2 / 委外 type=3)
-                purchase_stock_in_qty: items.filter(i => i.material_type_code === 2 || i.material_type_code === 3)
-                    .reduce((sum, i) => sum + parseFloat(i.purchase_stock_in_qty || 0), 0)
+                purchase_stock_in_qty: sumQty('purchase_stock_in_qty')
             };
         }
     };

@@ -457,8 +457,10 @@ class KingdeeClient:
             )
         return result
 
-    async def lookup_material_categories(self, material_codes: list[str]) -> dict[str, str]:
-        """Look up BD_MATERIAL.CategoryID.FName for a batch of material codes.
+    async def lookup_material_categories(
+        self, material_codes: list[str]
+    ) -> dict[str, tuple[str, bool]]:
+        """Look up BD_MATERIAL CategoryID.FName + FIsPurchase for a batch of codes.
 
         Used by the live MTO path to route synthetic / PUR-only rows (which are not in
         PPBOM and so carry no category) by their AUTHORITATIVE category
@@ -466,8 +468,15 @@ class KingdeeClient:
         routing by category fixes the divergence where synthetic rows fell back to the
         unreliable legacy material_type (e.g. a 外销包材 box mislabeled 自制).
 
-        Returns {material_code: category_name}. Failure / sparse response logs a WARNING
-        and returns whatever resolved (callers default to "" → legacy fallback).
+        FIsPurchase rides along (fix 2026-06-10): synthetic BOMJoinedRows previously
+        never carried is_purchase, so the dataclass default (False) misfired the
+        self-made-packaging branch and dropped 采购订单/入库 for truly-purchased
+        外销包材 (AS2603021).
+
+        Returns {material_code: (category_name, is_purchase)}. Multi-org duplicate
+        rows merge as: first non-empty category wins, is_purchase is any-true.
+        Failure / sparse response logs a WARNING and returns whatever resolved
+        (callers default category to "" → legacy fallback).
         """
         if not material_codes:
             return {}
@@ -483,7 +492,7 @@ class KingdeeClient:
         try:
             records = await self.query_all(
                 form_id="BD_MATERIAL",
-                field_keys=["FNumber", "FCategoryID.FName"],
+                field_keys=["FNumber", "FCategoryID.FName", "FIsPurchase"],
                 filter_string=f"FNumber IN ({in_clause})",
             )
         except Exception:
@@ -494,17 +503,25 @@ class KingdeeClient:
             )
             return {}
 
-        result: dict[str, str] = {}
+        result: dict[str, tuple[str, bool]] = {}
         for r in records:
             code = r.get("FNumber")
-            cat = r.get("FCategoryID.FName")
-            if code and cat and str(cat).strip():
-                result[str(code)] = str(cat).strip()
+            if not code:
+                continue
+            code = str(code)
+            cat = str(r.get("FCategoryID.FName") or "").strip()
+            is_pur = bool(r.get("FIsPurchase"))
+            # Multi-org duplicate rows: first non-empty category, any-true is_purchase.
+            prev_cat, prev_pur = result.get(code, ("", False))
+            result[code] = (prev_cat or cat, prev_pur or is_pur)
 
-        missing = len(safe) - len(result)
+        # Sparse warning keys off CATEGORY resolution (same semantics as before
+        # FIsPurchase rode along): a row with a blank category still counts as missing.
+        resolved_categories = sum(1 for cat, _pur in result.values() if cat)
+        missing = len(safe) - resolved_categories
         if missing > 0 and missing > len(safe) // 2:
             logger.warning(
                 "material_category_lookup_sparse: requested=%d found=%d — routing may fall back",
-                len(safe), len(result),
+                len(safe), resolved_categories,
             )
         return result

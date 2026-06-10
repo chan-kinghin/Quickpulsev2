@@ -149,6 +149,8 @@ class TestRowToBomJoined:
             "外销包材",       # 28: category_name
             1,               # 29: is_purchase
             "2026-01-15 12:00:00",  # 30: synced_at
+            1,               # 31: has_purchase_order
+            1,               # 32: has_subcontract_order
         )
 
         result = reader._row_to_bom_joined(row)
@@ -177,6 +179,9 @@ class TestRowToBomJoined:
         assert result.delivery_real_qty == Decimal("90.0")
         assert result.material_group_name == "硅胶防水袋"
         assert result.category_name == "外销包材"
+        # Pattern 7 tri-state populated from SQL columns 31/32 (not left None)
+        assert result.has_purchase_order is True
+        assert result.has_subcontract_order is True
         assert result.match_quality_breakdown == {
             "prod_receipt": "exact", "pick": "exact",
             "purchase_order": "exact", "purchase_receipt": "exact",
@@ -220,6 +225,8 @@ class TestRowToBomJoined:
             None,        # 28: category_name (null → "")
             None,        # 29: is_purchase (null → False)
             None,        # 30: synced_at
+            0,           # 31: has_purchase_order (no PO rows → rollup NULL → 0)
+            0,           # 32: has_subcontract_order
         )
 
         result = reader._row_to_bom_joined(row)
@@ -240,6 +247,10 @@ class TestRowToBomJoined:
         # No receipts → all sources flag no_match (data state, not a fallback hit).
         assert result.match_quality_breakdown["prod_receipt"] == "no_match"
         assert result.match_quality_breakdown["delivery"] == "no_match"
+        # Pattern 7: no order rows at all → flags must be False (NOT None),
+        # so the B1 need_qty fallback fires on the cache path too.
+        assert result.has_purchase_order is False
+        assert result.has_subcontract_order is False
 
     def test_with_chinese_data(self):
         """Test _row_to_bom_joined with Chinese material names."""
@@ -278,6 +289,8 @@ class TestRowToBomJoined:
             "包装成品",         # 28: category_name
             0,                 # 29: is_purchase
             "2026-01-15 10:00:00",  # 30: synced_at
+            0,                 # 31: has_purchase_order
+            0,                 # 32: has_subcontract_order
         )
 
         result = reader._row_to_bom_joined(row)

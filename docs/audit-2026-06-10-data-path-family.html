@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>为什么总是这些 bug — 数据路径家族审计 2026-06-10</title>
+<style>
+:root{
+  --abyss-900:#060e1d;--abyss-850:#0a1830;--abyss-800:#0d1f3d;--abyss-700:#123057;
+  --cobalt-600:#0b4a96;--cobalt-500:#1a63bd;--cobalt-400:#3f88e0;--sky-300:#82b4ef;
+  --dawn:#f2b441;--dawn-bright:#ffd36b;--ember:#e8702a;--ember-red:#c8402a;
+  --velvet:#6e2440;--velvet-soft:#b85c78;
+  --parchment:#ece2cd;--ink-900:#1c160d;
+  --text:#e9e7df;--text-dim:#9fb0c9;--hair-gold:rgba(242,180,65,.42);--hair-cool:rgba(120,160,220,.16);
+  --serif-display:"Didot","Bodoni 72",Georgia,"Songti SC",serif;
+  --serif-body:"Iowan Old Style","Palatino",Charter,Georgia,"Songti SC","STSong",serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--abyss-900);color:var(--text);font-family:var(--serif-body);line-height:1.7;font-size:16px;-webkit-font-smoothing:antialiased}
+.grain{position:fixed;inset:0;pointer-events:none;z-index:9000;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.wrap{max-width:1100px;margin:0 auto;padding:42px 30px 70px}
+h1,h2,h3{font-family:var(--serif-display);font-weight:400;color:#fff}
+h1{font-size:1.9rem;line-height:1.3;margin:10px 0 6px}
+h2{font-size:1.28rem;margin:44px 0 16px;border-bottom:1px solid var(--hair-gold);padding-bottom:8px}
+.kicker{font-family:var(--mono);text-transform:uppercase;letter-spacing:.26em;font-size:.68rem;color:var(--dawn)}
+.sub{color:var(--text-dim);font-size:.92rem}
+.statline{display:flex;gap:14px;margin:20px 0;flex-wrap:wrap}
+.stat{background:linear-gradient(160deg,var(--abyss-850),var(--abyss-800));border:1px solid var(--hair-cool);border-top:2px solid var(--dawn);border-radius:3px;padding:12px 20px;flex:1;min-width:140px}
+.stat .n{font-family:var(--serif-display);font-size:1.7rem;color:var(--dawn-bright)}
+.stat .l{font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-dim)}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.84rem}
+th{font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;font-size:.66rem;color:var(--dawn);text-align:left;padding:8px 9px;border-bottom:2px solid var(--dawn);vertical-align:bottom}
+td{padding:8px 9px;border-bottom:1px solid var(--hair-cool);color:var(--text);vertical-align:top}
+tr:nth-child(even) td{background:rgba(120,160,220,.04)}
+.sev{font-family:var(--mono);font-size:.64rem;letter-spacing:.1em;padding:1px 7px;border-radius:2px;white-space:nowrap}
+.sev.p0{background:rgba(200,64,42,.18);border:1px solid rgba(200,64,42,.6);color:#f0a090}
+.sev.p1{background:rgba(242,180,65,.12);border:1px solid var(--hair-gold);color:var(--dawn-bright)}
+.sev.p2{background:rgba(120,160,220,.08);border:1px solid var(--hair-cool);color:var(--text-dim)}
+.mono{font-family:var(--mono);font-size:.76rem;color:var(--sky-300)}
+code{font-family:var(--mono);font-size:.8em;background:rgba(120,160,220,.12);padding:1px 6px;border-radius:2px;color:var(--dawn-bright)}
+.adm{border-left:3px solid var(--dawn);background:rgba(242,180,65,.07);padding:14px 18px;margin:16px 0;font-size:.9rem;border-radius:0 3px 3px 0}
+.adm.danger{border-left-color:var(--velvet);background:rgba(110,36,64,.14)}
+.adm .t{font-family:var(--mono);text-transform:uppercase;letter-spacing:.18em;font-size:.64rem;display:block;margin-bottom:5px;color:var(--dawn)}
+.adm.danger .t{color:var(--velvet-soft)}
+.cause{display:grid;grid-template-columns:42px 1fr;gap:14px;margin:18px 0;align-items:start}
+.cause .ring{width:38px;height:38px;border:1.5px solid var(--dawn);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--dawn);font-family:var(--serif-display);font-size:1rem;margin-top:3px}
+.cause h3{font-size:1.02rem;margin-bottom:4px}
+.cause p{font-size:.88rem;color:var(--text-dim)}
+.cause p b{color:var(--text)}
+.velvetbox{background:linear-gradient(160deg,#241019,#2b1220);border:1px solid rgba(184,92,120,.4);border-radius:3px;padding:22px 26px;margin:26px 0}
+.velvetbox p{font-family:var(--serif-display);font-style:italic;font-size:1.12rem;color:#f4dfe6;line-height:1.6}
+.signoff{margin-top:60px;text-align:center}
+.signoff .ring{width:58px;height:58px;margin:0 auto 8px;border:1.5px solid var(--dawn);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--dawn);font-family:var(--mono);font-size:.55rem;letter-spacing:.2em}
+.signoff p{font-family:var(--mono);font-size:.6rem;letter-spacing:.3em;color:var(--text-dim);text-transform:uppercase}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="wrap">
+
+<span class="kicker">QuickPulse · Multi-Agent Audit · 2026-06-10</span>
+<h1>「为什么总是这些 bug？」— 数据路径家族审计</h1>
+<p class="sub">36 个代理 · 7 个扫描维度 · 每个发现独立对抗性验证（验证代理默认立场=驳回，多个发现用 live 金蝶探针复核）</p>
+
+<div class="statline">
+<div class="stat"><div class="n">29</div><div class="l">原始发现</div></div>
+<div class="stat"><div class="n">28</div><div class="l">验证确认 / 1 驳回</div></div>
+<div class="stat"><div class="n">13</div><div class="l">去重后独立问题</div></div>
+<div class="stat" style="border-top-color:var(--ember-red)"><div class="n">4</div><div class="l">P0 · 默认路径数字错</div></div>
+</div>
+
+<h2>一、P0 — 默认路径上数字就是错的（多数已 live 验证）</h2>
+<table>
+<tr><th style="width:52px">级别</th><th>问题</th><th>live 实证</th><th style="width:200px">位置</th></tr>
+<tr><td><span class="sev p0">P0·1</span></td>
+<td><b>主料/辅料→自制 类别焊死</b> — 今天 bug 的孪生。类别=主料 的真外购料被无条件路由进生产入库口径，采购订单/入库整列丢弃。⚠ 已计划的 is_purchase 修复<b>修不到</b>这个分支（它只查 包材 标签）。租户内 9 个主料/辅料 PPBOM 料全部 IsPurchase=1。</td>
+<td class="mono">03.01.012 小方袋 (DK25B294S 等3个MTO)：BOM需求44,208，真实PO 42,708、已收12,708 → 界面 0入库/0%</td>
+<td class="mono">mto_handler.py:1607-1614 (_CATEGORY_TO_TYPE), 1652-1681</td></tr>
+<tr><td><span class="sev p0">P0·2</span></td>
+<td><b>live 收货侧 Tier-2 (aux=0回退) 无去重 → N× 虚增</b> — 一个料有 N 组 BOM 辅助属性、收货记在 aux=0 时，每个兄弟行都领全额：入库/领料合计 = N×金蝶。需求侧（Wave-5B）有去重、收货侧漏了 → 还会出「订单数量0 + 领料全额」的 &gt;100% 怪行。cache SQL 反而做了去重——live/cache 各修了半边。</td>
+<td class="mono">机制级确认（代码重推导）；cache 镜像 _apply_recv_partial_match_dedup 存在、live _get Tier-2 在咨询去重状态之前就 return</td>
+<td class="mono">mto_handler.py:839-843 vs cache_reader.py:889-929</td></tr>
+<tr><td><span class="sev p0">P0·3</span></td>
+<td><b>07.xx 外购入库整链路被吞</b> — 兄弟厂调拨/外购成品的 STK 入库存进了 purchase_stock_in_qty，但前端表格/手机卡片/Excel导出/合计行全部按 type-code 2/3 把该列遮成 '-'，完成率语义只读生产入库 → 全收货显示 0%/红色预警。</td>
+<td class="mono">DK251003S 07.02.151：订242/收242 → 显示 0%、未开始</td>
+<td class="mono">dashboard.html:497-498, mto_config.json (fulfilled_field), metrics.py:111-156</td></tr>
+<tr><td><span class="sev p0">P0·4</span></td>
+<td><b>预警页（prod 在用）双向失真</b> — ① 销售出库/订单缓存 UNIQUE 把同一单据多 SKU 行折叠（keep-last/keep-first）→ 真超发被压低漏报、订单分母被砍出假超发；② 单据在金蝶被删/反审核后缓存残留 → 幽灵预警永不消失（生产订单表根本没有 DELETE 步骤）。即领料表 Pattern-5 修复（9c5fe58）的同族未修表。</td>
+<td class="mono">XS26050001/03.03.001：真发481，缓存186（−61%）；每月~200+单据组受影响（live 抽样验证）</td>
+<td class="mono">sync_service.py:917-973, schema.sql:175/199; 484-545 (无DELETE)</td></tr>
+</table>
+
+<h2>二、P1 — 口径不一致 / 标签错 / 行消失</h2>
+<table>
+<tr><th style="width:52px">级别</th><th>问题</th><th style="width:230px">位置</th></tr>
+<tr><td><span class="sev p1">P1·5</span></td><td><b>B1 回退复活刻意零</b> — <code>purchase_order_qty or need_qty</code> 把 Wave-5B/strict-aux 刻意写下的 0（防 N× 虚增）当「没有订单」，又用 need_qty 填回去 → 合计再次虚增。Decimal(0) 兼职两种含义。</td><td class="mono">mto_handler.py:1743, 1761</td></tr>
+<tr><td><span class="sev p1">P1·6</span></td><td><b>委外行没有语义类</b> — metrics=None → 完成率永远 '-'，且任何完成状态筛选（已完成/进行中/未开始/预警）都把委外行<b>整行删掉</b>，用户毫无提示地丢行。</td><td class="mono">mto_config.json (只注册了3类), enrichment.py:31-37, dashboard.js:264</td></tr>
+<tr><td><span class="sev p1">P1·7</span></td><td><b>委外订单读数无单据状态过滤</b> — 唯一没有 FDocumentStatus IN (B,C,D) 的数量源单：草稿/废弃委外单计入订单数量，且经 B1 回退覆盖 BOM 需求。采购订单同场景是过滤的——两口径不一致。</td><td class="mono">factory.py:385-400 (SUB_SUBREQORDER)</td></tr>
+<tr><td><span class="sev p1">P1·8</span></td><td><b>03.% 多父BOM需求：live 取 MAX、cache 取 SUM</b> — 外购料出现在 N 个父 BOM 时 live 低估需求（两边注释都说 SUM 才是外购正确口径）；cache 注释声称 live 等价——是假的。</td><td class="mono">cache_reader.py:478-489 vs mto_handler.py:1168-1197</td></tr>
+<tr><td><span class="sev p1">P1·9</span></td><td><b>2c 合成行辅助属性空白</b> — PRD_MO-only 料的 aux id 没进 BD_FLEXSITEMDETAILV 批量解析 → 多颜色变体 N 行除数量外完全相同、无法区分。</td><td class="mono">mto_handler.py:616-617, 1336</td></tr>
+</table>
+
+<div class="adm danger">
+<span class="t">P0·5 · 守门员是同义反复 — 全家族绿灯上线的原因</span>
+<code>tests/unit/test_cache_live_parity.py</code> 自称「Pattern 1 专用守卫」，但它<b>不执行任何一条真路径</b>：cache_row 和 live_row 用同一个构造器、同样参数造出来再断言相等——永真。注释还写着 is_purchase「已在全部3条路径接通」（对 live builder 是假的）。今天的 bug 就是这样带着绿色 CI 上 prod 的；不重写它，is_purchase 修复同样没有回归保护。另有 5 个 P2 低危（未知类型幽灵行、cache-only 列折叠、文档与代码的表单名漂移等）记录在 /tmp/audit_result.json。
+</div>
+
+<h2>三、为什么总是这些 bug — 四个结构性根因</h2>
+<div class="cause"><div class="ring">壹</div><div>
+<h3>单口径数据模型 對抗 多源现实</h3>
+<p>ChildItem 的注释自己写着<b>「根据物料类型，只有一个有值」</b>——但 CLAUDE.md 的反模式表早就写明：同一物料可以同时在 PRD_INSTOCK + 采购入库 + 委外入库有收货，<b>必须 union，永不单源</b>。后端其实把 5 个来源都算出来了（_make_row 全填进 BOMJoinedRow），却在 _bom_row_to_child 这一刀按「物料类型」只保留一个口径、其余丢弃。于是<b>每一个路由错误（类别焊死/is_purchase/前缀）都自动升级成数据丢失</b>。P0·1、P0·3、今天的 bug，全是这一个形状。</p>
+</div></div>
+<div class="cause"><div class="ring">贰</div><div>
+<h3>前端把「数据被丢了」伪装成「该列不适用」</h3>
+<p>列按 type-code 显示 '-'。用户分不清「这列对该物料不适用」和「数据其实有、但被路由丢了」——所以这些 bug 全靠<b>业务同事人肉对金蝶</b>才暴露（这次也是）。系统自己永远不报警。</p>
+</div></div>
+<div class="cause"><div class="ring">叁</div><div>
+<h3>同一套语义写了两遍，每个 wave 只修一格</h3>
+<p>aux 三层回退、收货去重、类别路由、需求口径——live Python 和 cache SQL 各实现一遍。审计抓到三对「半边修复」：收货去重 cache 有 live 没有（P0·2）、03.% SUM cache 有 live 没有（P1·8）、is_purchase cache 有 live 没有（今天）。<b>而且每次都是声称等价的注释 + 不执行真路径的守卫陪着它们上线。</b></p>
+</div></div>
+<div class="cause"><div class="ring">肆</div><div>
+<h3>默认值兼职信号 + 在 cache 上验证、在 live 上运行</h3>
+<p>False/0/'' 既是「没填」又是「真值」（is_purchase=False、Decimal(0)、category=''），任何一条路径漏填就静默走错分支。而修复的端到端验证做在 cache 数据上，prod 默认跑 live——验证的不是用户跑的。</p>
+</div></div>
+
+<div class="velvetbox">
+<p>这不是 13 个 bug，是一个架构债的 13 次利息：数据模型只允许一个口径，现实却有五个来源——路由层每错一次，真数据就消失一次，而界面和测试都配合着保持沉默。</p>
+</div>
+
+<h2>四、建议杀法（按序）</h2>
+<table>
+<tr><th style="width:60px">顺序</th><th>动作</th><th>了结</th></tr>
+<tr><td class="mono">①现在</td><td>扩展今天的修复：is_purchase 接通（原计划）<b>＋ 自制分支同样按 is_purchase 分流</b>（主料+外购 → 采购口径）——同一把刀，多劈一个分支</td><td>今天的 bug + P0·1</td></tr>
+<tr><td class="mono">②本周</td><td>预警链路：销售出库/订单 UNIQUE 加 entry 粒度（照抄领料表 9c5fe58 的修法）+ 补 per-MTO DELETE；live 收货侧 Tier-2 接上已有的去重状态</td><td>P0·4 + P0·2</td></tr>
+<tr><td class="mono">③架构</td><td><b>ChildItem 改多口径</b>：每行携带全部 5 源数量，路由只决定「主列」，其余折叠可见 → 路由错误从「数据丢失」降级为「主列选错」；07.xx 完成率读 union。同时真删已判死刑的 cache 查询路径、把 parity 守卫换成金蝶黄金样本回放</td><td>P0·3 + 根因壹/贰/叁 整族</td></tr>
+</table>
+
+<div class="signoff">
+<div class="ring">·AMOR·FATI·</div>
+<p>Stamford Bridge · 51.4817°N 0.1910°W · EST 1905</p>
+<p style="margin-top:6px">full data: /tmp/audit_result.json · workflow wf_6d04bfa4-770 · 36 agents · 2.8M tokens</p>
+</div>
+
+</div>
+</body>
+</html>

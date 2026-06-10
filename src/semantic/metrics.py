@@ -13,7 +13,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Optional, Union
 
 from src.models.mto_status import MetricValue
 
@@ -44,7 +44,12 @@ class MaterialClassMetrics:
     class_id: str
     pattern: Optional[re.Pattern] = None
     demand_field: Optional[str] = None
-    fulfilled_field: Optional[str] = None
+    # str = single field; list = union of fields summed together (e.g. a
+    # finished good fulfilled by PRD_INSTOCK receipts AND sister-plant
+    # purchase receipts). Summing is safe ONLY for fields backed by distinct
+    # physical receipts — never include purchase_receipt_real_qty alongside
+    # purchase_stock_in_qty (the STK rows mirror PO-side FStockInQty).
+    fulfilled_field: Optional[Union[str, list[str]]] = None
     picking_field: Optional[str] = None
     metrics: list[MetricDefinition] = field(default_factory=list)
     material_type_id: Optional[int] = None
@@ -114,7 +119,7 @@ class MetricEngine:
 
         # Read semantic field values from item
         demand = _get_decimal(item, config.demand_field)
-        fulfilled = _get_decimal(item, config.fulfilled_field)
+        fulfilled = _sum_decimal(item, config.fulfilled_field)
         picking = _get_decimal(item, config.picking_field)
 
         logger.debug(
@@ -270,3 +275,15 @@ def _get_decimal(obj, field_name: Optional[str]) -> Decimal:
         return Decimal(str(val))
     except (InvalidOperation, ValueError, TypeError):
         return ZERO
+
+
+def _sum_decimal(obj, field_names: Optional[Union[str, list[str]]]) -> Decimal:
+    """Read one field (str) or sum a union of fields (list) as Decimal."""
+    if not field_names:
+        return ZERO
+    if isinstance(field_names, str):
+        return _get_decimal(obj, field_names)
+    total = ZERO
+    for name in field_names:
+        total += _get_decimal(obj, name)
+    return total

@@ -76,6 +76,18 @@ class BOMJoinedRow:
     # Per-source aux match quality: {source: 'exact'|'aux_zero_fallback'|'all_aux_rollup'|'no_match'}
     # Empty dict when not populated (live path until Stage 4, cache path until Stage 3).
     match_quality_breakdown: dict = field(default_factory=dict)
+    # Tri-state order provenance (Pattern 7, audit 2026-06-10). Decimal(0) in
+    # purchase_order_qty / subcontract_order_qty is ambiguous: it can mean
+    # "no order exists" (B1 need_qty fallback applies) OR a DELIBERATE zero
+    # (Wave-5B non-elected aux sibling, or a ?strict_aux=true wipe) that must
+    # NOT be repainted with need_qty. True = code-level order rollup known
+    # > 0 (or strict-aux deliberately zeroed it) → use the row value as-is;
+    # False = genuinely no order → fall back to need_qty; None = unknown
+    # (keeps the legacy or-fallback). BOTH paths now set these: the live
+    # builder (_make_row) and the cache SQL (get_mto_bom_joined columns
+    # 31/32) — None should only appear for hand-built rows in tests.
+    has_purchase_order: Optional[bool] = None
+    has_subcontract_order: Optional[bool] = None
 
 
 @dataclass
@@ -646,7 +658,18 @@ class CacheReader:
                 COALESCE(br.material_group_name, '') as material_group_name,
                 COALESCE(br.category_name, '') as category_name,
                 COALESCE(br.is_purchase, 0) as is_purchase,
-                ba.synced_at
+                ba.synced_at,
+                /* Tri-state order provenance (Pattern 7) — mirrors the live
+                   builder's `_by_code_all > 0` semantics (_make_row in
+                   mto_handler.py): True iff ANY order exists at CODE level
+                   (rollup > 0), regardless of which aux tier the per-row qty
+                   came from. NULL-safe: a code with no order rows at all has
+                   a NULL rollup → COALESCE to 0 → flag False, so the B1
+                   need_qty fallback still fires for genuinely-no-order rows,
+                   while Wave-5B deliberately-zeroed siblings (rollup > 0)
+                   keep their 0 instead of being repainted with need_qty. */
+                (COALESCE(po_all.order_qty, 0) > 0) as has_purchase_order,
+                (COALESCE(sub_all.order_qty, 0) > 0) as has_subcontract_order
             FROM bom_repr br
             JOIN bom_agg ba ON br.material_code = ba.material_code
                            AND br.aux_prop_id = ba.aux_prop_id
@@ -982,7 +1005,10 @@ class CacheReader:
         23: purchase_order_match_quality, 24: purchase_receipt_match_quality,
         25: subcontract_match_quality, 26: delivery_match_quality,
         27: material_group_name, 28: category_name, 29: is_purchase,
-        30: synced_at (accessed in get_mto_bom_joined for freshness check)
+        30: synced_at (accessed in get_mto_bom_joined for freshness check),
+        31: has_purchase_order, 32: has_subcontract_order (tri-state order
+            provenance, Pattern 7 — SQL emits 0/1 from the NULL-safe
+            code-level rollup check, never NULL, so bool() is exact)
 
         Columns 21-26 are Stage 1 telemetry — consumed by _log_fallback_telemetry,
         not yet propagated to BOMJoinedRow (Stage 3 of PLAN_aux_match_visibility).
@@ -1012,6 +1038,11 @@ class CacheReader:
             material_group_name=row[27] or "",
             category_name=row[28] or "",
             is_purchase=bool(row[29]),
+            # Pattern 7 (was the live/cache half-fix): populate the tri-state
+            # so ?source=cache distinguishes deliberate zeros from no-order,
+            # exactly like the live builder. SQL guarantees 0/1 (never NULL).
+            has_purchase_order=bool(row[31]),
+            has_subcontract_order=bool(row[32]),
             match_quality_breakdown={
                 "prod_receipt": row[21] or "no_match",
                 "pick": row[22] or "no_match",

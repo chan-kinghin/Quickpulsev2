@@ -75,9 +75,14 @@ CREATE TABLE IF NOT EXISTS cached_purchase_orders (
     order_qty REAL,
     stock_in_qty REAL,
     remain_stock_in_qty REAL,
+    entry_id INTEGER DEFAULT 0,  -- Kingdee FEntryID; same document can carry multiple lines per (material, aux)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
+    -- bug-patterns.md #5, 6th occurrence (audit 2026-06-10): entry_id MUST be
+    -- in the UNIQUE key — one PO document can carry multiple entry lines for
+    -- the same (material, aux); without it the upsert keeps only one line.
+    -- See migration 019.
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_puro_mto ON cached_purchase_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_puro_material ON cached_purchase_orders(material_code);
@@ -93,13 +98,17 @@ CREATE TABLE IF NOT EXISTS cached_subcontracting_orders (
     stock_in_qty REAL,
     no_stock_in_qty REAL,
     aux_prop_id INTEGER DEFAULT 0,
+    entry_id INTEGER DEFAULT 0,
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     -- bug-patterns.md #5 (Bug 7, 2026-04-26): mto_number MUST be in the
     -- UNIQUE key. A subcontract bill_no can legitimately appear under
     -- multiple MTOs of the same customer; without mto_number here the
     -- upsert silently migrates rows between MTOs.
-    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
+    -- entry_id (Pattern 5, 7th table, 2026-06-10): one 委外订单 can carry
+    -- multiple entry lines with the same (material, aux) — verified live,
+    -- e.g. WW25100020/08.27.001 lines 1200+38800 collapsed to one.
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_subo_mto ON cached_subcontracting_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_subo_material ON cached_subcontracting_orders(material_code);
@@ -114,9 +123,11 @@ CREATE TABLE IF NOT EXISTS cached_production_receipts (
     real_qty REAL,
     must_qty REAL,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
+    entry_id INTEGER DEFAULT 0,  -- Kingdee FEntryID; same document can carry multiple lines per (material, aux)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
+    -- Entry-line grain (Pattern 5, 6th occurrence — see migration 019).
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_prdr_mto ON cached_production_receipts(mto_number);
 CREATE INDEX IF NOT EXISTS idx_prdr_mto_synced ON cached_production_receipts(mto_number, synced_at DESC);
@@ -132,9 +143,12 @@ CREATE TABLE IF NOT EXISTS cached_purchase_receipts (
     must_qty REAL,
     bill_type_number TEXT,  -- RKD01_SYS=外购入库, RKD03_SYS=委外入库 (NOT RKD02_SYS — that returns zero rows)
     aux_prop_id INTEGER DEFAULT 0,
+    entry_id INTEGER DEFAULT 0,  -- Kingdee FEntryID; same document can carry multiple lines per (material, aux)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, mto_number, material_code, bill_type_number, aux_prop_id)
+    -- Entry-line grain (Pattern 5, 6th occurrence — live proof CG26041724
+    -- kept 14 of 39+1798+762+14=2613; see migration 019).
+    UNIQUE(bill_no, mto_number, material_code, bill_type_number, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_purr_mto ON cached_purchase_receipts(mto_number);
 CREATE INDEX IF NOT EXISTS idx_purr_type ON cached_purchase_receipts(bill_type_number);
@@ -150,12 +164,16 @@ CREATE TABLE IF NOT EXISTS cached_material_picking (
     actual_qty REAL,
     ppbom_bill_no TEXT,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
+    entry_id INTEGER DEFAULT 0,  -- Kingdee FEntryID; same document can carry multiple lines per (material, ppbom, aux)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     -- bill_no MUST be in the key: one (mto, material, ppbom, aux) is picked
     -- across multiple 领料单 — omitting bill_no collapsed them to the last doc
     -- and under-counted actual_qty (bug-patterns.md Pattern 5; see migration 018).
-    UNIQUE(bill_no, mto_number, material_code, ppbom_bill_no, aux_prop_id)
+    -- entry_id too: ONE 领料单 can carry multiple lines for the same key
+    -- (live proof LL26041108 / 05.02.04.033: 1021+579 — migration 018's
+    -- zero-residual-collision claim was empirically false; see migration 019).
+    UNIQUE(bill_no, mto_number, material_code, ppbom_bill_no, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pick_mto ON cached_material_picking(mto_number);
 CREATE INDEX IF NOT EXISTS idx_pick_mto_synced ON cached_material_picking(mto_number, synced_at DESC);
@@ -170,9 +188,12 @@ CREATE TABLE IF NOT EXISTS cached_sales_delivery (
     real_qty REAL,
     must_qty REAL,
     aux_prop_id INTEGER DEFAULT 0,  -- For variant-aware matching
+    entry_id INTEGER DEFAULT 0,  -- Kingdee FEntryID; same document can carry multiple lines per (material, aux)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
+    -- Entry-line grain (Pattern 5, 6th occurrence — live proof XS26050001 kept
+    -- 186 of 186+55+54+186=481, hiding real 超发; see migration 019).
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_sald_mto ON cached_sales_delivery(mto_number);
 CREATE INDEX IF NOT EXISTS idx_sald_mto_synced ON cached_sales_delivery(mto_number, synced_at DESC);
@@ -194,9 +215,12 @@ CREATE TABLE IF NOT EXISTS cached_sales_orders (
     bom_short_name TEXT DEFAULT '',  -- BOM简称
     material_group_name TEXT DEFAULT '',  -- BD_MATERIAL.MaterialGroup.FName (e.g. "护目镜")
     close_status TEXT DEFAULT 'A',  -- 'A'=正常, 'B'=已关闭 (OR of header FCloseStatus + row FMrpCloseStatus + FMANUALROWCLOSE)
+    entry_id INTEGER DEFAULT 0,  -- Kingdee FEntryID; same document can carry multiple lines per (material, aux)
     raw_data TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bill_no, mto_number, material_code, aux_prop_id)
+    -- Entry-line grain (Pattern 5, 6th occurrence — live proof XSDD2605036
+    -- dropped its qty=3 lines, faking 超发; see migration 019).
+    UNIQUE(bill_no, mto_number, material_code, aux_prop_id, entry_id)
 );
 CREATE INDEX IF NOT EXISTS idx_salo_mto ON cached_sales_orders(mto_number);
 CREATE INDEX IF NOT EXISTS idx_salo_material ON cached_sales_orders(material_code);

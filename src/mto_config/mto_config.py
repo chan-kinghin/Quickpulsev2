@@ -61,7 +61,13 @@ class SemanticConfig:
     """
 
     demand_field: Optional[str] = None
+    # Primary fulfilled field (first of the union) — kept a plain str because
+    # downstream consumers (e.g. schema_mapping discovery) key dicts on it.
     fulfilled_field: Optional[str] = None
+    # Full union: all fields summed to produce the fulfilled quantity. The
+    # JSON accepts a string OR a list for "fulfilled_field"; both normalize
+    # here ([single] for the string form).
+    fulfilled_fields: list[str] = field(default_factory=list)
     picking_field: Optional[str] = None
     metrics: list[SemanticMetricConfig] = field(default_factory=list)
     provenance: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -72,9 +78,17 @@ class SemanticConfig:
             SemanticMetricConfig.from_dict(m)
             for m in data.get("metrics", [])
         ]
+        raw_fulfilled = data.get("fulfilled_field")
+        if raw_fulfilled is None:
+            fulfilled_fields: list[str] = []
+        elif isinstance(raw_fulfilled, str):
+            fulfilled_fields = [raw_fulfilled]
+        else:
+            fulfilled_fields = list(raw_fulfilled)
         return cls(
             demand_field=data.get("demand_field"),
-            fulfilled_field=data.get("fulfilled_field"),
+            fulfilled_field=fulfilled_fields[0] if fulfilled_fields else None,
+            fulfilled_fields=fulfilled_fields,
             picking_field=data.get("picking_field"),
             metrics=metrics,
             provenance=data.get("provenance", {}),
@@ -269,7 +283,13 @@ class MTOConfig:
                     class_id=mc.id,
                     pattern=mc.pattern,
                     demand_field=sem.demand_field,
-                    fulfilled_field=sem.fulfilled_field,
+                    # Pass the full union (list) when configured; single-field
+                    # classes keep the plain str form.
+                    fulfilled_field=(
+                        sem.fulfilled_fields
+                        if len(sem.fulfilled_fields) > 1
+                        else sem.fulfilled_field
+                    ),
                     picking_field=sem.picking_field,
                     metrics=metric_defs,
                     material_type_id=mc.material_type_id,
@@ -305,16 +325,15 @@ class MTOConfig:
             ValueError: If any configured field name is not a ChildItem field.
         """
         field_mapping = {
-            "demand_field": sem.demand_field,
-            "fulfilled_field": sem.fulfilled_field,
-            "picking_field": sem.picking_field,
+            "demand_field": [sem.demand_field] if sem.demand_field else [],
+            "fulfilled_field": sem.fulfilled_fields,
+            "picking_field": [sem.picking_field] if sem.picking_field else [],
         }
-        for role, field_name in field_mapping.items():
-            if field_name is None:
-                continue
-            if field_name not in valid_fields:
-                raise ValueError(
-                    f"Material class '{class_id}': semantic {role}='{field_name}' "
-                    f"does not exist on ChildItem. "
-                    f"Valid fields: {sorted(valid_fields)}"
-                )
+        for role, field_names in field_mapping.items():
+            for field_name in field_names:
+                if field_name not in valid_fields:
+                    raise ValueError(
+                        f"Material class '{class_id}': semantic {role}='{field_name}' "
+                        f"does not exist on ChildItem. "
+                        f"Valid fields: {sorted(valid_fields)}"
+                    )

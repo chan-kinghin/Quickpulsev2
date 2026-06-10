@@ -274,6 +274,14 @@ class SyncService:
 
         Uses a database transaction to ensure all-or-nothing updates.
         If any step fails, the entire chunk rolls back cleanly.
+
+        Stale-document purge (audit 2026-06-10, Bug 2): deletes are
+        deterministic, not derived from fetched rows. Production orders are
+        date-window-replaced (delete by create_date in [start, end], then
+        insert what Kingdee returned — a successful empty fetch purges
+        deleted/反审核-ed orders). MTO-based tables are purged by the chunk's
+        full MTO list minus MTOs whose fetch batches failed, so an MTO whose
+        LAST document was deleted in Kingdee no longer keeps ghost rows.
         """
         count = 0
 
@@ -284,9 +292,6 @@ class SyncService:
         orders = await self.readers["production_order"].fetch_by_date_range(
             start_date, end_date
         )
-
-        if not orders:
-            return 0
 
         # 2. Fetch BOM entries
         bom_entries = []
@@ -302,8 +307,11 @@ class SyncService:
         # Use write lock to coordinate parallel chunk writes (SQLite = single writer)
         async with self._db_write_lock:
             async with self.db.transaction():
-                # Production orders
-                await self._upsert_production_orders(orders)
+                # Production orders: window-replace (purge runs even when the
+                # fetch returned zero rows — that's the ghost-order case).
+                await self._upsert_production_orders(
+                    orders, window=(start_date, end_date)
+                )
                 count += len(orders)
                 self.progress.update(
                     "prd_mo", f"Synced {len(orders)} production orders", prd_mo_count=len(orders)
@@ -318,11 +326,11 @@ class SyncService:
                         prd_ppbom_count=len(bom_entries)
                     )
 
-                # All 7 MTO-based data sources
-                for data_type, records in mto_data.items():
-                    if records:
-                        await self._upsert_by_type(data_type, records)
-                        count += len(records)
+                # All 7 MTO-based data sources. Called even with zero records:
+                # the purge list may be non-empty (last doc deleted in Kingdee).
+                for data_type, (records, purge_mtos) in mto_data.items():
+                    await self._upsert_by_type(data_type, records, purge_mtos)
+                    count += len(records)
 
         return count
 
@@ -381,8 +389,18 @@ class SyncService:
 
         return all_entries
 
-    async def _fetch_all_mto_data(self, mto_numbers: list[str]) -> dict[str, list]:
-        """Fetch all MTO-based data sources in parallel for efficiency."""
+    async def _fetch_all_mto_data(
+        self, mto_numbers: list[str]
+    ) -> dict[str, tuple[list, list[str]]]:
+        """Fetch all MTO-based data sources in parallel for efficiency.
+
+        Returns {data_type: (records, purge_mtos)}. purge_mtos is the subset
+        of mto_numbers whose batches fetched SUCCESSFULLY — safe to
+        delete-and-replace in the cache (an MTO with zero fetched rows means
+        its documents are gone/反审核-ed in Kingdee, not that the fetch failed).
+        MTOs in failed batches are excluded so a transient API error never
+        wipes cached data it cannot replace.
+        """
         if not mto_numbers:
             return {}
 
@@ -414,17 +432,21 @@ class SyncService:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.warning("Error fetching %s: %s", task_names[i], result)
-                mto_data[task_names[i]] = []
+                # Whole source failed: nothing fetched, nothing safe to purge.
+                mto_data[task_names[i]] = ([], [])
             else:
-                mto_data[task_names[i]] = result
+                records, purge_mtos = result
+                mto_data[task_names[i]] = (records, purge_mtos)
                 self.progress.update(
                     task_names[i].replace("_", ""),
-                    f"Fetched {len(result)} {task_names[i].replace('_', ' ')}",
+                    f"Fetched {len(records)} {task_names[i].replace('_', ' ')}",
                 )
 
         return mto_data
 
-    async def _upsert_by_type(self, data_type: str, records: list) -> None:
+    async def _upsert_by_type(
+        self, data_type: str, records: list, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Dispatch upsert to the correct method based on data type."""
         upsert_methods = {
             "purchase_orders": self._upsert_purchase_orders_no_commit,
@@ -437,7 +459,7 @@ class SyncService:
         }
         method = upsert_methods.get(data_type)
         if method:
-            await method(records)
+            await method(records, purge_mtos=purge_mtos)
 
     async def _fetch_bom_batch_with_retry(self, bill_nos: list[str]) -> list | None:
         """Fetch BOM entries for a batch of bill numbers with timeout and retries.
@@ -481,7 +503,9 @@ class SyncService:
             for table in tables:
                 await self.db.execute_write_no_commit(f"DELETE FROM {table}")
 
-    async def _upsert_production_orders(self, orders: Iterable) -> None:
+    async def _upsert_production_orders(
+        self, orders: Iterable, window: Optional[tuple[date, date]] = None
+    ) -> None:
         """Upsert production orders (uses no-commit for transaction support).
 
         bug-patterns.md #5 (Wave 4A / Bug 7, fixed 2026-04-26): the UNIQUE
@@ -492,7 +516,26 @@ class SyncService:
         the upsert silently migrated rows between MTOs and produced "ghost"
         07.xx data on lookup. Mirror of the Wave 2 fix (commit cc9ab22) for
         cached_subcontracting_orders.
+
+        window=(start, end): date-window replace (audit 2026-06-10, Bug 2).
+        Orders are fetched by FCreateDate range, so cached rows whose
+        create_date falls inside the synced window but that Kingdee no longer
+        returns (deleted / 反审核-ed to draft) are purged before insert. Rows
+        with NULL/unparseable create_date are never purged (date() → NULL).
+        This table previously had NO delete step at all — dead orders
+        persisted forever and fed phantom alerts.
         """
+        if window is not None:
+            start, end = window
+            await self.db.execute_write_no_commit(
+                f"""
+                DELETE FROM {TABLE_ORDERS}
+                WHERE create_date IS NOT NULL
+                  AND date(create_date) BETWEEN date(?) AND date(?)
+                """,
+                [start.isoformat(), end.isoformat()],
+            )
+
         if not orders:
             return
 
@@ -616,7 +659,7 @@ class SyncService:
 
     async def _fetch_by_mto_numbers(
         self, reader_name: str, mto_numbers: list[str], data_type: str
-    ) -> list:
+    ) -> tuple[list, list[str]]:
         """Fetch records for multiple MTO numbers using batched IN clause queries.
 
         Instead of making N individual API calls (one per MTO), this method
@@ -626,12 +669,19 @@ class SyncService:
         Performance improvement:
         - Before: 100 MTOs = 100 API calls (10 parallel at a time)
         - After:  100 MTOs = 2 API calls (50 MTOs per batch)
+
+        Returns (records, purge_mtos): purge_mtos covers SUCCESSFUL batches
+        only — those MTOs may be safely delete-and-replaced in the cache even
+        when they fetched zero rows (their documents were deleted/反审核-ed in
+        Kingdee). MTOs from failed batches are excluded so a transient API
+        error never deletes cached data it cannot replace.
         """
         if not mto_numbers:
-            return []
+            return [], []
 
         reader = self.readers[reader_name]
         all_records = []
+        purge_mtos: list[str] = []
 
         # Split into batches for efficient querying
         batches = [
@@ -648,6 +698,7 @@ class SyncService:
             )
             if batch_records is not None:
                 all_records.extend(batch_records)
+                purge_mtos.extend(batch)
             else:
                 failed_batches += 1
                 logger.warning(
@@ -661,7 +712,7 @@ class SyncService:
                 data_type, failed_batches, len(all_records), len(batches) - failed_batches
             )
 
-        return all_records
+        return all_records, purge_mtos
 
     async def _fetch_mto_batch_with_retry(
         self,
@@ -708,28 +759,51 @@ class SyncService:
     # No-commit versions of upsert methods (for use within transactions)
     # =========================================================================
 
-    async def _upsert_purchase_orders_no_commit(self, records: Iterable) -> None:
-        """Upsert purchase orders without commit (for transaction use)."""
-        if not records:
+    async def _purge_by_mto(
+        self, table: str, records_list: list, purge_mtos: Optional[list[str]]
+    ) -> None:
+        """Delete cached rows for the MTOs about to be replaced (no commit).
+
+        When purge_mtos is given (the chunk's successfully-fetched MTO list),
+        it is authoritative: an MTO with zero fetched records still gets its
+        dead cached rows removed (audit 2026-06-10, Bug 2 — ghost 超领/超发
+        alerts from documents deleted/反审核-ed in Kingdee). When None (direct
+        callers/tests), falls back to the legacy behavior of deriving the list
+        from the fetched records — which by construction can never purge an
+        MTO that fetched zero rows.
+        """
+        if purge_mtos is None:
+            purge_mtos = [r.mto_number for r in records_list if r.mto_number]
+        mto_numbers = sorted(set(purge_mtos))
+        if not mto_numbers:
             return
+        placeholders = ",".join(["?"] * len(mto_numbers))
+        await self.db.execute_write_no_commit(
+            f"DELETE FROM {table} WHERE mto_number IN ({placeholders})",
+            mto_numbers,
+        )
+
+    async def _upsert_purchase_orders_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
+        """Upsert purchase orders without commit (for transaction use)."""
         records_list = list(records)
-        # Deduplicate by unique key to prevent UNIQUE constraint violations
+        await self._purge_by_mto(TABLE_PURCHASE_ORDERS, records_list, purge_mtos)
+        if not records_list:
+            return
+        # Deduplicate by unique key to prevent UNIQUE constraint violations.
+        # entry_id keeps same-document multi-lines distinct (Pattern 5, #6).
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id)
+            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id,
+                   getattr(r, 'entry_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_PURCHASE_ORDERS} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (r.bill_no, r.mto_number, r.material_code, r.material_name,
              r.specification, r.aux_attributes, r.aux_prop_id,
              str(r.order_qty), str(r.stock_in_qty), str(r.remain_stock_in_qty),
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
@@ -737,9 +811,9 @@ class SyncService:
             f"""INSERT INTO {TABLE_PURCHASE_ORDERS} (
                 bill_no, mto_number, material_code, material_name, specification,
                 aux_attributes, aux_prop_id, order_qty, stock_in_qty, remain_stock_in_qty,
-                raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                entry_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id, entry_id) DO UPDATE SET
                 material_name=excluded.material_name, specification=excluded.specification,
                 aux_attributes=excluded.aux_attributes,
                 order_qty=excluded.order_qty, stock_in_qty=excluded.stock_in_qty,
@@ -749,7 +823,9 @@ class SyncService:
             rows,
         )
 
-    async def _upsert_subcontracting_orders_no_commit(self, records: Iterable) -> None:
+    async def _upsert_subcontracting_orders_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Upsert subcontracting orders without commit (for transaction use).
 
         bug-patterns.md #5 (Bug 7, fixed 2026-04-26): the UNIQUE constraint and
@@ -758,36 +834,33 @@ class SyncService:
         mto_number in the conflict key, the upsert silently migrated rows
         between MTOs and produced "ghost" data on lookup.
         """
-        if not records:
-            return
         records_list = list(records)
+        await self._purge_by_mto(TABLE_SUBCONTRACTING_ORDERS, records_list, purge_mtos)
+        if not records_list:
+            return
         deduped: dict[tuple, object] = {}
         for r in records_list:
             # Dedup key MUST match the table's UNIQUE constraint (incl. mto_number).
+            # entry_id keeps same-document multi-lines distinct (Pattern 5, #7).
             key = (r.bill_no, r.mto_number, r.material_code,
-                   getattr(r, 'aux_prop_id', 0) or 0)
+                   getattr(r, 'aux_prop_id', 0) or 0,
+                   getattr(r, 'entry_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_SUBCONTRACTING_ORDERS} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (r.bill_no, r.mto_number, r.material_code,
              str(r.order_qty), str(r.stock_in_qty), str(r.no_stock_in_qty),
              getattr(r, 'aux_prop_id', 0) or 0,
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_SUBCONTRACTING_ORDERS} (
                 bill_no, mto_number, material_code, order_qty, stock_in_qty,
-                no_stock_in_qty, aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                no_stock_in_qty, aux_prop_id, entry_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id, entry_id) DO UPDATE SET
                 order_qty=excluded.order_qty, stock_in_qty=excluded.stock_in_qty,
                 no_stock_in_qty=excluded.no_stock_in_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
@@ -795,172 +868,180 @@ class SyncService:
             rows,
         )
 
-    async def _upsert_production_receipts_no_commit(self, records: Iterable) -> None:
+    async def _upsert_production_receipts_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Upsert production receipts without commit (for transaction use)."""
-        if not records:
-            return
         records_list = list(records)
+        await self._purge_by_mto(TABLE_PRODUCTION_RECEIPTS, records_list, purge_mtos)
+        if not records_list:
+            return
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code, getattr(r, 'aux_prop_id', 0) or 0)
+            # entry_id keeps same-document multi-lines distinct (Pattern 5, #6).
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code,
+                   getattr(r, 'aux_prop_id', 0) or 0, getattr(r, 'entry_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_PRODUCTION_RECEIPTS} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (getattr(r, 'bill_no', '') or '',
              r.mto_number, r.material_code, str(r.real_qty), str(r.must_qty),
              getattr(r, 'aux_prop_id', 0) or 0,
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_PRODUCTION_RECEIPTS} (
                 bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id,
-                raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                entry_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id, entry_id) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
             rows,
         )
 
-    async def _upsert_purchase_receipts_no_commit(self, records: Iterable) -> None:
+    async def _upsert_purchase_receipts_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Upsert purchase receipts without commit (for transaction use)."""
-        if not records:
-            return
         records_list = list(records)
+        await self._purge_by_mto(TABLE_PURCHASE_RECEIPTS, records_list, purge_mtos)
+        if not records_list:
+            return
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code, r.bill_type_number, getattr(r, 'aux_prop_id', 0) or 0)
+            # entry_id keeps same-document multi-lines distinct (Pattern 5, #6 —
+            # live proof CG26041724 kept 14 of 39+1798+762+14=2613).
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code,
+                   r.bill_type_number, getattr(r, 'aux_prop_id', 0) or 0,
+                   getattr(r, 'entry_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_PURCHASE_RECEIPTS} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (getattr(r, 'bill_no', '') or '',
              r.mto_number, r.material_code, str(r.real_qty), str(r.must_qty),
              r.bill_type_number,
              getattr(r, 'aux_prop_id', 0) or 0,
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_PURCHASE_RECEIPTS} (
                 bill_no, mto_number, material_code, real_qty, must_qty, bill_type_number,
-                aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, bill_type_number, aux_prop_id) DO UPDATE SET
+                aux_prop_id, entry_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, bill_type_number, aux_prop_id, entry_id) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
             rows,
         )
 
-    async def _upsert_material_picking_no_commit(self, records: Iterable) -> None:
+    async def _upsert_material_picking_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Upsert material picking without commit (for transaction use)."""
-        if not records:
-            return
         records_list = list(records)
+        await self._purge_by_mto(TABLE_MATERIAL_PICKING, records_list, purge_mtos)
+        if not records_list:
+            return
         deduped: dict[tuple, object] = {}
         for r in records_list:
             # bill_no is part of the logical identity: one (mto, material, ppbom,
             # aux) is picked across multiple 领料单. Omitting it collapses them to
             # the last doc and under-counts actual_qty (Pattern 5; migration 018).
+            # entry_id too: ONE 领料单 can repeat the key across lines (live proof
+            # LL26041108 / 05.02.04.033: 1021+579 — migration 019).
             key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code,
-                   r.ppbom_bill_no, getattr(r, 'aux_prop_id', 0) or 0)
+                   r.ppbom_bill_no, getattr(r, 'aux_prop_id', 0) or 0,
+                   getattr(r, 'entry_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_MATERIAL_PICKING} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (getattr(r, 'bill_no', '') or '',
              r.mto_number, r.material_code, str(r.app_qty), str(r.actual_qty),
              r.ppbom_bill_no,
              getattr(r, 'aux_prop_id', 0) or 0,  # For variant-aware matching
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_MATERIAL_PICKING} (
                 bill_no, mto_number, material_code, app_qty, actual_qty, ppbom_bill_no,
-                aux_prop_id, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, ppbom_bill_no, aux_prop_id) DO UPDATE SET
+                aux_prop_id, entry_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, ppbom_bill_no, aux_prop_id, entry_id) DO UPDATE SET
                 app_qty=excluded.app_qty, actual_qty=excluded.actual_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
             rows,
         )
 
-    async def _upsert_sales_delivery_no_commit(self, records: Iterable) -> None:
+    async def _upsert_sales_delivery_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Upsert sales delivery without commit (for transaction use)."""
-        if not records:
-            return
         records_list = list(records)
+        await self._purge_by_mto(TABLE_SALES_DELIVERY, records_list, purge_mtos)
+        if not records_list:
+            return
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code, getattr(r, 'aux_prop_id', 0) or 0)
+            # entry_id keeps same-document multi-lines distinct (Pattern 5, #6 —
+            # live proof XS26050001 kept 186 of 186+55+54+186=481, hiding 超发).
+            key = (getattr(r, 'bill_no', '') or '', r.mto_number, r.material_code,
+                   getattr(r, 'aux_prop_id', 0) or 0, getattr(r, 'entry_id', 0) or 0)
             deduped[key] = r
         records_list = list(deduped.values())
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_SALES_DELIVERY} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (getattr(r, 'bill_no', '') or '',
              r.mto_number, r.material_code, str(r.real_qty), str(r.must_qty),
              getattr(r, 'aux_prop_id', 0) or 0,
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
         await self.db.executemany_no_commit(
             f"""INSERT INTO {TABLE_SALES_DELIVERY} (
                 bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id,
-                raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                entry_id, raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id, entry_id) DO UPDATE SET
                 real_qty=excluded.real_qty, must_qty=excluded.must_qty,
                 raw_data=excluded.raw_data, synced_at=CURRENT_TIMESTAMP
             """,
             rows,
         )
 
-    async def _upsert_sales_orders_no_commit(self, records: Iterable) -> None:
+    async def _upsert_sales_orders_no_commit(
+        self, records: Iterable, purge_mtos: Optional[list[str]] = None
+    ) -> None:
         """Upsert sales orders without commit (for transaction use).
 
         Note: The dual-field MTO query for SAL_SaleOrder may return duplicate
-        records (same key from both entry-level and header-level MTO fields).
-        We deduplicate by keeping the record with MAX qty for each unique key.
+        records (the same entry line matched via both FMtoNo and F_QWJI_JHGZH).
+        We deduplicate by keeping the FIRST occurrence per unique key — NOT
+        MAX(qty) as a previous docstring claimed. With entry_id in the key,
+        duplicates are now exact same-line repeats (qty identical), so
+        first-wins is correct; DISTINCT entry lines no longer collide at all
+        (pre-entry_id, XSDD2605036's qty=3 lines were silently dropped here).
         """
-        if not records:
-            return
         records_list = list(records)
+        await self._purge_by_mto(TABLE_SALES_ORDERS, records_list, purge_mtos)
+        if not records_list:
+            return
 
         # Deduplicate: keep first occurrence for each unique key
         # This handles duplicates from dual-field MTO query (FMtoNo OR F_QWJI_JHGZH)
         deduped: dict[tuple, object] = {}
         for r in records_list:
-            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id)
+            key = (r.bill_no, r.mto_number, r.material_code, r.aux_prop_id,
+                   getattr(r, 'entry_id', 0) or 0)
             if key in deduped:
                 existing = deduped[key]
                 if r.qty != existing.qty:
@@ -972,13 +1053,6 @@ class SyncService:
                 deduped[key] = r
         records_list = list(deduped.values())
 
-        mto_numbers = sorted({r.mto_number for r in records_list if r.mto_number})
-        if mto_numbers:
-            placeholders = ",".join(["?"] * len(mto_numbers))
-            await self.db.execute_write_no_commit(
-                f"DELETE FROM {TABLE_SALES_ORDERS} WHERE mto_number IN ({placeholders})",
-                mto_numbers,
-            )
         rows = [
             (r.bill_no, r.mto_number, r.material_code, r.material_name,
              r.specification, r.aux_attributes, r.aux_prop_id,
@@ -986,6 +1060,7 @@ class SyncService:
              getattr(r, "bom_short_name", "") or "",  # BOM简称
              getattr(r, "material_group_name", "") or "",  # 物料分组
              getattr(r, "close_status", "A") or "A",  # 关闭状态
+             getattr(r, 'entry_id', 0) or 0,
              model_to_json(r))
             for r in records_list
         ]
@@ -993,9 +1068,10 @@ class SyncService:
             f"""INSERT INTO {TABLE_SALES_ORDERS} (
                 bill_no, mto_number, material_code, material_name, specification,
                 aux_attributes, aux_prop_id, customer_name, delivery_date, qty,
-                bom_short_name, material_group_name, close_status, raw_data, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id) DO UPDATE SET
+                bom_short_name, material_group_name, close_status, entry_id,
+                raw_data, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bill_no, mto_number, material_code, aux_prop_id, entry_id) DO UPDATE SET
                 material_name=excluded.material_name, specification=excluded.specification,
                 aux_attributes=excluded.aux_attributes,
                 customer_name=excluded.customer_name, delivery_date=excluded.delivery_date,
