@@ -539,6 +539,101 @@ class TestMetricValueSerialization:
         assert data["metrics"]["over_pick_amount"]["status"] is None
 
 
+class TestFulfilledFieldUnion:
+    """fulfilled_field accepts a string OR a list of fields summed together.
+
+    Cross-source receipts (e.g. 07.xx finished goods supplied by a sister
+    plant land in purchase_stock_in_qty, not prod_instock_real_qty) must
+    count toward fulfilment. Live-verified case: DK251003S 07.02.151.
+    """
+
+    @staticmethod
+    def _make_union_engine(fulfilled_field) -> MetricEngine:
+        engine = MetricEngine()
+        engine.register_class(MaterialClassMetrics(
+            class_id="finished_goods",
+            pattern=re.compile(r"^07\."),
+            demand_field="sales_order_qty",
+            fulfilled_field=fulfilled_field,
+            picking_field=None,
+            material_type_id=1,
+            is_finished_goods=True,
+            metrics=[
+                MetricDefinition(
+                    name="fulfillment_rate", label="入库完成率", format="percent",
+                    thresholds={"completed": 1.0, "warning": 0.5},
+                ),
+                MetricDefinition(
+                    name="completion_status", label="完成状态", format="status",
+                    thresholds={"completed": 1.0, "warning": 0.5},
+                ),
+            ],
+        ))
+        return engine
+
+    def test_string_config_still_works(self):
+        engine = self._make_union_engine("prod_instock_real_qty")
+        child = _make_child(
+            sales_order_qty=Decimal("100"),
+            prod_instock_real_qty=Decimal("100"),
+            purchase_stock_in_qty=Decimal("999"),  # not in the (string) 口径
+        )
+        metrics = engine.compute_for_item(child, "finished_goods")
+        assert metrics["fulfilled_qty"].value == Decimal("100")
+        assert metrics["fulfillment_rate"].value == Decimal("1")
+
+    def test_list_config_sums_cross_source_receipts(self):
+        """DK251003S 07.02.151: prod=0, purchase=242, sales=242 → 100% completed."""
+        engine = self._make_union_engine(
+            ["prod_instock_real_qty", "purchase_stock_in_qty"]
+        )
+        child = _make_child(
+            material_code="07.02.151",
+            sales_order_qty=Decimal("242"),
+            prod_instock_real_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("242"),
+        )
+        metrics = engine.compute_for_item(child, "finished_goods")
+        assert metrics["fulfilled_qty"].value == Decimal("242")
+        assert metrics["fulfillment_rate"].value == Decimal("1")
+        assert metrics["fulfillment_rate"].status == "completed"
+        assert metrics["completion_status"].status == "completed"
+
+    def test_list_config_sums_both_sources(self):
+        engine = self._make_union_engine(
+            ["prod_instock_real_qty", "purchase_stock_in_qty"]
+        )
+        child = _make_child(
+            sales_order_qty=Decimal("200"),
+            prod_instock_real_qty=Decimal("100"),
+            purchase_stock_in_qty=Decimal("50"),
+        )
+        metrics = engine.compute_for_item(child, "finished_goods")
+        assert metrics["fulfilled_qty"].value == Decimal("150")
+        assert metrics["fulfillment_rate"].value == Decimal("150") / Decimal("200")
+        assert metrics["fulfillment_rate"].status == "in_progress"
+
+    def test_list_config_union_noop_when_secondary_zero(self):
+        """Self-made 口径: purchase_stock_in_qty=0 → union changes nothing."""
+        engine = self._make_union_engine(
+            ["prod_instock_real_qty", "purchase_stock_in_qty"]
+        )
+        child = _make_child(
+            sales_order_qty=Decimal("100"),
+            prod_instock_real_qty=Decimal("60"),
+            purchase_stock_in_qty=Decimal("0"),
+        )
+        metrics = engine.compute_for_item(child, "finished_goods")
+        assert metrics["fulfilled_qty"].value == Decimal("60")
+
+    def test_empty_list_treated_as_no_fulfilled_field(self):
+        engine = self._make_union_engine([])
+        child = _make_child(sales_order_qty=Decimal("100"))
+        metrics = engine.compute_for_item(child, "finished_goods")
+        assert "fulfilled_qty" not in metrics
+        assert metrics["fulfillment_rate"].value == ZERO
+
+
 class TestUnknownMetricName:
     """Test that unknown metric names are handled gracefully."""
 
