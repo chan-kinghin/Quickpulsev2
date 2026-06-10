@@ -10,6 +10,11 @@ from src.exceptions import SyncError
 from src.readers.models import (
     MaterialPickingModel,
     ProductionOrderModel,
+    ProductionReceiptModel,
+    PurchaseOrderModel,
+    PurchaseReceiptModel,
+    SalesDeliveryModel,
+    SalesOrderModel,
     SubcontractingOrderModel,
 )
 from src.sync.sync_service import SyncResult, SyncService, date_chunks, model_to_json
@@ -527,6 +532,446 @@ class TestSyncService:
         # Verify data is gone
         rows = await test_database.execute_read(
             "SELECT COUNT(*) FROM cached_production_orders"
+        )
+        assert rows[0][0] == 0
+
+
+class TestEntryGrainUpserts:
+    """bug-patterns.md #5, SIXTH occurrence (audit 2026-06-10): one Kingdee
+    document can carry MULTIPLE entry lines with the same (material, aux).
+    Pre-entry_id, every document cache upsert kept exactly one line per key.
+    Each test mirrors a live-verified collapse case: two same-document entry
+    lines must BOTH survive so SUM() matches Kingdee.
+    """
+
+    def _service(self, mock_readers, test_database, mock_sync_progress):
+        return SyncService(
+            readers=mock_readers, db=test_database, progress=mock_sync_progress
+        )
+
+    async def _rows(self, db, table, where, params):
+        async with db._connection.execute(
+            f"SELECT entry_id FROM {table} WHERE {where} ORDER BY entry_id", params
+        ) as cursor:
+            return await cursor.fetchall()
+
+    @pytest.mark.asyncio
+    async def test_sales_delivery_same_doc_lines_both_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Live case XS26050001: lines 186+55+54 on the same (material, aux)
+        collapsed to one row (-61% of 481), hiding real 超发."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        records = [
+            SalesDeliveryModel(
+                bill_no="XS26050001", mto_number="AS2605001", material_code="03.03.001",
+                real_qty=Decimal("186"), must_qty=Decimal("186"),
+                aux_prop_id=196059, entry_id=226990,
+            ),
+            SalesDeliveryModel(
+                bill_no="XS26050001", mto_number="AS2605001", material_code="03.03.001",
+                real_qty=Decimal("55"), must_qty=Decimal("55"),
+                aux_prop_id=196059, entry_id=226992,
+            ),
+        ]
+        await service._upsert_sales_delivery_no_commit(records)
+        await test_database._connection.commit()
+        rows = await self._rows(
+            test_database, "cached_sales_delivery",
+            "bill_no=? AND material_code=? AND aux_prop_id=?",
+            ("XS26050001", "03.03.001", 196059),
+        )
+        assert len(rows) == 2, (
+            f"Expected 2 rows (one per entry line); got {len(rows)}. If 1, the "
+            "entry-grain collapse is back: entry_id missing from the UNIQUE / "
+            "ON CONFLICT / dedup key set. See migration 019."
+        )
+
+    @pytest.mark.asyncio
+    async def test_sales_orders_same_doc_lines_both_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Live case XSDD2605036: a qty=3 line next to a qty=300 line on the
+        same (material, aux) was silently dropped → phantom 超发."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        records = [
+            SalesOrderModel(
+                bill_no="XSDD2605036", mto_number="DS2605036", material_code="07.32.001",
+                customer_name="客户A", qty=Decimal("300"),
+                aux_prop_id=227785, entry_id=322305,
+            ),
+            SalesOrderModel(
+                bill_no="XSDD2605036", mto_number="DS2605036", material_code="07.32.001",
+                customer_name="客户A", qty=Decimal("3"),
+                aux_prop_id=227785, entry_id=322310,
+            ),
+        ]
+        await service._upsert_sales_orders_no_commit(records)
+        await test_database._connection.commit()
+        rows = await self._rows(
+            test_database, "cached_sales_orders",
+            "bill_no=? AND material_code=? AND aux_prop_id=?",
+            ("XSDD2605036", "07.32.001", 227785),
+        )
+        assert len(rows) == 2
+        async with test_database._connection.execute(
+            "SELECT SUM(qty) FROM cached_sales_orders WHERE bill_no=?",
+            ("XSDD2605036",),
+        ) as cursor:
+            total = (await cursor.fetchone())[0]
+        assert float(total) == 303.0
+
+    @pytest.mark.asyncio
+    async def test_material_picking_same_doc_lines_both_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Live case LL26041108 / 05.02.04.033 / aux=106244: two lines 1021+579
+        in ONE 领料单 — bill_no in the key (migration 018) is NOT sufficient;
+        the cache kept 579. Migration 018's zero-residual-collision claim was
+        empirically false."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        records = [
+            MaterialPickingModel(
+                bill_no="LL26041108", mto_number="AS2603026-8",
+                material_code="05.02.04.033", app_qty=Decimal("1021"),
+                actual_qty=Decimal("1021"), ppbom_bill_no="PPBOM260305746",
+                aux_prop_id=106244, entry_id=199603,
+            ),
+            MaterialPickingModel(
+                bill_no="LL26041108", mto_number="AS2603026-8",
+                material_code="05.02.04.033", app_qty=Decimal("579"),
+                actual_qty=Decimal("579"), ppbom_bill_no="PPBOM260305746",
+                aux_prop_id=106244, entry_id=199604,
+            ),
+        ]
+        await service._upsert_material_picking_no_commit(records)
+        await test_database._connection.commit()
+        async with test_database._connection.execute(
+            "SELECT SUM(actual_qty) FROM cached_material_picking "
+            "WHERE bill_no=? AND material_code=?",
+            ("LL26041108", "05.02.04.033"),
+        ) as cursor:
+            total = (await cursor.fetchone())[0]
+        assert float(total) == 1600.0, (
+            f"SUM(actual_qty)={total}, expected 1600 (1021+579). If 579, the "
+            "same-document entry collapse is back — see migration 019."
+        )
+
+    @pytest.mark.asyncio
+    async def test_purchase_receipts_same_doc_lines_all_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Live case CG26041724 / 23.12.01 / aux=0: cache kept 14 of
+        39+1798+762+14=2613 — feeds the agent-chat SQL pipeline."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        qtys_ids = [(39, 211749), (1798, 211750), (762, 211751), (14, 211752)]
+        records = [
+            PurchaseReceiptModel(
+                bill_no="CG26041724", mto_number="", material_code="23.12.01",
+                real_qty=Decimal(q), must_qty=Decimal(q),
+                bill_type_number="RKD01_SYS", aux_prop_id=0, entry_id=eid,
+            )
+            for q, eid in qtys_ids
+        ]
+        await service._upsert_purchase_receipts_no_commit(records)
+        await test_database._connection.commit()
+        async with test_database._connection.execute(
+            "SELECT SUM(real_qty), COUNT(*) FROM cached_purchase_receipts WHERE bill_no=?",
+            ("CG26041724",),
+        ) as cursor:
+            total, n = await cursor.fetchone()
+        assert n == 4
+        assert float(total) == 2613.0
+
+    @pytest.mark.asyncio
+    async def test_purchase_orders_same_doc_lines_both_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        records = [
+            PurchaseOrderModel(
+                bill_no="CG_PO_001", mto_number="AS2605001", material_code="03.23.008",
+                order_qty=Decimal("100"), stock_in_qty=Decimal("0"),
+                remain_stock_in_qty=Decimal("100"), aux_prop_id=0, entry_id=1001,
+            ),
+            PurchaseOrderModel(
+                bill_no="CG_PO_001", mto_number="AS2605001", material_code="03.23.008",
+                order_qty=Decimal("250"), stock_in_qty=Decimal("0"),
+                remain_stock_in_qty=Decimal("250"), aux_prop_id=0, entry_id=1002,
+            ),
+        ]
+        await service._upsert_purchase_orders_no_commit(records)
+        await test_database._connection.commit()
+        async with test_database._connection.execute(
+            "SELECT SUM(order_qty) FROM cached_purchase_orders WHERE bill_no=?",
+            ("CG_PO_001",),
+        ) as cursor:
+            total = (await cursor.fetchone())[0]
+        assert float(total) == 350.0
+
+    @pytest.mark.asyncio
+    async def test_production_receipts_same_doc_lines_both_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        records = [
+            ProductionReceiptModel(
+                bill_no="CP_PR_001", mto_number="AS2605001", material_code="05.02.27.022",
+                real_qty=Decimal("1365"), must_qty=Decimal("1365"),
+                aux_prop_id=106022, entry_id=115473,
+            ),
+            ProductionReceiptModel(
+                bill_no="CP_PR_001", mto_number="AS2605001", material_code="05.02.27.022",
+                real_qty=Decimal("200"), must_qty=Decimal("200"),
+                aux_prop_id=106022, entry_id=115499,
+            ),
+        ]
+        await service._upsert_production_receipts_no_commit(records)
+        await test_database._connection.commit()
+        async with test_database._connection.execute(
+            "SELECT SUM(real_qty) FROM cached_production_receipts WHERE bill_no=?",
+            ("CP_PR_001",),
+        ) as cursor:
+            total = (await cursor.fetchone())[0]
+        assert float(total) == 1565.0
+
+    @pytest.mark.asyncio
+    async def test_subcontracting_orders_same_doc_lines_both_survive(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Live case WW25100020 / 08.27.001 / aux=0 (probed 2026-06-10,
+        /tmp/probe_subreqorder_entryid_20260610.py): two lines 1200+38800 in
+        ONE 委外订单 — the 7th Pattern-5 table; pre-fix the upsert kept one
+        line, under-counting 委外 订单数量. NOTE: this form's entry id is
+        FTreeEntity_FEntryID (not FEntity_/FSubReqEntry_)."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        records = [
+            SubcontractingOrderModel(
+                bill_no="WW25100020", mto_number="踏板", material_code="08.27.001",
+                order_qty=Decimal("1200"), stock_in_qty=Decimal("0"),
+                no_stock_in_qty=Decimal("1200"), aux_prop_id=0, entry_id=100383,
+            ),
+            SubcontractingOrderModel(
+                bill_no="WW25100020", mto_number="踏板", material_code="08.27.001",
+                order_qty=Decimal("38800"), stock_in_qty=Decimal("0"),
+                no_stock_in_qty=Decimal("38800"), aux_prop_id=0, entry_id=100867,
+            ),
+        ]
+        await service._upsert_subcontracting_orders_no_commit(records)
+        await test_database._connection.commit()
+        rows = await self._rows(
+            test_database, "cached_subcontracting_orders",
+            "bill_no=? AND material_code=? AND aux_prop_id=?",
+            ("WW25100020", "08.27.001", 0),
+        )
+        assert len(rows) == 2, (
+            f"Expected 2 rows (one per entry line); got {len(rows)}. If 1, the "
+            "entry-grain collapse is back on the SEVENTH table — entry_id "
+            "missing from the UNIQUE / ON CONFLICT / dedup key. Migration 019."
+        )
+        async with test_database._connection.execute(
+            "SELECT SUM(order_qty) FROM cached_subcontracting_orders WHERE bill_no=?",
+            ("WW25100020",),
+        ) as cursor:
+            total = (await cursor.fetchone())[0]
+        assert float(total) == 40000.0
+
+    @pytest.mark.asyncio
+    async def test_same_entry_id_still_dedups(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Idempotency unchanged: the SAME entry line twice (dual-field
+        SAL_SaleOrder query repeat) collapses to one row."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        line = dict(
+            bill_no="XSDD_DUP", mto_number="DS2605999", material_code="07.32.001",
+            customer_name="客户A", qty=Decimal("300"), aux_prop_id=1, entry_id=900001,
+        )
+        records = [SalesOrderModel(**line), SalesOrderModel(**line)]
+        await service._upsert_sales_orders_no_commit(records)
+        await test_database._connection.commit()
+        async with test_database._connection.execute(
+            "SELECT COUNT(*) FROM cached_sales_orders WHERE bill_no=?",
+            ("XSDD_DUP",),
+        ) as cursor:
+            n = (await cursor.fetchone())[0]
+        assert n == 1
+
+
+class TestStalePurge:
+    """Audit 2026-06-10 Bug 2: ghost rows from documents deleted/反审核-ed in
+    Kingdee. Per-MTO DELETE lists were derived from FETCHED records, so an MTO
+    whose last document disappeared kept its dead cached rows forever; and
+    cached_production_orders had no delete step at all.
+    """
+
+    def _service(self, mock_readers, test_database, mock_sync_progress):
+        return SyncService(
+            readers=mock_readers, db=test_database, progress=mock_sync_progress
+        )
+
+    async def _insert_delivery(self, db, mto, bill="XS_OLD", qty=100.0):
+        await db.execute_write(
+            "INSERT INTO cached_sales_delivery "
+            "(bill_no, mto_number, material_code, real_qty, must_qty, aux_prop_id, entry_id) "
+            "VALUES (?, ?, ?, ?, ?, 0, 0)",
+            [bill, mto, "07.01.01", qty, qty],
+        )
+
+    @pytest.mark.asyncio
+    async def test_purge_mtos_removes_rows_even_with_zero_fetched_records(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """The ghost case: sync fetched ZERO delivery rows for an MTO whose
+        last 出库单 was deleted in Kingdee — the dead cached row must go."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        await self._insert_delivery(test_database, "AS_GHOST")
+
+        await service._upsert_sales_delivery_no_commit([], purge_mtos=["AS_GHOST"])
+        await test_database._connection.commit()
+
+        rows = await test_database.execute_read(
+            "SELECT COUNT(*) FROM cached_sales_delivery WHERE mto_number='AS_GHOST'"
+        )
+        assert rows[0][0] == 0, (
+            "Ghost row survived: purge_mtos with zero fetched records must "
+            "still delete — otherwise phantom 超发 alerts persist forever."
+        )
+
+    @pytest.mark.asyncio
+    async def test_purge_spares_mtos_outside_purge_list(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """MTOs from failed fetch batches are NOT in purge_mtos — their cached
+        data must survive (a transient API error must never wipe the cache)."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        await self._insert_delivery(test_database, "AS_FAILED_BATCH")
+        await self._insert_delivery(test_database, "AS_OK")
+
+        await service._upsert_sales_delivery_no_commit([], purge_mtos=["AS_OK"])
+        await test_database._connection.commit()
+
+        rows = await test_database.execute_read(
+            "SELECT mto_number FROM cached_sales_delivery"
+        )
+        assert {r[0] for r in rows} == {"AS_FAILED_BATCH"}
+
+    @pytest.mark.asyncio
+    async def test_legacy_call_without_purge_list_derives_from_records(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """Direct callers (no purge_mtos) keep the old derive-from-records
+        behavior: rows for unrelated MTOs are untouched."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        await self._insert_delivery(test_database, "AS_UNRELATED")
+
+        records = [
+            SalesDeliveryModel(
+                bill_no="XS_NEW", mto_number="AS_TOUCHED", material_code="07.01.01",
+                real_qty=Decimal("5"), must_qty=Decimal("5"), aux_prop_id=0, entry_id=1,
+            )
+        ]
+        await service._upsert_sales_delivery_no_commit(records)
+        await test_database._connection.commit()
+
+        rows = await test_database.execute_read(
+            "SELECT mto_number FROM cached_sales_delivery ORDER BY mto_number"
+        )
+        assert [r[0] for r in rows] == ["AS_TOUCHED", "AS_UNRELATED"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_by_mto_numbers_excludes_failed_batches_from_purge(
+        self, mock_readers, test_database, mock_sync_progress, monkeypatch
+    ):
+        """purge_mtos must cover only SUCCESSFUL batches."""
+        import src.sync.sync_service as sync_module
+
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        monkeypatch.setattr(sync_module, "MTO_BATCH_SIZE", 2)
+
+        # Batch 1 (A1, A2) succeeds with one record; batch 2 (B1, B2) fails.
+        async def fake_batch(reader, mtos, data_type, batch_idx, total):
+            if "B1" in mtos:
+                return None
+            return [
+                SalesDeliveryModel(
+                    bill_no="XS1", mto_number="A1", material_code="07.01.01",
+                    real_qty=Decimal("1"), must_qty=Decimal("1"),
+                )
+            ]
+
+        service._fetch_mto_batch_with_retry = fake_batch
+
+        records, purge_mtos = await service._fetch_by_mto_numbers(
+            "sales_delivery", ["A1", "A2", "B1", "B2"], "sales_delivery"
+        )
+        assert len(records) == 1
+        assert sorted(purge_mtos) == ["A1", "A2"], (
+            "Failed-batch MTOs must be excluded from the purge list; including "
+            "them deletes cached data the fetch could not replace."
+        )
+
+    @pytest.mark.asyncio
+    async def test_production_orders_window_purges_stale_rows(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """A cached order inside the synced window with no matching fetched
+        record disappears; rows outside the window (and NULL create_date)
+        survive. cached_production_orders previously had NO delete step."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+
+        async def insert_order(mto, bill, create_date):
+            await test_database.execute_write(
+                "INSERT INTO cached_production_orders "
+                "(mto_number, bill_no, material_code, qty, create_date) "
+                "VALUES (?, ?, '07.01.01', 10, ?)",
+                [mto, bill, create_date],
+            )
+
+        await insert_order("AS_IN_WINDOW", "MO_STALE", "2026-06-03T10:00:00")
+        await insert_order("AS_OUTSIDE", "MO_KEEP", "2026-05-01T10:00:00")
+        await insert_order("AS_NULL_DATE", "MO_NULL", None)
+
+        fetched = [
+            ProductionOrderModel(
+                bill_no="MO_FRESH", mto_number="AS_FRESH", workshop="",
+                material_code="07.01.02", material_name="", specification="",
+                qty=Decimal("5"), status="B", create_date="2026-06-04",
+            )
+        ]
+        await service._upsert_production_orders(
+            fetched, window=(date(2026, 6, 1), date(2026, 6, 7))
+        )
+        await test_database._connection.commit()
+
+        rows = await test_database.execute_read(
+            "SELECT mto_number FROM cached_production_orders ORDER BY mto_number"
+        )
+        assert [r[0] for r in rows] == ["AS_FRESH", "AS_NULL_DATE", "AS_OUTSIDE"], (
+            "Window-replace must purge in-window stale rows (deleted/反审核 in "
+            "Kingdee) while keeping out-of-window and NULL-date rows."
+        )
+
+    @pytest.mark.asyncio
+    async def test_production_orders_window_purge_runs_with_empty_fetch(
+        self, mock_readers, test_database, mock_sync_progress
+    ):
+        """If Kingdee returns ZERO orders for the window (all deleted), the
+        purge must still run — this was the early-return ghost path."""
+        service = self._service(mock_readers, test_database, mock_sync_progress)
+        await test_database.execute_write(
+            "INSERT INTO cached_production_orders "
+            "(mto_number, bill_no, material_code, qty, create_date) "
+            "VALUES ('AS_DEAD', 'MO_DEAD', '07.01.01', 10, '2026-06-03')",
+        )
+
+        await service._upsert_production_orders(
+            [], window=(date(2026, 6, 1), date(2026, 6, 7))
+        )
+        await test_database._connection.commit()
+
+        rows = await test_database.execute_read(
+            "SELECT COUNT(*) FROM cached_production_orders WHERE mto_number='AS_DEAD'"
         )
         assert rows[0][0] == 0
 

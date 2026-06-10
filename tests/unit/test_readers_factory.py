@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.readers.factory import (
+    MATERIAL_PICKING_CONFIG,
     PRODUCTION_BOM_CONFIG,
     PRODUCTION_ORDER_CONFIG,
     PRODUCTION_RECEIPT_CONFIG,
@@ -170,6 +171,41 @@ class TestReaderConfigs:
         """Test SUBCONTRACTING_ORDER_CONFIG."""
         config = SUBCONTRACTING_ORDER_CONFIG
         assert config.form_id == "SUB_SUBREQORDER"
+
+    def test_subcontracting_order_excludes_drafts(self):
+        """Audit 2026-06-10 Bug 3: SUB_SUBREQORDER was the only quantity-bearing
+        reader without a document-status filter — draft 委外订单 inflated
+        订单数量. Filter must match the sibling readers' B/C/D form."""
+        assert SUBCONTRACTING_ORDER_CONFIG.extra_filter == (
+            "FDocumentStatus IN ('B', 'C', 'D')"
+        )
+
+    def test_entry_id_mappings_use_verified_entity_prefixed_keys(self):
+        """Entry-grain regression guard (audit 2026-06-10, Pattern 5 #6).
+
+        Two failure modes, both verified live 2026-06-10
+        (/tmp/probe_fentryid_variants_20260610.py):
+        - bare 'FEntryID' is REJECTED by every form ("属性没有找到映射或不是
+          简单属性") and would empty the whole query (Pattern 12);
+        - each form exposes the entry id ONLY under its own entity prefix.
+        """
+        expected = {
+            "SAL_OUTSTOCK": (SALES_DELIVERY_CONFIG, "FEntity_FEntryID"),
+            "SAL_SaleOrder": (SALES_ORDER_CONFIG, "FSaleOrderEntry_FEntryID"),
+            "PRD_PickMtrl": (MATERIAL_PICKING_CONFIG, "FEntity_FEntryID"),
+            "STK_InStock": (PURCHASE_RECEIPT_CONFIG, "FInStockEntry_FEntryID"),
+            "PUR_PurchaseOrder": (PURCHASE_ORDER_CONFIG, "FPOOrderEntry_FEntryID"),
+            "PRD_INSTOCK": (PRODUCTION_RECEIPT_CONFIG, "FEntity_FEntryID"),
+        }
+        for form_id, (config, key) in expected.items():
+            assert config.form_id == form_id
+            mapping = config.field_mappings.get("entry_id")
+            assert mapping is not None, f"{form_id} lost its entry_id mapping"
+            assert mapping.kingdee_field == key, (
+                f"{form_id} entry_id key {mapping.kingdee_field!r} != verified "
+                f"{key!r} — re-probe before changing (bare FEntryID is invalid)"
+            )
+            assert mapping.converter is _int
 
     def test_sales_delivery_config(self):
         """Test SALES_DELIVERY_CONFIG."""

@@ -62,6 +62,7 @@ class ProductionReceiptModel(BaseModel):
     real_qty: Decimal
     must_qty: Decimal
     aux_prop_id: int = 0  # For matching by aux_attributes
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)
     mo_bill_no: str = ""  # Link to production order
 
 
@@ -78,6 +79,7 @@ class PurchaseOrderModel(BaseModel):
     order_qty: Decimal
     stock_in_qty: Decimal
     remain_stock_in_qty: Decimal
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)
 
 
 class PurchaseReceiptModel(BaseModel):
@@ -92,10 +94,11 @@ class PurchaseReceiptModel(BaseModel):
     must_qty: Decimal
     bill_type_number: str
     aux_prop_id: int = 0  # FAuxPropId - for variant-aware matching
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)
 
 
 class SubcontractingOrderModel(BaseModel):
-    """Subcontracting Order Model (SUB_POORDER)."""
+    """Subcontracting Order Model (SUB_SUBREQORDER — 委外用料/订单 form actually queried; this tenant has no SUB_POORDER data)."""
 
     bill_no: str
     mto_number: str
@@ -106,6 +109,7 @@ class SubcontractingOrderModel(BaseModel):
     stock_in_qty: Decimal
     no_stock_in_qty: Decimal
     aux_prop_id: int = 0  # FAuxPropId - for variant-aware matching
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)
 
 
 class MaterialPickingModel(BaseModel):
@@ -120,6 +124,7 @@ class MaterialPickingModel(BaseModel):
     actual_qty: Decimal
     ppbom_bill_no: str
     aux_prop_id: int = 0  # 辅助属性ID，用于按颜色/尺寸汇总
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)
 
 
 class SalesDeliveryModel(BaseModel):
@@ -133,6 +138,7 @@ class SalesDeliveryModel(BaseModel):
     real_qty: Decimal
     must_qty: Decimal
     aux_prop_id: int = 0  # For matching by aux_attributes
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)
 
 
 class SalesOrderModel(BaseModel):
@@ -151,3 +157,4 @@ class SalesOrderModel(BaseModel):
     bom_short_name: str = ""  # BOM简称
     material_group_name: str = ""  # BD_MATERIAL.MaterialGroup.FName, e.g. "护目镜"
     close_status: str = "A"  # 关闭状态: 'A'=正常, 'B'=已关闭 (OR-merged from header FCloseStatus + row FMrpCloseStatus + FMANUALROWCLOSE)
+    entry_id: int = 0  # Kingdee FEntryID — distinguishes same-document entry lines (Pattern 5, audit 2026-06-10)

@@ -338,6 +338,10 @@ PRODUCTION_RECEIPT_CONFIG = ReaderConfig(
         "real_qty": FieldMapping("FRealQty", _decimal),
         "must_qty": FieldMapping("FMustQty", _decimal),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
+        # Entry-line id. Unlike data fields, the entry ID REQUIRES the entity
+        # prefix — bare FEntryID is rejected ("属性没有找到映射或不是简单属性").
+        # Verified live 2026-06-10 (/tmp/probe_fentryid_variants_20260610.py).
+        "entry_id": FieldMapping("FEntity_FEntryID", _int),
         "mo_bill_no": FieldMapping("FMoBillNo"),
     },
     # Include approved/confirmed/completed docs (B=已审核, C=已确认, D=重新审核)
@@ -358,6 +362,9 @@ PURCHASE_ORDER_CONFIG = ReaderConfig(
         "order_qty": FieldMapping("FQty", _decimal),
         "stock_in_qty": FieldMapping("FStockInQty", _decimal),
         "remain_stock_in_qty": FieldMapping("FRemainStockInQty", _decimal),
+        # Entry-line id — entity-prefixed form required (bare FEntryID rejected).
+        # Verified live 2026-06-10 (/tmp/probe_fentryid_variants_20260610.py).
+        "entry_id": FieldMapping("FPOOrderEntry_FEntryID", _int),
     },
     # Exclude draft orders (A), include approved/confirmed/re-audited (B, C, D)
     extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
@@ -377,6 +384,9 @@ PURCHASE_RECEIPT_CONFIG = ReaderConfig(
         "must_qty": FieldMapping("FMustQty", _decimal),
         "bill_type_number": FieldMapping("FBillTypeID.FNumber"),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
+        # Entry-line id — entity-prefixed form required (bare FEntryID rejected).
+        # Verified live 2026-06-10: CG26041724 yields 16 distinct ids.
+        "entry_id": FieldMapping("FInStockEntry_FEntryID", _int),
     },
     # Include approved/confirmed docs, exclude drafts (A)
     extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
@@ -396,7 +406,16 @@ SUBCONTRACTING_ORDER_CONFIG = ReaderConfig(
         "stock_in_qty": FieldMapping("FStockInQty", _decimal),
         "no_stock_in_qty": FieldMapping("FNoStockInQty", _decimal),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
+        # Entry-line id — this form uses FTreeEntity_, NOT FEntity_/FSubReqEntry_
+        # (both rejected: "字段不存在"; bare FEntryID rejected like all other forms).
+        # Verified live 2026-06-10 (/tmp/probe_subreqorder_entryid_20260610.py):
+        # WW25080002 yields 23 distinct ids; 15 same-(bill,mto,material,aux)
+        # collision groups exist live (e.g. WW25100020/08.27.001: 1200+38800).
+        "entry_id": FieldMapping("FTreeEntity_FEntryID", _int),
     },
+    # Exclude draft 委外订单 (A) — was the only quantity-bearing reader without
+    # this filter, letting drafts inflate 订单数量 (audit 2026-06-10, Bug 3).
+    extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
 )
 
 MATERIAL_PICKING_CONFIG = ReaderConfig(
@@ -413,6 +432,9 @@ MATERIAL_PICKING_CONFIG = ReaderConfig(
         "actual_qty": FieldMapping("FActualQty", _decimal),
         "ppbom_bill_no": FieldMapping("FPPBomBillNo"),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),  # 辅助属性ID，用于按颜色/尺寸汇总
+        # Entry-line id — entity-prefixed form required (bare FEntryID rejected).
+        # Verified live 2026-06-10: LL26041108 yields 4 distinct ids (1021+579 lines).
+        "entry_id": FieldMapping("FEntity_FEntryID", _int),
     },
     # Include approved/confirmed/re-audited documents (B=审核, C=确认, D=重新审核), exclude drafts (A)
     extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
@@ -431,6 +453,10 @@ SALES_DELIVERY_CONFIG = ReaderConfig(
         "real_qty": FieldMapping("FRealQty", _decimal),
         "must_qty": FieldMapping("FMustQty", _decimal),
         "aux_prop_id": FieldMapping("FAuxPropId", _int),
+        # Entry-line id — entity-prefixed form required (bare FEntryID rejected).
+        # Verified live 2026-06-10: XS26050001 yields 30 distinct ids (the
+        # 186+55+54 same-(material,aux) lines that the cache used to collapse).
+        "entry_id": FieldMapping("FEntity_FEntryID", _int),
     },
     # Include approved/confirmed docs, exclude drafts (A)
     extra_filter="FDocumentStatus IN ('B', 'C', 'D')",
@@ -478,6 +504,12 @@ SALES_ORDER_CONFIG = ReaderConfig(
         "bom_short_name": FieldMapping("FBomId.FName", _str),  # BOM简称
         # See PRODUCTION_BOM_CONFIG; same single-chain trick for 07.xx 成品.
         "material_group_name": FieldMapping("FMaterialId.FMaterialGroup"),
+        # Entry-line id. EXCEPTION to the bare-name rule documented in
+        # extra_field_keys below: the entry ID is only addressable via the
+        # entity-prefixed key (bare FEntryID rejected: "属性没有找到映射").
+        # Verified live 2026-06-10: XSDD2605036 yields 10 distinct ids,
+        # including the qty=3 lines the cache used to drop.
+        "entry_id": FieldMapping("FSaleOrderEntry_FEntryID", _int),
     },
     # Extra raw fields needed by post_process but not mapped 1:1 to model fields.
     # Entry-level fields MUST be bare (no FSaleOrderEntry_ prefix) — the prefixed
@@ -534,7 +566,7 @@ class PurchaseReceiptReader(GenericReader[PurchaseReceiptModel]):
 
 
 class SubcontractingOrderReader(GenericReader[SubcontractingOrderModel]):
-    """Subcontracting Order Reader (SUB_POORDER)."""
+    """Subcontracting Order Reader (SUB_SUBREQORDER — the form actually queried; not SUB_POORDER)."""
 
     def __init__(self, client: KingdeeClient):
         super().__init__(client, SUBCONTRACTING_ORDER_CONFIG)
