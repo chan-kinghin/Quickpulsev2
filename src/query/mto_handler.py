@@ -247,13 +247,20 @@ class MTOQueryHandler:
         out = []
         for row in rows:
             breakdown = dict(row.match_quality_breakdown or {})
-            zero_fields: dict[str, Decimal] = {}
+            zero_fields: dict = {}
             mutated = False
             for source, fields in SOURCE_TO_FIELDS.items():
                 if breakdown.get(source) in NON_EXACT:
                     breakdown[source] = "no_match"
                     for f in fields:
                         zero_fields[f] = ZERO
+                    # The zero is DELIBERATE — flag order provenance True so
+                    # _bom_row_to_child doesn't repaint need_qty over it
+                    # (Pattern 7: strict mode must not reintroduce a fallback).
+                    if source == "purchase_order":
+                        zero_fields["has_purchase_order"] = True
+                    elif source == "subcontract":
+                        zero_fields["has_subcontract_order"] = True
                     mutated = True
             if mutated:
                 row = replace(row, match_quality_breakdown=breakdown, **zero_fields)
@@ -611,9 +618,14 @@ class MTOQueryHandler:
             mto_number, len(sales_orders), len(prod_orders), len(purchase_orders), len(prod_receipts)
         )
 
-        # Collect aux_prop_ids for lookup
+        # Collect aux_prop_ids for lookup. prod_orders MUST be included:
+        # synthetic 2c rows take their aux_prop_id from PRD_MO, whose aux
+        # numbering can be disjoint from every other form (the Tier 2.5
+        # scenario) — omitting it left the 辅助属性 column blank for those
+        # rows (PRD_MO has no FAuxPropId.FName, so the model fallback is
+        # always "" too; audit 2026-06-10).
         aux_prop_ids = set()
-        for items in [sales_orders, purchase_orders, prod_receipts,
+        for items in [sales_orders, prod_orders, purchase_orders, prod_receipts,
                       sales_deliveries, material_picks, production_bom]:
             for item in items:
                 if hasattr(item, "aux_prop_id") and item.aux_prop_id:
@@ -673,10 +685,18 @@ class MTOQueryHandler:
         # 外箱纸板 is category 主料 + IsPurchase=True but is packaging, so the crude 主料→自制 map
         # would mislabel it. Filtering to override-categories keeps purchased main materials correct.
         _override_cats = {c for c, (_t, lbl) in self._CATEGORY_TO_TYPE.items() if lbl != "自制"}
+        _material_lookup = await self._client.lookup_material_categories(list(synthetic_codes))
         category_by_code = {
             code: cat
-            for code, cat in (await self._client.lookup_material_categories(list(synthetic_codes))).items()
+            for code, (cat, _is_pur) in _material_lookup.items()
             if cat in _override_cats
+        }
+        # is_purchase is a sourcing flag, not a routing override → UNFILTERED (all
+        # codes). Without it, synthetic BOMJoinedRows default is_purchase=False and
+        # truly-purchased 外销包材 misfires the self-made-packaging branch in
+        # _bom_row_to_child, dropping 采购订单/入库 entirely (AS2603021, fix 2026-06-10).
+        is_purchase_by_code = {
+            code: is_pur for code, (_cat, is_pur) in _material_lookup.items()
         }
 
         # --- BOM children via shared path ---
@@ -685,6 +705,7 @@ class MTOQueryHandler:
             purchase_orders, purchase_receipts, subcontracting_orders,
             sales_deliveries,
             category_by_code=category_by_code,
+            is_purchase_by_code=is_purchase_by_code,
         )
 
         if strict_aux:
@@ -729,6 +750,7 @@ class MTOQueryHandler:
         subcontracting_orders: list,
         sales_deliveries: list,
         category_by_code: Optional[dict] = None,
+        is_purchase_by_code: Optional[dict] = None,
     ) -> list[BOMJoinedRow]:
         """Convert live API data into BOMJoinedRow format for shared enrichment.
 
@@ -739,8 +761,11 @@ class MTOQueryHandler:
         synthetic BOMJoinedRow entries are created so they still appear in output.
         """
         # Pre-aggregate all source data by (material_code, aux_prop_id)
+        # NOTE: no receipt-FMustQty aggregation here — summing PRD_INSTOCK
+        # FMustQty across batches is the banned Pattern-10 inflation
+        # (bug-patterns.md #10, b8e6fc7). prod_receipt_must_qty is sourced
+        # from BOM need_qty instead, matching cache_reader (commit c7df68c).
         receipt_real = _sum_by_material_and_aux(prod_receipts, "real_qty")
-        receipt_must = _sum_by_material_and_aux(prod_receipts, "must_qty")
         pick_actual_map = _sum_by_material_and_aux(material_picks, "actual_qty")
         pick_app_map = _sum_by_material_and_aux(material_picks, "app_qty")
         po_order = _sum_by_material_and_aux(purchase_orders, "order_qty")
@@ -753,7 +778,7 @@ class MTOQueryHandler:
         # Aggregate by material_code for aux=0 only (fallback for unmatched aux)
         _by_code: dict[str, dict] = {}
         for label, aux_dict in [
-            ("receipt_real", receipt_real), ("receipt_must", receipt_must),
+            ("receipt_real", receipt_real),
             ("pick_actual", pick_actual_map), ("pick_app", pick_app_map),
             ("po_order", po_order), ("po_stock_in", po_stock_in),
             ("pur_real", pur_real), ("sub_order", sub_order),
@@ -768,7 +793,7 @@ class MTOQueryHandler:
         # Aggregate by material_code across ALL aux variants (fallback for aux=0 BOM items)
         _by_code_all: dict[str, dict[str, Decimal]] = {}
         for label, aux_dict in [
-            ("receipt_real", receipt_real), ("receipt_must", receipt_must),
+            ("receipt_real", receipt_real),
             ("pick_actual", pick_actual_map), ("pick_app", pick_app_map),
             ("po_order", po_order), ("po_stock_in", po_stock_in),
             ("pur_real", pur_real), ("sub_order", sub_order),
@@ -783,14 +808,15 @@ class MTOQueryHandler:
         # dedup state per receipt label.
         #
         # Bug class: when BOM has multiple aux groups for the same code AND
-        # receipts are recorded at aux values disjoint from the BOM aux
-        # numbering, every BOM-aux row that falls to Tier 2.5 (aux≠0 →
-        # _by_code_all) or Tier 3 (aux=0 → _by_code_all) currently returns
-        # the FULL all-aux rollup → SUM by code = N × actual receipt total.
-        # When partial exact matches exist (some BOM-aux DO match a receipt
-        # aux), the matched groups claim their exact amount AND non-matched
-        # groups claim full rollup → the same shape on the receipt side
-        # that Bug A fixes on the PRD_MO/demand side.
+        # receipts are recorded at aux values that don't match the BOM aux
+        # numbering, every BOM-aux row that falls to Tier 2 (aux≠0, receipts
+        # at aux=0 → _by_code), Tier 2.5 (aux≠0 → _by_code_all) or Tier 3
+        # (aux=0 → _by_code_all) would return the FULL fallback total →
+        # SUM by code = N × actual receipt total — for all ten receipt-side
+        # fields. When partial exact matches exist (some BOM-aux DO match a
+        # receipt aux), the matched groups claim their exact amount AND
+        # non-matched groups claim the full fallback → the same shape on
+        # the receipt side that Bug A fixes on the PRD_MO/demand side.
         #
         # The fix mirrors `_lookup_mo_qty`'s partial-match dedup:
         #   - exact_matched_amount = SUM of receipt qty across BOM-aux that
@@ -814,42 +840,53 @@ class MTOQueryHandler:
         # `_make_row` call. That ordering is preserved by construction:
         # `bom_groups` is built and `_recv_tier_state` populated before the
         # `for (code, aux), bom_list in bom_groups.items(): rows.append(
-        # _make_row(...))` loop. See the comment in Step 1 for details.
+        # _make_row(...))` loop. Synthetic codes (Step 2, not in any BOM
+        # group) get their OWN election entries, built from the actually-
+        # emitted synthetic row set — Step 2 collects row specs first and
+        # materializes them only after that state is complete.
         _recv_tier_state: dict[str, dict[str, dict]] = {}
 
         def _get(lookup: dict, lookup_label: str, code: str, aux: int) -> Decimal:
             """Get value by (code, aux) with bidirectional aux fallback.
 
             Tier 1: exact (code, aux) match.
-            Tier 2: BOM aux≠0, receipt at aux=0 (`_by_code`).
-            Tier 2.5 (Wave 5B, Bug B): BOM aux≠0, both Tier 1 + Tier 2
-                miss → fall through to all-aux rollup `_by_code_all`. ONLY
-                the elected representative aux receives the remainder
-                (rollup minus exact-matched siblings). Non-elected non-
-                matched aux receive 0. Mirrors `_lookup_mo_qty`'s Tier 2.5.
-            Tier 3: BOM aux=0 → all-aux rollup `_by_code_all`. Same partial-
-                match dedup applies — when partial exact matches exist for
-                this code, only the elected aux=0 BOM-row receives the
-                remainder; if aux=0 is non-elected (e.g. another BOM group
-                won), it gets 0.
+            Tier 2/2.5 (row aux≠0, Tier 1 miss): consult the partial-match
+                dedup state FIRST — ONLY the elected representative aux
+                receives the remainder (all-aux rollup minus exact-matched
+                siblings); non-elected non-matched aux receive 0. Mirrors
+                `_lookup_mo_qty`'s Tier 2.5 and the cache path's
+                `_apply_recv_partial_match_dedup`. Pre-2026-06-10 the Tier-2
+                branch (receipts at aux=0, `_by_code` hit) returned the full
+                aux-0 total BEFORE checking state, so all N sibling BOM-aux
+                rows claimed it → SUM by code = N × Kingdee. Only when no
+                state exists (single-row synthetic code, or rollup ≤ 0)
+                does the legacy fall-through fire: aux=0 total (`_by_code`),
+                then all-aux rollup (`_by_code_all`) — one row, no double
+                count.
+            Tier 3: row aux=0 → same dedup state; elected gets remainder,
+                non-elected gets 0; no-state falls through to the all-aux
+                rollup `_by_code_all`.
+
+            INVARIANT: whenever state exists for (label, code), SUM over
+            all emitted rows of that code == `_by_code_all[label][code]`
+            (exact-matched rows keep Tier 1; elected gets the remainder).
             """
             exact = lookup.get((code, aux))
             if exact is not None:
                 return exact
             if aux != 0:
-                # Tier 2: BOM has specific aux, try receipts with aux=0
-                fallback = _by_code.get(lookup_label, {}).get(code)
-                if fallback is not None:
-                    return fallback
-                # Tier 2.5: fall through to all-aux rollup with dedup state.
+                # Tier 2/2.5: partial-match dedup state first (see docstring).
                 state = _recv_tier_state.get(lookup_label, {}).get(code)
                 if state is not None:
                     if aux == state["elected_aux"]:
                         return state["remainder"]
                     return ZERO
-                # No state ⇒ either no rollup data or a single BOM-aux group
-                # with no exact match. Single-group case: safe to return
-                # the full rollup (same as old behaviour, no double count).
+                # No state ⇒ rollup ≤ 0 for this code, or a single-row
+                # synthetic code (election skipped — full fallback on the
+                # one row is correct, no double count possible).
+                fallback = _by_code.get(lookup_label, {}).get(code)
+                if fallback is not None:
+                    return fallback
                 all_sum = _by_code_all.get(lookup_label, {}).get(code)
                 if all_sum is not None:
                     return all_sum
@@ -894,7 +931,8 @@ class MTOQueryHandler:
                       picked_qty: Decimal, no_picked_qty: Decimal,
                       mo_bill_no: str = "", mto_number: str = "",
                       material_group_name: str = "",
-                      category_name: str = "") -> BOMJoinedRow:
+                      category_name: str = "",
+                      is_purchase: bool = False) -> BOMJoinedRow:
             return BOMJoinedRow(
                 mo_bill_no=mo_bill_no,
                 mto_number=mto_number,
@@ -908,7 +946,12 @@ class MTOQueryHandler:
                 picked_qty=picked_qty,
                 no_picked_qty=no_picked_qty,
                 prod_receipt_real_qty=_get(receipt_real, "receipt_real", code, aux),
-                prod_receipt_must_qty=_get(receipt_must, "receipt_must", code, aux),
+                # BOM-sourced, NOT summed receipt FMustQty — batch FMustQty
+                # values overlap and are not additive (bug-patterns.md #10).
+                # Matches cache_reader's `COALESCE(ba.need_qty, 0)` (c7df68c);
+                # pre-2026-06-10 live summed FMustQty here, a latent live/cache
+                # divergence for any future consumer of this field.
+                prod_receipt_must_qty=need_qty,
                 pick_actual_qty=_get(pick_actual_map, "pick_actual", code, aux),
                 pick_app_qty=_get(pick_app_map, "pick_app", code, aux),
                 purchase_order_qty=_get(po_order, "po_order", code, aux),
@@ -919,6 +962,14 @@ class MTOQueryHandler:
                 delivery_real_qty=_get(del_real, "del_real", code, aux),
                 material_group_name=material_group_name,
                 category_name=category_name,
+                is_purchase=is_purchase,
+                # Tri-state order provenance (Pattern 7): a per-row order qty
+                # of 0 can be a DELIBERATE Wave-5B dedup zero (non-elected aux
+                # sibling). Record whether ANY order exists at code level so
+                # _bom_row_to_child can tell that apart from genuinely-no-order
+                # (B1 need_qty fallback).
+                has_purchase_order=_by_code_all.get("po_order", {}).get(code, ZERO) > 0,
+                has_subcontract_order=_by_code_all.get("sub_order", {}).get(code, ZERO) > 0,
                 match_quality_breakdown={
                     # Use the receipt_real lookup as the canonical signal for
                     # prod_receipt — receipt_must is BOM-sourced now (see
@@ -964,8 +1015,8 @@ class MTOQueryHandler:
                     05.02.12.44 — PPBOM at aux=105726/197964/206684/106447/
                     106237 and PRD_MO at aux=221031/221032/221033. Without
                     this tier, Tier 1 + Tier 2 both miss and the caller
-                    drops to MAX(b.need_qty), inflating the demand by N×
-                    the actual production target (~2.7× in this case).
+                    drops to the BOM-line need_qty fallback, inflating the
+                    demand by N× the actual production target (~2.7× here).
             Tier 3: BOM has generic aux=0, PRD_MO at one or more specific aux
                     values → sum across all PRD_MO rows for this material.
                     (Mirrors the receipt-side `all_aux_rollup` in _get.)
@@ -989,7 +1040,9 @@ class MTOQueryHandler:
             `_tier_2_5_state` for the full rule.
 
             Returns ZERO when no PRD_MO row exists for the material at all —
-            caller falls back to MAX(b.need_qty) per Pattern 10 fix.
+            caller falls back to SUM(b.need_qty) within the (code, aux)
+            group (purchased semantics — no-MO codes are genuinely purchased;
+            matches cache Wave-4B sum_need_qty).
             """
             # Tier 1: exact (code, aux)
             exact = _mo_qty.get((code, aux))
@@ -1004,8 +1057,9 @@ class MTOQueryHandler:
                 # PRD_MO use disjoint aux numbering for the same code (real-
                 # data case AS2602033 / 05.02.12.44). Roll up all PRD_MO for
                 # the code, same answer as Tier 3 for the BOM-aux=0 case.
-                # Without this fallback, the caller drops to MAX(b.need_qty)
-                # and inflates the demand by N× the actual production target.
+                # Without this fallback, the caller drops to the BOM-line
+                # need_qty fallback and inflates the demand by N× the actual
+                # production target.
                 return _mo_qty_by_code.get(code, ZERO)
             # Tier 3: BOM aux=0 → roll up ALL PRD_MO rows for this material
             return _mo_qty_by_code.get(code, ZERO)
@@ -1027,10 +1081,11 @@ class MTOQueryHandler:
         # 105726/106237/106447/197964/206684, PRD_MO at aux=221031/221032/
         # 221033), several BOM-aux groups land in fallback territory:
         #   - aux=0 group goes to Tier 3 rollup
-        #   - specific-aux groups go to Tier 2.5 rollup OR MAX(need_qty)
+        #   - specific-aux groups go to Tier 2.5 rollup OR the BOM-line
+        #     need_qty fallback
         # If every fallback row receives the full team rollup (or its own
-        # MAX), SUM(must_qty) by code = N × team-target instead of 1 ×
-        # team-target.
+        # BOM-line fallback), SUM(must_qty) by code = N × team-target
+        # instead of 1 × team-target.
         #
         # Wave 5B partial-match extension: the previous Wave 4C dedup
         # bailed out entirely if ANY BOM-aux had a Tier 1 exact match —
@@ -1104,7 +1159,6 @@ class MTOQueryHandler:
         # the receipt total; siblings stay 0; SUM matches Kingdee.
         _recv_lookups = (
             ("receipt_real", receipt_real),
-            ("receipt_must", receipt_must),
             ("pick_actual", pick_actual_map),
             ("pick_app", pick_app_map),
             ("po_order", po_order),
@@ -1114,28 +1168,38 @@ class MTOQueryHandler:
             ("sub_stock_in", sub_stock_in),
             ("del_real", del_real),
         )
+        def _recv_elect(
+            label: str, lookup: dict, c: str, aux_list: list[int]
+        ) -> Optional[dict]:
+            """Election state for one (label, code) over its emitted aux rows.
+
+            Exact-matched aux keep their Tier-1 value; ONE non-matched aux
+            (aux=0 wins; else smallest) claims `remainder = max(0, rollup -
+            exact_matched_amount)`; other non-matched aux get 0 — so SUM
+            across the rows equals the `_by_code_all` rollup. Returns None
+            when no election is needed (rollup ≤ 0, or every row has a
+            Tier-1 exact match).
+            """
+            rollup = _by_code_all.get(label, {}).get(c, ZERO)
+            if rollup <= 0:
+                return None
+            exact_matched_aux = [a for a in aux_list if (c, a) in lookup]
+            non_matched_aux = [a for a in aux_list if a not in exact_matched_aux]
+            if not non_matched_aux:
+                return None
+            exact_matched_amount = sum(
+                (lookup[(c, a)] for a in exact_matched_aux), ZERO
+            )
+            remainder = max(ZERO, rollup - exact_matched_amount)
+            elected_aux = 0 if 0 in non_matched_aux else min(non_matched_aux)
+            return {"elected_aux": elected_aux, "remainder": remainder}
+
         for label, lookup in _recv_lookups:
             per_code: dict[str, dict] = {}
             for c, aux_list in _bom_codes_seen.items():
-                rollup = _by_code_all.get(label, {}).get(c, ZERO)
-                if rollup <= 0:
-                    continue
-                exact_matched_aux = [a for a in aux_list if (c, a) in lookup]
-                non_matched_aux = [a for a in aux_list if a not in exact_matched_aux]
-                if not non_matched_aux:
-                    continue
-                exact_matched_amount = sum(
-                    (lookup[(c, a)] for a in exact_matched_aux), ZERO
-                )
-                remainder = max(ZERO, rollup - exact_matched_amount)
-                if 0 in non_matched_aux:
-                    elected_aux = 0
-                else:
-                    elected_aux = min(non_matched_aux)
-                per_code[c] = {
-                    "elected_aux": elected_aux,
-                    "remainder": remainder,
-                }
+                state = _recv_elect(label, lookup, c, aux_list)
+                if state is not None:
+                    per_code[c] = state
             if per_code:
                 _recv_tier_state[label] = per_code
 
@@ -1154,7 +1218,7 @@ class MTOQueryHandler:
             # production target is 3744). The authoritative source is
             # PRD_MO.FQty for (code, aux), with fallback chain in
             # `_lookup_mo_qty` (Tier 1 exact → Tier 2 aux=0 → Tier 2.5/Tier 3
-            # all-aux rollup) before degrading to MAX(b.need_qty). Tier 2.5
+            # all-aux rollup) before degrading to SUM(b.need_qty). Tier 2.5
             # (Wave 4C) handles BOM-specific-aux + PRD_MO-other-specific-aux
             # disjoint numbering (AS2602033 / 05.02.12.44); Tier 3 (commit
             # 948054c) handles BOM-aux=0 + PRD_MO-specific-aux.
@@ -1189,9 +1253,18 @@ class MTOQueryHandler:
                     if _mo > 0:
                         need_qty_val = _mo
                     else:
-                        need_qty_val = max(
+                        # No PRD_MO anywhere for this code → despite PPBOM's
+                        # flat material_type=1, it is genuinely purchased
+                        # (e.g. a 03.xx code; nothing self-made lacks a
+                        # production order). Purchased demand accumulates
+                        # across parent BOM lines → SUM, matching the cache
+                        # path's Wave-4B `sum_need_qty`. MAX understated
+                        # demand by up to N× (audit 2026-06-10). Pattern-10
+                        # inflation doesn't apply: that guard is for codes
+                        # WITH a PRD_MO target.
+                        need_qty_val = sum(
                             (getattr(b, "need_qty", ZERO) for b in bom_list),
-                            default=ZERO,
+                            ZERO,
                         )
             else:
                 need_qty_val = sum(getattr(b, "need_qty", ZERO) for b in bom_list)
@@ -1209,6 +1282,10 @@ class MTOQueryHandler:
                 mto_number=getattr(first, "mto_number", ""),
                 material_group_name=getattr(first, "material_group_name", ""),
                 category_name=getattr(first, "category_name", ""),
+                # PPBOM chain maps FMaterialId.FIsPurchase (factory.py); before
+                # 2026-06-10 this was never forwarded → BOMJoinedRow defaulted
+                # False and purchased 外销包材 misfired the self-made 口径.
+                is_purchase=bool(getattr(first, "is_purchase", False)),
             ))
             covered_keys.add((code, aux))
 
@@ -1235,6 +1312,16 @@ class MTOQueryHandler:
         covered_codes_from_bom: set[str] = {code for code, _aux in covered_keys}
         covered_codes_synthetic: set[str] = set(covered_codes_from_bom)
 
+        # Two-phase emission (Bug 2 fix, 2026-06-10): blocks 2a-2d COLLECT
+        # `_make_row` kwargs into `synthetic_specs` instead of materializing
+        # immediately. Synthetic codes aren't in `_bom_codes_seen`, so they
+        # had no `_recv_tier_state` entry and every multi-aux variant row
+        # fell through to the full aux-0/rollup fallback in `_get` → N×
+        # inflation when picks/receipts sit at aux=0 or disjoint aux. After
+        # 2d the actually-emitted aux set per code is known; election state
+        # is built from it, THEN the rows are materialized so `_get` sees it.
+        synthetic_specs: list[dict] = []
+
         # 2a: Items from PRD_INSTOCK not in PPBOM (skip 07.xx finished goods)
         receipt_groups: dict[tuple[str, int], list] = defaultdict(list)
         for pr in prod_receipts:
@@ -1256,7 +1343,7 @@ class MTOQueryHandler:
             first = pr_list[0]
             # Items in PRD_INSTOCK are production receipts → self-made
             m_type = 1
-            rows.append(_make_row(
+            synthetic_specs.append(dict(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
                 specification=getattr(first, "specification", ""),
@@ -1265,6 +1352,7 @@ class MTOQueryHandler:
                 need_qty=_lookup_mo_qty(code, aux),
                 picked_qty=ZERO, no_picked_qty=ZERO,
                 category_name=(category_by_code or {}).get(code, ""),
+                is_purchase=(is_purchase_by_code or {}).get(code, False),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
@@ -1284,7 +1372,7 @@ class MTOQueryHandler:
             if (code, aux) in covered_keys or code in covered_codes_from_bom:
                 continue
             first = pur_list[0]
-            rows.append(_make_row(
+            synthetic_specs.append(dict(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
                 specification=getattr(first, "specification", ""),
@@ -1292,6 +1380,9 @@ class MTOQueryHandler:
                 material_type=2,  # purchased
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
                 category_name=(category_by_code or {}).get(code, ""),
+                # Source IS a purchase order → default True on lookup miss
+                # (same rationale as the PUR-only sales-side rows, line ~534).
+                is_purchase=(is_purchase_by_code or {}).get(code, True),
             ))
             covered_keys.add((code, aux))
 
@@ -1329,7 +1420,7 @@ class MTOQueryHandler:
             first = po_list[0]
             # Use PRD_MO qty as need_qty for synthetic rows (no BOM entry)
             mo_qty = sum(getattr(p, "qty", ZERO) for p in po_list)
-            rows.append(_make_row(
+            synthetic_specs.append(dict(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
                 specification=getattr(first, "specification", ""),
@@ -1337,6 +1428,7 @@ class MTOQueryHandler:
                 material_type=1,  # self-made (PRD_MO implies production)
                 need_qty=mo_qty, picked_qty=ZERO, no_picked_qty=ZERO,
                 category_name=(category_by_code or {}).get(code, ""),
+                is_purchase=(is_purchase_by_code or {}).get(code, False),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
@@ -1356,7 +1448,7 @@ class MTOQueryHandler:
             first = pick_list[0]
             # Conservative default — picking data with no other source, assume self-made
             m_type = 1
-            rows.append(_make_row(
+            synthetic_specs.append(dict(
                 code=code, aux=aux,
                 material_name=getattr(first, "material_name", ""),
                 specification=getattr(first, "specification", ""),
@@ -1364,9 +1456,33 @@ class MTOQueryHandler:
                 material_type=m_type,
                 need_qty=ZERO, picked_qty=ZERO, no_picked_qty=ZERO,
                 category_name=(category_by_code or {}).get(code, ""),
+                is_purchase=(is_purchase_by_code or {}).get(code, False),
             ))
             covered_keys.add((code, aux))
             covered_codes_synthetic.add(code)
+
+        # --- Step 2 finalize: election state for synthetic multi-aux codes,
+        # then materialize. A synthetic code can emit multiple aux rows (2b
+        # multi-SKU, 2c Wave-6C carve-out, or cross-block 2a+2b); without
+        # state each variant row would claim the full `_get` fallback.
+        # Single-row codes get NO state — the lone row keeps the current
+        # full-fallback behaviour. Synthetic codes are disjoint from BOM
+        # codes (every block skips covered_codes_from_bom), so merging into
+        # `_recv_tier_state` can't clobber Step-1 entries.
+        synthetic_aux_by_code: dict[str, list[int]] = defaultdict(list)
+        for spec in synthetic_specs:
+            synthetic_aux_by_code[spec["code"]].append(spec["aux"])
+        for label, lookup in _recv_lookups:
+            per_code = _recv_tier_state.setdefault(label, {})
+            for c, aux_list in synthetic_aux_by_code.items():
+                if len(aux_list) < 2:
+                    continue
+                state = _recv_elect(label, lookup, c, aux_list)
+                if state is not None:
+                    per_code[c] = state
+
+        for spec in synthetic_specs:
+            rows.append(_make_row(**spec))
 
         return rows
 
@@ -1604,6 +1720,12 @@ class MTOQueryHandler:
     # 2026-05-22 clarification, all of them belong in the 包材 chip — 包材
     # is a category, not a sourcing flag. IsPurchase is still stored on the
     # row (`is_purchase`) for downstream filtering, just not for routing.
+    #
+    # Note on 主料/辅料: the (1, 自制) mapping is the BASE only. All 9 主料/辅料
+    # PPBOM materials tenant-wide carry FIsPurchase=True (probe 2026-06-10), and
+    # _bom_row_to_child reroutes those to the PURCHASED 口径/外购 label — the
+    # 自制 口径 has no purchase columns, so purchased raw materials rendered
+    # 0 入库 / 0% (03.01.012 小方袋, DK25B294S/DK25B291S/DK261001S).
     _CATEGORY_TO_TYPE: dict[str, tuple[int, str]] = {
         "主料": (1, "自制"),
         "辅料": (1, "自制"),
@@ -1612,6 +1734,32 @@ class MTOQueryHandler:
         "委外加工": (3, "委外"),
         "包装成品": (1, "成品"),  # 07.xx handled separately; this is a safety net
     }
+
+    @staticmethod
+    def _order_qty_with_need_fallback(
+        order_qty: Decimal, has_order: Optional[bool], need_qty: Decimal
+    ) -> Decimal:
+        """Resolve the 订单数量 column with tri-state order provenance.
+
+        Pattern 7 fix (audit 2026-06-10): the bare `order_qty or need_qty`
+        fallback (B1, 1db7b79) can't tell genuinely-no-order apart from a
+        DELIBERATE Decimal(0) — Wave-5B dedup zeroes non-elected aux siblings
+        so SUM(订单数量) == the Kingdee order total, and ?strict_aux=true
+        zeroes non-exact fallback qtys. Repainting need_qty over those zeros
+        inflates the code-level SUM and silently reintroduces a fallback in
+        strict mode.
+
+        - True  → an order exists at code level (or strict-aux deliberately
+                  zeroed the qty): use the row value as-is, even 0.
+        - False → genuinely no order: B1 fallback to need_qty.
+        - None  → provenance unknown (legacy cache path, slated for
+                  deletion): keep the legacy or-fallback.
+        """
+        if has_order is True:
+            return order_qty
+        if has_order is False:
+            return need_qty
+        return order_qty or need_qty
 
     def _bom_row_to_child(
         self,
@@ -1649,7 +1797,44 @@ class MTOQueryHandler:
         group_name = getattr(row, "material_group_name", "") or ""
         row_is_purchase = bool(getattr(row, "is_purchase", False))
 
-        if effective_type == 1:  # 自制
+        if category in ("主料", "辅料") and row_is_purchase:
+            # Reverse of the b0e9647 dual-key split below: _CATEGORY_TO_TYPE welds
+            # 主料/辅料 to 自制 unconditionally, but a purchased raw material
+            # (e.g. 03.01.012 小方袋: category 主料, FIsPurchase=True, real PO +
+            # RKD01 receipts) carries its numbers in the PURCHASE columns — the
+            # 自制 口径 has no purchase fields, so it rendered 0 入库 / 0%.
+            # Guarded on a POSITIVELY-recognized category AND is_purchase=True
+            # (True is never the column default, so a sync gap cannot misfire
+            # this branch — unlike the False default that bit b0e9647 live).
+            # 半成品 / 包装成品 / 委外加工 are deliberately untouched.
+            return ChildItem(
+                material_code=row.material_code,
+                material_name=row.material_name,
+                specification=row.specification,
+                aux_attributes=aux_attrs,
+                material_type=MaterialType.PURCHASED,
+                material_type_name="外购",
+                material_group_name=group_name,
+                is_purchase=True,
+                # Same Path-6 fallback as the purchased branch below: demand →
+                # need_qty when no PO exists yet (a real PO always wins).
+                # Tri-state: a deliberate dedup/strict zero survives as 0.
+                purchase_order_qty=self._order_qty_with_need_fallback(
+                    row.purchase_order_qty,
+                    getattr(row, "has_purchase_order", None),
+                    row.need_qty,
+                ),
+                purchase_stock_in_qty=row.purchase_stock_in_qty,
+                pick_actual_qty=row.pick_actual_qty,
+                # Cross-source DISPLAY pass-through (CLAUDE.md: always union
+                # all three receipt sources): a purchased raw material can
+                # also have 生产入库 receipts. Raw value, NOT summed into
+                # the purchase fields (double-count anti-pattern).
+                prod_instock_real_qty=row.prod_receipt_real_qty,
+                match_quality_breakdown=match_quality,
+                photo_file_ids=photos,
+            )
+        elif effective_type == 1:  # 自制
             # Use BOM need_qty as demand — it's correctly scoped per production order.
             # Previously used prd_mo_qty_by_key which cross-aggregated across MTO variants.
             return ChildItem(
@@ -1676,6 +1861,13 @@ class MTOQueryHandler:
                 prod_instock_must_qty=row.need_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                # Cross-source DISPLAY pass-through (CLAUDE.md: always union
+                # all three receipt sources): a 自制-categorized material can
+                # be bought out and carry real PO + RKD01 receipts. Raw row
+                # values only — NOT folded into prod_instock_* (double-count
+                # anti-pattern) and demand stays need_qty-driven.
+                purchase_order_qty=row.purchase_order_qty,
+                purchase_stock_in_qty=row.purchase_stock_in_qty,
                 match_quality_breakdown=match_quality,
                 photo_file_ids=photos,
             )
@@ -1722,6 +1914,10 @@ class MTOQueryHandler:
                 prod_instock_must_qty=row.need_qty,
                 prod_instock_real_qty=row.prod_receipt_real_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                # Cross-source DISPLAY pass-through, same as the 自制 branch
+                # above — raw values, never summed into prod_instock_*.
+                purchase_order_qty=row.purchase_order_qty,
+                purchase_stock_in_qty=row.purchase_stock_in_qty,
                 match_quality_breakdown=match_quality,
                 photo_file_ids=photos,
             )
@@ -1739,10 +1935,21 @@ class MTOQueryHandler:
                 # order yet (restores old Path-6: _build_purchased_child_from_
                 # ppbom showed need_qty as the demand). A real PO always wins.
                 # row.need_qty is the de-inflated (PRD_MO-resolved) value, so
-                # no Pattern-10 inflation is reintroduced.
-                purchase_order_qty=row.purchase_order_qty or row.need_qty,
+                # no Pattern-10 inflation is reintroduced. Tri-state (Pattern
+                # 7): a deliberate dedup/strict-aux zero survives as 0 — only
+                # genuinely-no-PO rows fall back.
+                purchase_order_qty=self._order_qty_with_need_fallback(
+                    row.purchase_order_qty,
+                    getattr(row, "has_purchase_order", None),
+                    row.need_qty,
+                ),
                 purchase_stock_in_qty=row.purchase_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                # Cross-source DISPLAY pass-through: purchased packaging is
+                # sometimes assembled in-house (生产入库). Raw value, never
+                # summed into purchase_stock_in_qty (double-count
+                # anti-pattern).
+                prod_instock_real_qty=row.prod_receipt_real_qty,
                 match_quality_breakdown=match_quality,
                 photo_file_ids=photos,
             )
@@ -1758,9 +1965,19 @@ class MTOQueryHandler:
                 is_purchase=row_is_purchase,
                 # Same Path-6 fallback for 委外: demand → need_qty when there
                 # is no 委外订单 yet (subcontract_order_qty always wins if set).
-                purchase_order_qty=row.subcontract_order_qty or row.need_qty,
+                # Tri-state (Pattern 7): a deliberate dedup/strict-aux zero
+                # survives as 0.
+                purchase_order_qty=self._order_qty_with_need_fallback(
+                    row.subcontract_order_qty,
+                    getattr(row, "has_subcontract_order", None),
+                    row.need_qty,
+                ),
                 purchase_stock_in_qty=row.subcontract_stock_in_qty,
                 pick_actual_qty=row.pick_actual_qty,
+                # Cross-source DISPLAY pass-through: 委外 work is sometimes
+                # pulled in-house (生产入库). Raw value, never summed into
+                # purchase_stock_in_qty (double-count anti-pattern).
+                prod_instock_real_qty=row.prod_receipt_real_qty,
                 match_quality_breakdown=match_quality,
                 photo_file_ids=photos,
             )
@@ -1774,10 +1991,19 @@ class MTOQueryHandler:
                 material_type=effective_type,
                 material_type_name="未知",
                 material_group_name=group_name,
+                is_purchase=row_is_purchase,
                 # REGRESSION GUARD (bug-patterns.md #10): same as self-made above
                 # — both inflation variants (receipt FMustQty sum, BOM-rollup sum)
                 # are forbidden. Use row.need_qty.
                 prod_instock_must_qty=row.need_qty,
+                # Ghost-row fix (audit 2026-06-10): a 未知-typed row used to
+                # drop ALL its real receipt/pick/purchase data — every qty
+                # cell rendered '-' while the numbers existed on the row.
+                # Pass them through so the row at least shows its data.
+                prod_instock_real_qty=row.prod_receipt_real_qty,
+                pick_actual_qty=row.pick_actual_qty,
+                purchase_order_qty=row.purchase_order_qty,
+                purchase_stock_in_qty=row.purchase_stock_in_qty,
                 match_quality_breakdown=match_quality,
                 photo_file_ids=photos,
             )

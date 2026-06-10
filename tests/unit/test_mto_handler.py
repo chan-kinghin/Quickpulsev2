@@ -713,8 +713,8 @@ class TestMTOQueryHandler:
             "prod_instock_must_qty equals SUM(need_qty) across BOM lines (300). "
             "This is a known regression — when a self-made component appears in "
             "N parent BOMs within one MTO, summing inflates by N×. Use "
-            "PRD_MO.FQty (or MAX(need_qty) fallback) for self-made. "
-            "See bug-patterns.md #10."
+            "PRD_MO.FQty for self-made (only no-MO codes fall back to "
+            "SUM — purchased semantics). See bug-patterns.md #10."
         )
         assert child.prod_instock_must_qty == Decimal("100"), (
             "Expected need_qty = PRD_MO.FQty (100), got "
@@ -722,14 +722,21 @@ class TestMTOQueryHandler:
         )
 
     @pytest.mark.asyncio
-    async def test_bom_rollup_falls_back_to_max_when_no_prd_mo(self, mock_readers):
-        """When self-made component has BOM lines but no matching PRD_MO row,
-        fall back to MAX(need_qty), not SUM. The largest single parent demand
-        is closer to the truth than the cumulative sum across parents.
+    async def test_bom_rollup_falls_back_to_sum_when_no_prd_mo(self, mock_readers):
+        """When a PPBOM-type-1 code has NO PRD_MO row at all, the need_qty
+        fallback must be SUM across the (code, aux) group's BOM lines — NOT MAX.
+
+        UPDATED 2026-06-10 (audit, cache-live-parity finding): this test
+        previously pinned MAX(need_qty). A code with no production order
+        anywhere is genuinely purchased despite PPBOM's flat material_type=1
+        (e.g. 03.xx in N parent BOMs), and purchased demand legitimately
+        accumulates across parent BOM lines — the cache path's Wave-4B
+        `sum_need_qty` already does SUM. MAX understated live demand by up
+        to N× vs ?source=cache. Pattern-10 inflation is NOT reintroduced:
+        that guard applies to codes WITH a PRD_MO target, which still win.
 
         Companion to test_regression_must_qty_never_from_bom_rollup_sum: covers
-        the COALESCE fallback path for self-made when PRD_MO data is absent
-        (e.g., partial sync, or component fabricated without an explicit MO).
+        the fallback path for type-1 rows when PRD_MO data is absent.
         """
         from src.readers.models import ProductionBOMModel
 
@@ -792,9 +799,10 @@ class TestMTOQueryHandler:
         assert len(rows) == 1
         row = rows[0]
         assert row.material_code == "05.02.08.099"
-        # MAX(80, 120) = 120, not SUM(80, 120) = 200
-        assert row.need_qty == Decimal("120"), (
-            f"Expected MAX(need_qty)=120 fallback, got {row.need_qty}"
+        # SUM(80, 120) = 200, not MAX(80, 120) = 120 — purchased semantics
+        # for no-MO codes (matches cache Wave-4B sum_need_qty).
+        assert row.need_qty == Decimal("200"), (
+            f"Expected SUM(need_qty)=200 fallback, got {row.need_qty}"
         )
 
     @pytest.mark.asyncio
@@ -1969,6 +1977,121 @@ class TestBomRowToChild:
 
         assert child.material_type == MaterialType.SELF_MADE
         assert child.material_type_name == "自制"
+
+    def test_category_zhuliao_with_is_purchase_true_routes_as_purchased(self):
+        """主料 + IsPurchase=True → PURCHASED 口径, label 外购 (fix 2026-06-10).
+
+        Reverse of the b0e9647 外销包材 split: _CATEGORY_TO_TYPE welds 主料/辅料
+        to 自制 unconditionally, but a purchased raw material (03.01.012 小方袋:
+        category 主料, FIsPurchase=True, PO 42,708 / 12,708 received on
+        DK25B294S/DK25B291S/DK261001S) carries its numbers in the PURCHASE
+        columns — the 自制 口径 has none, so it rendered 0 入库 / 0%.
+        """
+        row = BOMJoinedRow(
+            mo_bill_no="MO_ZHU_PUR",
+            mto_number="DK25B294S",
+            material_code="03.01.012",
+            material_name="小方袋",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("42708"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("42708"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("100"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("42708"),
+            purchase_stock_in_qty=Decimal("12708"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="主料",
+            is_purchase=True,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "外购"
+        assert child.is_purchase is True
+        assert child.purchase_order_qty == Decimal("42708")
+        assert child.purchase_stock_in_qty == Decimal("12708")
+        assert child.pick_actual_qty == Decimal("100")
+        # The 自制 demand column must NOT carry a value — purchased 口径.
+        assert not child.prod_instock_must_qty
+
+    def test_category_fuliao_with_is_purchase_true_routes_as_purchased(self):
+        """辅料 + IsPurchase=True → same PURCHASED reroute as 主料; demand falls
+        back to need_qty when no PO exists yet (Path-6 parity)."""
+        row = BOMJoinedRow(
+            mo_bill_no="MO_FU_PUR",
+            mto_number="DK261001S",
+            material_code="01.30.001",
+            material_name="缝纫线",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("500"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("500"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),   # not ordered yet
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="辅料",
+            is_purchase=True,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "外购"
+        assert child.purchase_order_qty == Decimal("500"), "无 PO 时回退 need_qty"
+
+    def test_category_zhuliao_with_is_purchase_false_stays_selfmade(self):
+        """主料 + IsPurchase=False → 自制 unchanged (regression guard for the
+        reroute above: only a POSITIVE FIsPurchase flips the 口径; False — which
+        is also the sync-gap column default — must never reroute)."""
+        row = BOMJoinedRow(
+            mo_bill_no="MO_ZHU_SELF",
+            mto_number="AS001",
+            material_code="01.22.002",
+            material_name="固态硅胶",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("50"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("50"),
+            prod_receipt_real_qty=Decimal("30"),
+            prod_receipt_must_qty=Decimal("50"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="主料",
+            is_purchase=False,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SELF_MADE
+        assert child.material_type_name == "自制"
+        assert child.prod_instock_must_qty == Decimal("50")
+        assert child.prod_instock_real_qty == Decimal("30")
 
     def test_missing_category_falls_back_to_material_type_and_warns(self, caplog):
         """Empty category_name falls back to material_type with a warning log.
@@ -3637,6 +3760,411 @@ class TestBuildBomJoinedRowsFromLive:
             "SUM = 2× actual."
         )
 
+    # ------------------------------------------------------------------
+    # Tier-2 (aux_zero_fallback) dedup + synthetic multi-aux election
+    # (fix 2026-06-10, audit A2). Pre-fix the Tier-2 branch in `_get`
+    # returned the full aux-0 total BEFORE consulting _recv_tier_state,
+    # so every sibling BOM-aux row claimed it → SUM = N × Kingdee. The
+    # cache path already deduped this shape (_apply_recv_partial_match_
+    # dedup); these tests pin the live half. Synthetic codes (no BOM →
+    # no _bom_codes_seen entry) had NO election state at all, so multi-
+    # aux synthetic emissions inflated the same way.
+    # ------------------------------------------------------------------
+    def test_tier2_aux_zero_receipts_deduped_across_bom_siblings(self, mock_readers):
+        """(a) 2 BOM aux groups, receipts/picks ONLY at aux=0 → the elected
+        sibling gets the full total, the other gets 0, SUM == Kingdee.
+
+        Pre-fix: both rows hit Tier 2 (`_by_code`) and EACH returned the
+        full aux-0 total → SUM = 2× for all ten receipt-side fields.
+        """
+        mto = "AS_T2DEDUP"
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO_T2A", mto_number=mto,
+                material_code="05.02.99.01", material_name="吸塑",
+                specification="", aux_prop_id=900, material_type=1,
+                need_qty=Decimal("500"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("500"),
+            ),
+            ProductionBOMModel(
+                mo_bill_no="MO_T2B", mto_number=mto,
+                material_code="05.02.99.01", material_name="吸塑",
+                specification="", aux_prop_id=901, material_type=1,
+                need_qty=Decimal("500"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("500"),
+            ),
+        ]
+        receipts = [
+            ProductionReceiptModel(
+                bill_no="RK_T2", mto_number=mto, material_code="05.02.99.01",
+                material_name="吸塑", specification="",
+                real_qty=Decimal("700"), must_qty=Decimal("700"),
+                aux_prop_id=0, mo_bill_no="MO_T2A",
+            ),
+            ProductionReceiptModel(
+                bill_no="RK_T2B", mto_number=mto, material_code="05.02.99.01",
+                material_name="吸塑", specification="",
+                real_qty=Decimal("300"), must_qty=Decimal("300"),
+                aux_prop_id=0, mo_bill_no="MO_T2B",
+            ),
+        ]
+        picks = [
+            MaterialPickingModel(
+                bill_no="LL_T2", mto_number=mto, material_code="05.02.99.01",
+                material_name="吸塑", specification="",
+                app_qty=Decimal("950"), actual_qty=Decimal("950"),
+                ppbom_bill_no="", aux_prop_id=0,
+            ),
+        ]
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines, prod_orders=[], prod_receipts=receipts,
+            material_picks=picks, purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 2
+        by_aux = {r.aux_prop_id: r for r in rows}
+        # Elected sibling (smallest aux, no aux=0 BOM group) gets the total.
+        assert by_aux[900].prod_receipt_real_qty == Decimal("1000")
+        assert by_aux[901].prod_receipt_real_qty == Decimal("0"), (
+            f"Tier-2 N× inflation regressed: sibling got "
+            f"{by_aux[901].prod_receipt_real_qty}, expected 0. Pre-fix every "
+            "BOM-aux row returned the full aux-0 total (1000 each → SUM 2000)."
+        )
+        assert by_aux[900].pick_actual_qty == Decimal("950")
+        assert by_aux[901].pick_actual_qty == Decimal("0")
+        # SUM invariant: per code per field == code-level rollup.
+        assert sum((r.prod_receipt_real_qty for r in rows), Decimal(0)) == Decimal("1000")
+        assert sum((r.pick_actual_qty for r in rows), Decimal(0)) == Decimal("950")
+        # Telemetry keeps reporting the tier the data came from, even on
+        # the zeroed sibling (intentional — see _get_quality docstring).
+        assert by_aux[900].match_quality_breakdown["prod_receipt"] == "aux_zero_fallback"
+        assert by_aux[901].match_quality_breakdown["prod_receipt"] == "aux_zero_fallback"
+
+    def test_tier2_mixed_exact_plus_aux_zero_sums_to_rollup(self, mock_readers):
+        """(b) mixed exact + aux=0: exact aux keeps its Tier-1 value, ONE
+        non-matched sibling gets the remainder (= aux-0 amount), the rest 0.
+        SUM == exact + aux0, never more.
+
+        Pre-fix: exact row got E, and EVERY non-matched sibling got the
+        full aux-0 total via Tier 2 → SUM = E + 2×S0.
+        """
+        mto = "AS_T2MIXED"
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no=f"MO_TM{a}", mto_number=mto,
+                material_code="05.02.99.02", material_name="跟型件",
+                specification="", aux_prop_id=a, material_type=1,
+                need_qty=Decimal("400"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("400"),
+            )
+            for a in (900, 901, 902)
+        ]
+        receipts = [
+            # Exact hit at aux=901 (E=500).
+            ProductionReceiptModel(
+                bill_no="RK_TM1", mto_number=mto, material_code="05.02.99.02",
+                material_name="跟型件", specification="",
+                real_qty=Decimal("500"), must_qty=Decimal("500"),
+                aux_prop_id=901, mo_bill_no="MO_TM901",
+            ),
+            # aux=0 receipts (S0=300).
+            ProductionReceiptModel(
+                bill_no="RK_TM2", mto_number=mto, material_code="05.02.99.02",
+                material_name="跟型件", specification="",
+                real_qty=Decimal("300"), must_qty=Decimal("300"),
+                aux_prop_id=0, mo_bill_no="MO_TM0",
+            ),
+        ]
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines, prod_orders=[], prod_receipts=receipts,
+            material_picks=[], purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        assert len(rows) == 3
+        by_aux = {r.aux_prop_id: r for r in rows}
+        assert by_aux[901].prod_receipt_real_qty == Decimal("500")  # Tier 1
+        # Elected non-matched (smallest = 900) gets remainder = 800 - 500.
+        assert by_aux[900].prod_receipt_real_qty == Decimal("300")
+        assert by_aux[902].prod_receipt_real_qty == Decimal("0"), (
+            f"Mixed exact+Tier2 double count regressed: got "
+            f"{by_aux[902].prod_receipt_real_qty}. Pre-fix both non-matched "
+            "siblings returned the full aux-0 total (300 each → SUM 1100)."
+        )
+        total = sum((r.prod_receipt_real_qty for r in rows), Decimal(0))
+        assert total == Decimal("800"), (
+            f"SUM(prod_receipt_real_qty) = {total}, expected exact(500) + "
+            "aux0(300) = 800 — never more than the code-level rollup."
+        )
+
+    def test_synthetic_2b_multi_aux_purchase_receipts_counted_once(self, mock_readers):
+        """(c) synthetic purchased code (no PPBOM) emitting 3 aux variant
+        rows via 2b, purchase receipts posted at aux=0 → counted once.
+
+        Pre-fix: synthetic codes had no _recv_tier_state entry, so every
+        variant row hit Tier 2 and claimed the full aux-0 total → 3×.
+        """
+        from src.readers.models import PurchaseReceiptModel
+
+        def _pur(aux):
+            return PurchaseOrderModel(
+                bill_no=f"PO_SY{aux}", mto_number="AS_SYN2B",
+                material_code="03.23.777", material_name="贴纸",
+                specification="", aux_attributes=f"色{aux}", aux_prop_id=aux,
+                order_qty=Decimal("200"), stock_in_qty=Decimal("200"),
+                remain_stock_in_qty=Decimal("0"),
+            )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[], prod_receipts=[], material_picks=[],
+            purchase_orders=[_pur(11), _pur(12), _pur(13)],
+            purchase_receipts=[
+                PurchaseReceiptModel(
+                    bill_no="RKD_SY", mto_number="AS_SYN2B",
+                    material_code="03.23.777", material_name="贴纸",
+                    specification="", real_qty=Decimal("600"),
+                    must_qty=Decimal("600"), bill_type_number="RKD01_SYS",
+                    aux_prop_id=0,
+                ),
+            ],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        mine = [r for r in rows if r.material_code == "03.23.777"]
+        assert len(mine) == 3
+        by_aux = {r.aux_prop_id: r for r in mine}
+        # Exact per-variant PO qty untouched.
+        for a in (11, 12, 13):
+            assert by_aux[a].purchase_order_qty == Decimal("200")
+        # aux=0 receipts attributed ONCE (elected = smallest aux).
+        assert by_aux[11].purchase_receipt_real_qty == Decimal("600")
+        assert by_aux[12].purchase_receipt_real_qty == Decimal("0")
+        assert by_aux[13].purchase_receipt_real_qty == Decimal("0")
+        total = sum((r.purchase_receipt_real_qty for r in mine), Decimal(0))
+        assert total == Decimal("600"), (
+            f"Synthetic multi-aux inflation regressed: SUM = {total}, "
+            "expected 600. Pre-fix each 2b variant row claimed the full "
+            "aux-0 receipt total (600 × 3 = 1800)."
+        )
+
+    def test_synthetic_cross_block_2b_2d_picks_counted_once(self, mock_readers):
+        """(c-bis) cross-block shape: 2b emits 3 PO aux variants AND 2d emits
+        the aux=0 pick row for the same code. The pick row exact-matches
+        aux=0, so the 2b variants get remainder 0 — picks counted once
+        across all 4 emitted rows.
+        """
+        def _pur(aux):
+            return PurchaseOrderModel(
+                bill_no=f"PO_XB{aux}", mto_number="AS_SYN2D",
+                material_code="03.45.888", material_name="金属扎线",
+                specification="", aux_attributes="", aux_prop_id=aux,
+                order_qty=Decimal("100"), stock_in_qty=Decimal("0"),
+                remain_stock_in_qty=Decimal("100"),
+            )
+
+        picks = [
+            MaterialPickingModel(
+                bill_no="LL_XB", mto_number="AS_SYN2D",
+                material_code="03.45.888", material_name="金属扎线",
+                specification="", app_qty=Decimal("450"),
+                actual_qty=Decimal("450"), ppbom_bill_no="", aux_prop_id=0,
+            ),
+        ]
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[], prod_receipts=[], material_picks=picks,
+            purchase_orders=[_pur(21), _pur(22), _pur(23)],
+            purchase_receipts=[], subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+        mine = [r for r in rows if r.material_code == "03.45.888"]
+        # 3 from 2b + 1 pick-only row from 2d (2b doesn't mutate
+        # covered_codes_synthetic — Bug 5b).
+        assert len(mine) == 4
+        by_aux = {r.aux_prop_id: r for r in mine}
+        # The aux=0 (2d) row exact-matches the pick; 2b variants get 0.
+        assert by_aux[0].pick_actual_qty == Decimal("450")
+        for a in (21, 22, 23):
+            assert by_aux[a].pick_actual_qty == Decimal("0")
+        total = sum((r.pick_actual_qty for r in mine), Decimal(0))
+        assert total == Decimal("450"), (
+            f"Cross-block synthetic pick inflation regressed: SUM = {total}, "
+            "expected 450 (counted once across 2b variants + 2d row)."
+        )
+
+    def test_synthetic_single_row_keeps_full_fallback(self, mock_readers):
+        """(d-guard) single-row synthetic code: no election state is built —
+        the lone row still receives the full aux-0 fallback (old behaviour).
+        """
+        from src.readers.models import PurchaseReceiptModel
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[], prod_receipts=[], material_picks=[],
+            purchase_orders=[
+                PurchaseOrderModel(
+                    bill_no="PO_ONE", mto_number="AS_SYN1",
+                    material_code="03.23.555", material_name="封口贴",
+                    specification="", aux_attributes="", aux_prop_id=77,
+                    order_qty=Decimal("120"), stock_in_qty=Decimal("0"),
+                    remain_stock_in_qty=Decimal("120"),
+                ),
+            ],
+            purchase_receipts=[
+                PurchaseReceiptModel(
+                    bill_no="RKD_ONE", mto_number="AS_SYN1",
+                    material_code="03.23.555", material_name="封口贴",
+                    specification="", real_qty=Decimal("120"),
+                    must_qty=Decimal("120"), bill_type_number="RKD01_SYS",
+                    aux_prop_id=0,
+                ),
+            ],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        mine = [r for r in rows if r.material_code == "03.23.555"]
+        assert len(mine) == 1
+        assert mine[0].purchase_receipt_real_qty == Decimal("120")
+
+    # ---- is_purchase wiring (fix 2026-06-10, AS2603021) -----------------
+    # _make_row never forwarded is_purchase, so every live BOMJoinedRow
+    # defaulted False and truly-purchased 外销包材 misfired the b0e9647
+    # self-made-packaging branch (采购订单/入库 dropped to 0 on the DEFAULT
+    # live path). These tests pin the wiring per source block.
+
+    def test_step1_bom_row_carries_ppbom_is_purchase(self, mock_readers):
+        """Step-1 BOM rows forward PPBOM's FMaterialId.FIsPurchase."""
+        def _bom(code, is_purchase):
+            return ProductionBOMModel(
+                mo_bill_no="MO_IP1", mto_number="AS2603021",
+                material_code=code, material_name="镜盒彩贴",
+                specification="", aux_prop_id=0, material_type=2,
+                category_name="外销包材", is_purchase=is_purchase,
+                need_qty=Decimal("100"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("100"),
+            )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[_bom("03.23.008", True), _bom("03.02.02.176", False)],
+            prod_orders=[], prod_receipts=[], material_picks=[],
+            purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+        )
+        by_code = {r.material_code: r for r in rows}
+        assert by_code["03.23.008"].is_purchase is True, (
+            "PPBOM is_purchase=True must reach BOMJoinedRow — pre-fix the "
+            "dataclass default (False) sent purchased 外销包材 into the "
+            "SELF_MADE 口径 and dropped 采购订单/入库 (AS2603021)."
+        )
+        assert by_code["03.02.02.176"].is_purchase is False
+
+    def test_synthetic_2b_purchase_row_is_purchase_defaults_true(self, mock_readers):
+        """Block 2b (PUR-sourced synthetic): lookup value wins; on lookup miss
+        default True — the source IS a purchase order."""
+        def _pur(code):
+            return PurchaseOrderModel(
+                bill_no="PO_IP", mto_number="AS2603021", material_code=code,
+                material_name="透明封口贴", specification="", aux_attributes="",
+                aux_prop_id=0, order_qty=Decimal("3024"),
+                stock_in_qty=Decimal("2812"), remain_stock_in_qty=Decimal("212"),
+            )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[], prod_receipts=[], material_picks=[],
+            purchase_orders=[_pur("03.23.015"), _pur("03.23.099")],
+            purchase_receipts=[], subcontracting_orders=[], sales_deliveries=[],
+            category_by_code={"03.23.015": "外销包材"},
+            is_purchase_by_code={"03.23.015": True},  # 03.23.099 missing → default
+        )
+        by_code = {r.material_code: r for r in rows}
+        assert by_code["03.23.015"].is_purchase is True
+        assert by_code["03.23.099"].is_purchase is True, (
+            "2b rows come FROM PUR_PurchaseOrder — a lookup miss must default "
+            "True (same rationale as the PUR-only sales-side rows)."
+        )
+
+    def test_synthetic_2a_2c_2d_rows_use_is_purchase_by_code(self, mock_readers):
+        """Blocks 2a (PRD_INSTOCK) / 2c (PRD_MO) / 2d (picks): lookup value
+        wins; on lookup miss default False (production-flavored sources)."""
+        receipt = ProductionReceiptModel(
+            bill_no="RK_IP", mto_number="AS2603021", material_code="05.02.001",
+            material_name="自制件", specification="", real_qty=Decimal("50"),
+            must_qty=Decimal("50"), aux_prop_id=0, mo_bill_no="MO_IP2a",
+        )
+        prod_order = ProductionOrderModel(
+            bill_no="MO_IP2c", mto_number="AS2603021", workshop="组装",
+            material_code="05.03.001", material_name="自制件C",
+            specification="", aux_prop_id=0, qty=Decimal("80"),
+            status="已审核", create_date="2026-06-01",
+        )
+        pick = MaterialPickingModel(
+            bill_no="LL_IP", mto_number="AS2603021", material_code="03.45.079",
+            material_name="金属扎线", specification="",
+            app_qty=Decimal("6787"), actual_qty=Decimal("6787"),
+            ppbom_bill_no="", aux_prop_id=0,
+        )
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[],
+            prod_orders=[prod_order], prod_receipts=[receipt],
+            material_picks=[pick],
+            purchase_orders=[], purchase_receipts=[],
+            subcontracting_orders=[], sales_deliveries=[],
+            category_by_code={"03.45.079": "外销包材"},
+            # 2d pick-only row is truly purchased (AS2603021 金属扎线);
+            # 2a/2c codes missing from the lookup → default False.
+            is_purchase_by_code={"03.45.079": True},
+        )
+        by_code = {r.material_code: r for r in rows}
+        assert by_code["03.45.079"].is_purchase is True, (
+            "2d pick-only synthetic row must take is_purchase from the "
+            "BD_MATERIAL lookup — pre-fix it defaulted False and the 包材 "
+            "branch swallowed the purchase 口径 (AS2603021 / 03.45.079)."
+        )
+        assert by_code["05.02.001"].is_purchase is False
+        assert by_code["05.03.001"].is_purchase is False
+
+    @pytest.mark.asyncio
+    async def test_live_purchased_baocai_end_to_end_purchased_caliber(self, mock_readers):
+        """End-to-end (a): live 外销包材 + FIsPurchase=True synthetic 2b row →
+        PURCHASED 口径 with po/stock_in populated, label 包材, is_purchase True.
+
+        Mirrors AS2603021 / 03.23.015: real PO 3,024 + RKD01 receipts — pre-fix
+        the missing is_purchase sent it to SELF_MADE 口径 (0 订单/0 入库/0%).
+        """
+        mock_readers["purchase_order"].fetch_by_mto = AsyncMock(return_value=[
+            PurchaseOrderModel(
+                bill_no="PO_E2E", mto_number="AS2603021",
+                material_code="03.23.015", material_name="透明封口贴",
+                specification="", aux_attributes="", aux_prop_id=0,
+                order_qty=Decimal("3024"), stock_in_qty=Decimal("2812"),
+                remain_stock_in_qty=Decimal("212"),
+            ),
+        ])
+        # handler._client is production_order_reader.client (mto_handler.py:105)
+        mock_readers["production_order"].client.lookup_material_categories = AsyncMock(
+            return_value={"03.23.015": ("外销包材", True)}
+        )
+
+        handler = self._make_handler(mock_readers)
+        result = await handler.get_status("AS2603021", use_cache=False)
+
+        children = [c for c in result.children if c.material_code == "03.23.015"]
+        assert len(children) == 1
+        child = children[0]
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.material_type_name == "包材"
+        assert child.is_purchase is True
+        assert child.purchase_order_qty == Decimal("3024")
+        assert child.purchase_stock_in_qty == Decimal("2812")
+
 
 class TestLiveMatchQualityParity:
     """Stage 4 of PLAN_aux_match_visibility: live-path match_quality_breakdown
@@ -3829,6 +4357,300 @@ class TestStrictAuxFilter:
         assert out[0].match_quality_breakdown["purchase_order"] == "no_match"
 
 
+class TestOrderQtyTriStateProvenance:
+    """Pattern 7 fix (audit 2026-06-10): the B1 `order_qty or need_qty`
+    fallback (1db7b79) consumed deliberate Decimal(0) as no-order.
+
+    Two deliberate-zero producers exist:
+    - Wave-5B dedup: non-elected aux siblings are zeroed so SUM(订单数量)
+      == the Kingdee order total. The or-fallback repainted need_qty over
+      those zeros → code-level SUM = real total + need_qty fragments.
+    - ?strict_aux=true: _apply_strict_aux_filter zeroes non-exact fallback
+      qtys — the or-fallback silently reintroduced a fallback in strict mode.
+
+    Tri-state has_purchase_order / has_subcontract_order on BOMJoinedRow:
+    True → use the row value as-is (even 0); False → B1 need_qty fallback;
+    None → legacy or-fallback (cache path, slated for deletion).
+    """
+
+    def _make_handler(self):
+        mock_readers = {}
+        for name in [
+            "production_order", "production_bom", "production_receipt",
+            "purchase_order", "purchase_receipt", "subcontracting_order",
+            "material_picking", "sales_delivery", "sales_order",
+        ]:
+            mock_readers[name] = MagicMock()
+        return MTOQueryHandler(
+            production_order_reader=mock_readers["production_order"],
+            production_bom_reader=mock_readers["production_bom"],
+            production_receipt_reader=mock_readers["production_receipt"],
+            purchase_order_reader=mock_readers["purchase_order"],
+            purchase_receipt_reader=mock_readers["purchase_receipt"],
+            subcontracting_order_reader=mock_readers["subcontracting_order"],
+            material_picking_reader=mock_readers["material_picking"],
+            sales_delivery_reader=mock_readers["sales_delivery"],
+            sales_order_reader=mock_readers["sales_order"],
+        )
+
+    @staticmethod
+    def _row(**overrides):
+        base = dict(
+            mo_bill_no="MO_TRI", mto_number="AS_TRI",
+            material_code="03.03.001", material_name="外箱", specification="",
+            aux_attributes="", aux_prop_id=101, material_type=2,
+            need_qty=Decimal("200"), picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("0"),
+            prod_receipt_real_qty=Decimal("0"), prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"), pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"), purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+            category_name="外销包材", is_purchase=True,
+        )
+        base.update(overrides)
+        return BOMJoinedRow(**base)
+
+    def test_dedup_zeroed_purchased_sibling_stays_zero(self):
+        """(a) Wave-5B non-elected sibling: order rollup exists at code level
+        (has=True) but THIS row was deliberately zeroed → 订单数量 stays 0,
+        NOT repainted with need_qty (which would inflate the code-level SUM)."""
+        row = self._row(
+            purchase_order_qty=Decimal("0"),
+            has_purchase_order=True,  # rollup > 0 — an order DOES exist
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.purchase_order_qty == Decimal("0"), (
+            "Dedup-zeroed sibling must stay 0 — repainting need_qty makes "
+            "SUM(订单数量) = Kingdee total + need_qty fragments (Pattern 7)"
+        )
+
+    def test_dedup_zeroed_subcontract_sibling_stays_zero(self):
+        """(a) Same for 委外: deliberate zero with has_subcontract_order=True
+        survives, no need_qty repaint."""
+        row = self._row(
+            material_code="08.01.69", material_name="成人PU帽",
+            category_name="委外加工", is_purchase=False,
+            need_qty=Decimal("725"),
+            subcontract_order_qty=Decimal("0"),
+            has_subcontract_order=True,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SUBCONTRACTED
+        assert child.purchase_order_qty == Decimal("0")
+
+    def test_dedup_zeroed_purchased_raw_material_stays_zero(self):
+        """(a) The 主料+is_purchase branch shares the same tri-state rule."""
+        row = self._row(
+            material_code="03.01.012", material_name="小方袋",
+            category_name="主料", is_purchase=True,
+            purchase_order_qty=Decimal("0"),
+            has_purchase_order=True,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.purchase_order_qty == Decimal("0")
+
+    def test_genuinely_no_po_falls_back_to_need_qty(self):
+        """(b) has=False — no order anywhere for the code → B1 fallback to
+        need_qty is preserved."""
+        row = self._row(
+            purchase_order_qty=Decimal("0"),
+            has_purchase_order=False,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.purchase_order_qty == Decimal("200"), "无 PO 时回退到 need_qty"
+
+    def test_genuinely_no_subcontract_order_falls_back_to_need_qty(self):
+        """(b) has=False for 委外 → B1 fallback preserved."""
+        row = self._row(
+            material_code="08.01.69", category_name="委外加工",
+            is_purchase=False, need_qty=Decimal("725"),
+            subcontract_order_qty=Decimal("0"),
+            has_subcontract_order=False,
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.purchase_order_qty == Decimal("725"), "无委外订单时回退 need_qty"
+
+    def test_real_po_wins_regardless_of_flag(self):
+        """A non-zero order qty passes through under True and None alike."""
+        for has in (True, None):
+            row = self._row(
+                purchase_order_qty=Decimal("500"),
+                has_purchase_order=has,
+            )
+            child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+            assert child.purchase_order_qty == Decimal("500")
+
+    def test_cache_path_none_keeps_legacy_or_fallback(self):
+        """(d) has=None (legacy cache path never sets the flags) → the old
+        or-fallback behavior is unchanged: 0 falls back to need_qty."""
+        row = self._row(purchase_order_qty=Decimal("0"))  # flags default None
+        assert row.has_purchase_order is None
+        assert row.has_subcontract_order is None
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.purchase_order_qty == Decimal("200")
+
+    def test_strict_aux_zeroed_purchase_order_stays_zero(self):
+        """(c) ?strict_aux=true wipe: _apply_strict_aux_filter zeroes a
+        non-exact purchase_order qty AND flags the zero deliberate, so the
+        consumer doesn't silently reintroduce a need_qty fallback."""
+        row = self._row(
+            purchase_order_qty=Decimal("500"),
+            purchase_stock_in_qty=Decimal("300"),
+            match_quality_breakdown={
+                "prod_receipt": "no_match", "pick": "no_match",
+                "purchase_order": "all_aux_rollup",
+                "purchase_receipt": "no_match", "subcontract": "no_match",
+                "delivery": "no_match",
+            },
+        )
+        out = MTOQueryHandler._apply_strict_aux_filter([row])
+        assert out[0].purchase_order_qty == Decimal("0")
+        assert out[0].has_purchase_order is True, (
+            "strict wipe must mark the zero deliberate so it survives "
+            "_bom_row_to_child"
+        )
+
+        child = self._make_handler()._bom_row_to_child(row=out[0], aux_descriptions={})
+        assert child.purchase_order_qty == Decimal("0"), (
+            "strict mode must NOT repaint need_qty over the deliberate zero"
+        )
+
+    def test_strict_aux_zeroed_subcontract_order_stays_zero(self):
+        """(c) Same strict-wipe provenance for the subcontract source."""
+        row = self._row(
+            material_code="08.01.69", category_name="委外加工",
+            is_purchase=False, need_qty=Decimal("725"),
+            subcontract_order_qty=Decimal("300"),
+            match_quality_breakdown={
+                "prod_receipt": "no_match", "pick": "no_match",
+                "purchase_order": "no_match", "purchase_receipt": "no_match",
+                "subcontract": "aux_zero_fallback",
+                "delivery": "no_match",
+            },
+        )
+        out = MTOQueryHandler._apply_strict_aux_filter([row])
+        assert out[0].subcontract_order_qty == Decimal("0")
+        assert out[0].has_subcontract_order is True
+
+        child = self._make_handler()._bom_row_to_child(row=out[0], aux_descriptions={})
+        assert child.purchase_order_qty == Decimal("0")
+
+    def test_strict_aux_no_match_row_keeps_b1_fallback(self):
+        """(c-guard) strict filter only flags sources it zeroes: a no_match
+        purchase_order (genuinely no PO) keeps has=None/False semantics and
+        the B1 fallback still applies downstream."""
+        row = self._row(
+            purchase_order_qty=Decimal("0"),
+            has_purchase_order=False,
+            match_quality_breakdown={
+                "prod_receipt": "no_match", "pick": "no_match",
+                "purchase_order": "no_match", "purchase_receipt": "no_match",
+                "subcontract": "no_match", "delivery": "no_match",
+            },
+        )
+        out = MTOQueryHandler._apply_strict_aux_filter([row])
+        assert out[0].has_purchase_order is False
+
+        child = self._make_handler()._bom_row_to_child(row=out[0], aux_descriptions={})
+        assert child.purchase_order_qty == Decimal("200")
+
+    def test_live_builder_sets_flags_and_sum_matches_kingdee_total(self, mock_readers):
+        """End-to-end through _build_bom_joined_rows_from_live: 2 BOM-aux
+        groups for one purchased code, PO at disjoint aux (1000). Wave-5B
+        elects one row (1000) and zeroes the sibling. With tri-state flags,
+        SUM(child 订单数量) == 1000 — pre-fix the zeroed sibling repainted
+        need_qty (200) → SUM 1200."""
+        mto = "AS_TRI_LIVE"
+        code = "03.03.001"
+        bom_lines = [
+            ProductionBOMModel(
+                mo_bill_no="MO_T1", mto_number=mto, material_code=code,
+                material_name="外箱", specification="",
+                aux_prop_id=900 + i, material_type=2,
+                need_qty=Decimal("200"), picked_qty=Decimal("0"),
+                no_picked_qty=Decimal("200"),
+            )
+            for i in range(2)
+        ]
+        purchase_orders = [
+            PurchaseOrderModel(
+                bill_no="PO_T1", mto_number=mto, material_code=code,
+                aux_prop_id=5555,  # disjoint from BOM aux 900/901
+                order_qty=Decimal("1000"),
+                stock_in_qty=Decimal("0"),
+                remain_stock_in_qty=Decimal("1000"),
+            )
+        ]
+
+        handler = self._make_handler()
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=bom_lines,
+            prod_orders=[],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=purchase_orders,
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+            category_by_code={code: "外销包材"},
+            is_purchase_by_code={code: True},
+        )
+
+        assert len(rows) == 2
+        # An order exists at code level → both siblings flagged True.
+        assert all(r.has_purchase_order is True for r in rows)
+        assert all(r.has_subcontract_order is False for r in rows)
+        # Row-level invariant: SUM(purchase_order_qty) == Kingdee PO total.
+        assert sum((r.purchase_order_qty for r in rows), Decimal(0)) == Decimal("1000")
+
+        children = [handler._bom_row_to_child(row=r, aux_descriptions={}) for r in rows]
+        total = sum((c.purchase_order_qty for c in children), Decimal(0))
+        assert total == Decimal("1000"), (
+            f"SUM(订单数量) must equal the Kingdee PO total (1000), got {total} "
+            "— the dedup-zeroed sibling was repainted with need_qty (Pattern 7)"
+        )
+
+    def test_live_builder_no_po_flag_false_preserves_b1(self, mock_readers):
+        """End-to-end B1: purchased BOM line with NO purchase order anywhere
+        → has_purchase_order=False → demand falls back to need_qty."""
+        bom = ProductionBOMModel(
+            mo_bill_no="MO_T2", mto_number="AS_TRI_NOPO",
+            material_code="03.02.23.004.01", material_name="PC894内吸塑",
+            specification="", aux_prop_id=0, material_type=2,
+            need_qty=Decimal("200"), picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("200"),
+        )
+        handler = self._make_handler()
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[bom],
+            prod_orders=[],
+            prod_receipts=[],
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+            category_by_code={"03.02.23.004.01": "外销包材"},
+            is_purchase_by_code={"03.02.23.004.01": True},
+        )
+
+        assert len(rows) == 1
+        assert rows[0].has_purchase_order is False
+        child = handler._bom_row_to_child(row=rows[0], aux_descriptions={})
+        assert child.purchase_order_qty == Decimal("200"), "B1 回退保持不变"
+
+
 class TestMTOClassificationFields:
     """The response carries business-line / order-type badges derived from the
     MTO number prefix via classify_mto(). Pure-additive: existing quantity and
@@ -3899,3 +4721,317 @@ class TestMTOClassificationFields:
         assert result.business_line_label == "外销"
         assert result.order_type_label == "样品单"
         assert result.is_sample is True
+
+
+class TestAuditA4LiveBuilderFixes:
+    """Audit 2026-06-10 (data-path family), batch A4 — live-builder fixes.
+
+    Covers:
+    - FIX 2: PRD_MO aux_prop_ids must feed the BD_FLEXSITEMDETAILV lookup
+      (synthetic 2c rows had a guaranteed-blank 辅助属性 column).
+    - FIX 3: BOMJoinedRow.prod_receipt_must_qty must be BOM-sourced
+      (need_qty), never summed PRD_INSTOCK FMustQty (Pattern-10 inflation;
+      cache stores need_qty per c7df68c — live silently diverged).
+    """
+
+    def _make_handler(self, mock_readers):
+        return MTOQueryHandler(
+            production_order_reader=mock_readers["production_order"],
+            production_bom_reader=mock_readers["production_bom"],
+            production_receipt_reader=mock_readers["production_receipt"],
+            purchase_order_reader=mock_readers["purchase_order"],
+            purchase_receipt_reader=mock_readers["purchase_receipt"],
+            subcontracting_order_reader=mock_readers["subcontracting_order"],
+            material_picking_reader=mock_readers["material_picking"],
+            sales_delivery_reader=mock_readers["sales_delivery"],
+            sales_order_reader=mock_readers["sales_order"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_prd_mo_only_aux_id_resolves_aux_attributes(self, mock_readers):
+        """FIX 2: an aux_prop_id that exists ONLY on PRD_MO (synthetic 2c row)
+        must be sent to lookup_aux_properties and resolve to a description.
+
+        Pre-fix the collection loop omitted prod_orders, so PRD_MO-only aux
+        ids never reached BD_FLEXSITEMDETAILV and the 辅助属性 column was
+        guaranteed blank (PRD_MO has no FAuxPropId.FName fallback either).
+        The mock uses side_effect (echoes only the ids actually requested),
+        so this cannot pass tautologically.
+        """
+        prod_order = ProductionOrderModel(
+            bill_no="MO2C01",
+            mto_number="DK251003S",
+            workshop="组装工段",
+            material_code="05.20.01.07.011",
+            material_name="泳镜半成品",
+            specification="",
+            aux_prop_id=221031,  # exists ONLY on PRD_MO
+            qty=Decimal("960"),
+            status="已审核",
+            create_date="2026-06-01",
+        )
+        mock_readers["production_order"].fetch_by_mto = AsyncMock(
+            return_value=[prod_order]
+        )
+        aux_lookup = AsyncMock(
+            side_effect=lambda ids: {
+                i: "桔色L码" for i in ids if i == 221031
+            }
+        )
+        mock_readers["production_order"].client.lookup_aux_properties = aux_lookup
+
+        handler = self._make_handler(mock_readers)
+        result = await handler.get_status("DK251003S", use_cache=False)
+
+        requested = aux_lookup.call_args[0][0]
+        assert 221031 in requested, (
+            "PRD_MO aux_prop_id never reached lookup_aux_properties — "
+            "prod_orders missing from the aux collection loop"
+        )
+        assert len(result.children) == 1
+        assert result.children[0].aux_attributes == "桔色L码"
+
+    def test_prod_receipt_must_qty_is_bom_sourced_not_receipt_sum(self, mock_readers):
+        """FIX 3: live BOMJoinedRow.prod_receipt_must_qty == need_qty (BOM
+        demand), never SUM(PRD_INSTOCK.FMustQty) across batches.
+
+        Receipt FMustQty values overlap across batches and are NOT additive
+        (bug-patterns.md #10, b8e6fc7). The cache path stores need_qty for
+        this field (cache_reader, c7df68c); pre-fix the live builder summed
+        FMustQty — a latent live/cache divergence for any future consumer.
+        """
+        bom = ProductionBOMModel(
+            mo_bill_no="MO100",
+            mto_number="AS2511034",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            aux_prop_id=2001,
+            material_type=1,
+            need_qty=Decimal("1008"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("1008"),
+        )
+        prod_order = ProductionOrderModel(
+            bill_no="MO100",
+            mto_number="AS2511034",
+            workshop="组装工段",
+            material_code="05.01.001",
+            material_name="硅胶镜圈",
+            specification="GST-GS53",
+            aux_prop_id=2001,
+            qty=Decimal("1008"),
+            status="已审核",
+            create_date="2026-06-01",
+        )
+        receipts = [
+            ProductionReceiptModel(
+                bill_no=f"RK00{i}",
+                mto_number="AS2511034",
+                material_code="05.01.001",
+                material_name="硅胶镜圈",
+                specification="GST-GS53",
+                real_qty=Decimal("500"),
+                must_qty=must,
+                aux_prop_id=2001,
+                mo_bill_no="MO100",
+            )
+            for i, must in enumerate([Decimal("1211"), Decimal("1008")])
+        ]
+
+        handler = self._make_handler(mock_readers)
+        rows = handler._build_bom_joined_rows_from_live(
+            production_bom=[bom],
+            prod_orders=[prod_order],
+            prod_receipts=receipts,
+            material_picks=[],
+            purchase_orders=[],
+            purchase_receipts=[],
+            subcontracting_orders=[],
+            sales_deliveries=[],
+        )
+
+        assert len(rows) == 1
+        row = rows[0]
+        inflated_sum = Decimal("2219")  # 1211 + 1008 — the WRONG value
+        assert row.prod_receipt_must_qty != inflated_sum, (
+            "prod_receipt_must_qty equals summed receipt FMustQty — the "
+            "banned Pattern-10 batch inflation is back in the live builder"
+        )
+        assert row.prod_receipt_must_qty == row.need_qty == Decimal("1008")
+
+
+class TestCrossSourceDisplayPassThrough:
+    """Audit 2026-06-10 batch A4, FIX 4 + FIX 5 — _bom_row_to_child must not
+    drop cross-source receipt data the row already carries.
+
+    CLAUDE.md routing rule: the same material can have receipts in
+    PRD_INSTOCK + STK RKD01 + RKD03 within one MTO — always union all three.
+    These are DISPLAY pass-throughs only: branch primary/demand fields are
+    untouched and nothing is summed across sources (double-count
+    anti-pattern).
+    """
+
+    def _make_handler(self):
+        mock_readers = {}
+        for name in [
+            "production_order", "production_bom", "production_receipt",
+            "purchase_order", "purchase_receipt", "subcontracting_order",
+            "material_picking", "sales_delivery", "sales_order",
+        ]:
+            mock_readers[name] = MagicMock()
+        return MTOQueryHandler(
+            production_order_reader=mock_readers["production_order"],
+            production_bom_reader=mock_readers["production_bom"],
+            production_receipt_reader=mock_readers["production_receipt"],
+            purchase_order_reader=mock_readers["purchase_order"],
+            purchase_receipt_reader=mock_readers["purchase_receipt"],
+            subcontracting_order_reader=mock_readers["subcontracting_order"],
+            material_picking_reader=mock_readers["material_picking"],
+            sales_delivery_reader=mock_readers["sales_delivery"],
+            sales_order_reader=mock_readers["sales_order"],
+        )
+
+    def _row(self, **overrides) -> BOMJoinedRow:
+        base = dict(
+            mo_bill_no="MO_X",
+            mto_number="AS2603021",
+            material_code="05.02.10.23",
+            material_name="测试物料",
+            specification="",
+            aux_attributes="",
+            aux_prop_id=0,
+            material_type=1,
+            need_qty=Decimal("100"),
+            picked_qty=Decimal("0"),
+            no_picked_qty=Decimal("100"),
+            prod_receipt_real_qty=Decimal("0"),
+            prod_receipt_must_qty=Decimal("0"),
+            pick_actual_qty=Decimal("0"),
+            pick_app_qty=Decimal("0"),
+            purchase_order_qty=Decimal("0"),
+            purchase_stock_in_qty=Decimal("0"),
+            purchase_receipt_real_qty=Decimal("0"),
+            subcontract_order_qty=Decimal("0"),
+            subcontract_stock_in_qty=Decimal("0"),
+            delivery_real_qty=Decimal("0"),
+        )
+        base.update(overrides)
+        return BOMJoinedRow(**base)
+
+    def test_self_made_passes_through_purchase_fields(self):
+        """FIX 5: a 自制-routed row with real PO data keeps it visible —
+        demand stays need_qty-driven, purchase fields are raw pass-through."""
+        row = self._row(
+            material_type=1,
+            prod_receipt_real_qty=Decimal("40"),
+            purchase_order_qty=Decimal("60"),
+            purchase_stock_in_qty=Decimal("30"),
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SELF_MADE
+        # Primary 口径 untouched
+        assert child.prod_instock_must_qty == Decimal("100")
+        assert child.prod_instock_real_qty == Decimal("40")
+        # Cross-source display pass-through (raw, no fallback, no summing)
+        assert child.purchase_order_qty == Decimal("60")
+        assert child.purchase_stock_in_qty == Decimal("30")
+
+    def test_self_made_baocai_passes_through_purchase_fields(self):
+        """FIX 5: 自制包材 (外销包材 + is_purchase=False) branch keeps PO data
+        visible too — same union rule as the 自制 branch."""
+        row = self._row(
+            material_code="03.02.005",
+            category_name="外销包材",
+            is_purchase=False,
+            prod_receipt_real_qty=Decimal("80"),
+            purchase_order_qty=Decimal("20"),
+            purchase_stock_in_qty=Decimal("10"),
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SELF_MADE
+        assert child.material_type_name == "包材"
+        assert child.prod_instock_must_qty == Decimal("100")
+        assert child.prod_instock_real_qty == Decimal("80")
+        assert child.purchase_order_qty == Decimal("20")
+        assert child.purchase_stock_in_qty == Decimal("10")
+
+    def test_purchased_passes_through_prod_receipt_real(self):
+        """FIX 5: a 外购/包材-routed row with 生产入库 receipts keeps them
+        visible (sometimes assembled in-house); purchase 口径 untouched."""
+        row = self._row(
+            material_code="03.06.002",
+            material_type=2,
+            purchase_order_qty=Decimal("500"),
+            purchase_stock_in_qty=Decimal("300"),
+            prod_receipt_real_qty=Decimal("120"),
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.purchase_order_qty == Decimal("500")
+        assert child.purchase_stock_in_qty == Decimal("300")  # NOT summed with 120
+        assert child.prod_instock_real_qty == Decimal("120")
+
+    def test_purchased_raw_material_weld_passes_through_prod_receipt_real(self):
+        """FIX 5: the 主料/辅料 + is_purchase=True weld branch also keeps
+        生产入库 receipts visible."""
+        row = self._row(
+            material_code="03.01.012",
+            category_name="主料",
+            is_purchase=True,
+            purchase_order_qty=Decimal("200"),
+            purchase_stock_in_qty=Decimal("150"),
+            prod_receipt_real_qty=Decimal("50"),
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.PURCHASED
+        assert child.purchase_stock_in_qty == Decimal("150")
+        assert child.prod_instock_real_qty == Decimal("50")
+
+    def test_subcontracted_passes_through_prod_receipt_real(self):
+        """FIX 5: a 委外-routed row with 生产入库 receipts keeps them visible
+        (work pulled in-house); 委外 口径 untouched."""
+        row = self._row(
+            material_code="06.01.001",
+            material_type=3,
+            subcontract_order_qty=Decimal("400"),
+            subcontract_stock_in_qty=Decimal("250"),
+            prod_receipt_real_qty=Decimal("90"),
+        )
+        child = self._make_handler()._bom_row_to_child(row=row, aux_descriptions={})
+
+        assert child.material_type == MaterialType.SUBCONTRACTED
+        assert child.purchase_order_qty == Decimal("400")
+        assert child.purchase_stock_in_qty == Decimal("250")  # NOT summed with 90
+        assert child.prod_instock_real_qty == Decimal("90")
+
+    def test_unknown_type_ghost_row_shows_real_data(self, caplog):
+        """FIX 4: the 未知 fallback branch must pass through the row's real
+        receipt/pick/purchase data and is_purchase instead of emitting a
+        data-less ghost row (pre-fix only prod_instock_must_qty was set)."""
+        import logging
+
+        row = self._row(
+            material_type=9,  # unmapped legacy type, no category
+            is_purchase=True,
+            prod_receipt_real_qty=Decimal("70"),
+            pick_actual_qty=Decimal("35"),
+            purchase_order_qty=Decimal("88"),
+            purchase_stock_in_qty=Decimal("44"),
+        )
+        with caplog.at_level(logging.WARNING):
+            child = self._make_handler()._bom_row_to_child(
+                row=row, aux_descriptions={}
+            )
+
+        assert child.material_type_name == "未知"
+        assert child.prod_instock_must_qty == Decimal("100")  # need_qty, unchanged
+        assert child.prod_instock_real_qty == Decimal("70")
+        assert child.pick_actual_qty == Decimal("35")
+        assert child.purchase_order_qty == Decimal("88")
+        assert child.purchase_stock_in_qty == Decimal("44")
+        assert child.is_purchase is True
