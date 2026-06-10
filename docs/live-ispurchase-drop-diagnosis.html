@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AS2603021 外购包材归零 — live 路径丢失 is_purchase</title>
+<style>
+:root{
+  --abyss-900:#060e1d;--abyss-850:#0a1830;--abyss-800:#0d1f3d;--abyss-700:#123057;
+  --cobalt-600:#0b4a96;--cobalt-500:#1a63bd;--cobalt-400:#3f88e0;--sky-300:#82b4ef;
+  --dawn:#f2b441;--dawn-bright:#ffd36b;--ember:#e8702a;--ember-red:#c8402a;
+  --velvet:#6e2440;--velvet-soft:#b85c78;
+  --parchment:#ece2cd;--ink-900:#1c160d;
+  --text:#e9e7df;--text-dim:#9fb0c9;--hair-gold:rgba(242,180,65,.42);--hair-cool:rgba(120,160,220,.16);
+  --serif-display:"Didot","Bodoni 72",Georgia,"Songti SC",serif;
+  --serif-body:"Iowan Old Style","Palatino",Charter,Georgia,"Songti SC","STSong",serif;
+  --cjk:"Songti SC","STSong","Source Han Serif SC",serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--abyss-900);color:var(--text);font-family:var(--serif-body);line-height:1.72;font-size:16px;-webkit-font-smoothing:antialiased}
+.grain{position:fixed;inset:0;pointer-events:none;z-index:9000;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 30px 70px}
+h1,h2,h3{font-family:var(--serif-display);font-weight:400;color:#fff}
+h1{font-size:2rem;line-height:1.3;margin:10px 0 6px}
+h2{font-size:1.3rem;margin:42px 0 16px;border-bottom:1px solid var(--hair-gold);padding-bottom:8px}
+.kicker{font-family:var(--mono);text-transform:uppercase;letter-spacing:.26em;font-size:.68rem;color:var(--dawn)}
+.sub{color:var(--text-dim);font-size:.92rem;margin-bottom:8px}
+.box{background:linear-gradient(160deg,var(--abyss-850),var(--abyss-800));border:1px solid var(--hair-cool);border-top:2px solid var(--cobalt-400);border-radius:3px;padding:18px 22px;margin:0}
+.box .tag{font-family:var(--mono);text-transform:uppercase;letter-spacing:.18em;font-size:.62rem;color:var(--sky-300);display:block;margin-bottom:6px}
+.box h3{font-size:1.02rem;margin-bottom:6px}
+.box p{font-size:.88rem;color:var(--text-dim)}
+.box .mono{font-family:var(--mono);font-size:.78rem;color:var(--text)}
+.box.gold{border-top-color:var(--dawn)}
+.box.gold .tag{color:var(--dawn)}
+.box.break{border:1px solid rgba(200,64,42,.55);border-top:3px solid var(--ember-red);background:linear-gradient(160deg,#1d0d12,#240f16)}
+.box.break .tag{color:var(--velvet-soft)}
+.box.fix{border-top-color:#4fa86b}
+.box.fix .tag{color:#7fd49a}
+.arrow{display:flex;justify-content:center;align-items:center;height:34px;color:var(--dawn);font-size:1.2rem}
+.arrow span{font-family:var(--mono);font-size:.68rem;color:var(--text-dim);margin-left:10px;letter-spacing:.08em}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0}
+.flow{margin:18px 0}
+code,.code-inline{font-family:var(--mono);font-size:.8em;background:rgba(120,160,220,.12);padding:1px 6px;border-radius:2px;color:var(--dawn-bright)}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.85rem}
+th{font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em;font-size:.68rem;color:var(--dawn);text-align:left;padding:8px 10px;border-bottom:2px solid var(--dawn)}
+td{padding:7px 10px;border-bottom:1px solid var(--hair-cool);color:var(--text)}
+tr:nth-child(even) td{background:rgba(120,160,220,.04)}
+td.bad{color:var(--velvet-soft)}
+td.good{color:#7fd49a}
+.adm{border-left:3px solid var(--dawn);background:rgba(242,180,65,.07);padding:14px 18px;margin:16px 0;font-size:.9rem;border-radius:0 3px 3px 0}
+.adm.danger{border-left-color:var(--velvet);background:rgba(110,36,64,.14)}
+.adm .t{font-family:var(--mono);text-transform:uppercase;letter-spacing:.18em;font-size:.64rem;display:block;margin-bottom:5px;color:var(--dawn)}
+.adm.danger .t{color:var(--velvet-soft)}
+.chip{display:inline-block;font-family:var(--mono);font-size:.7rem;padding:1px 8px;border-radius:2px;border:1px solid var(--hair-cool);margin-right:4px}
+.chip.b{border-color:rgba(63,136,224,.5);color:var(--sky-300)}
+.chip.g{border-color:rgba(127,212,154,.5);color:#7fd49a}
+.chip.r{border-color:rgba(184,92,120,.6);color:var(--velvet-soft)}
+.signoff{margin-top:60px;text-align:center}
+.signoff .ring{width:58px;height:58px;margin:0 auto 8px;border:1.5px solid var(--dawn);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--dawn);font-family:var(--mono);font-size:.55rem;letter-spacing:.2em}
+.signoff p{font-family:var(--mono);font-size:.6rem;letter-spacing:.3em;color:var(--text-dim);text-transform:uppercase}
+.meta{font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;color:var(--text-dim);margin-top:4px}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="wrap">
+
+<span class="kicker">QuickPulse · Diagnosis · 2026-06-10</span>
+<h1>AS2603021 外购包材归零</h1>
+<p class="sub">巴西 Speedo — 镜盒彩贴 / 透明封口贴 / 金属扎线「0 订单 · 0 入库 · 只有领料 · 0%」。<br>
+一个根因：<b style="color:var(--dawn)">live 路径构造 BOMJoinedRow 时从不传 is_purchase，默认 False</b> —— 上周 b0e9647 的自制包材分支被真外购料误触发。</p>
+
+<h2>一、金蝶里的真相（2026-06-10 live 探针验证）</h2>
+<table>
+<tr><th>物料</th><th>BD_MATERIAL 主数据</th><th>单据（AS2603021*）</th><th>QuickPulse 当前显示</th></tr>
+<tr><td class="mono">03.23.008 镜盒彩贴<br>03.23.015 封口贴<br>03.45.079 金属扎线</td>
+<td class="good">IsPurchase=<b>True</b>（外购）<br>类别=外销包材</td>
+<td>采购订单 2,230/3,024/16,128<br>RKD01 采购入库 1,067/2,812/6,787…<br><b>不在任何 PPBOM</b></td>
+<td class="bad">自制口径：0 订单 / 0 入库<br>只有领料 / 0% 完成率<br>chip「包材+自制」</td></tr>
+<tr><td class="mono">01.11.03.01.006/021<br>锦纶哑光莱卡布</td>
+<td class="good">IsPurchase=<b>True</b>（外购）<br>类别=主料</td>
+<td>RKD01 入库 2,061 / 196<br>不在 PPBOM</td>
+<td>数字正确（100%）<br><span class="bad">但 chip 错标「包材+自制」</span></td></tr>
+</table>
+
+<h2>二、断链在哪 — live 数据流</h2>
+<div class="flow">
+<div class="box gold">
+<span class="tag">① Kingdee · 数据都在</span>
+<p class="mono">PPBOM 读数已映射 FMaterialId.FIsPurchase（factory.py:321）<br>
+合成行已有批量主数据查询 lookup_material_categories（client.py:460）— 只查了类别，没查 FIsPurchase</p>
+</div>
+<div class="arrow">↓<span>这些料不在 PPBOM → 走合成行 2b（采购单）/ 2d（领料）</span></div>
+<div class="box break">
+<span class="tag">② 断点 · _make_row（mto_handler.py:892-934）</span>
+<h3>构造 BOMJoinedRow 时没有传 is_purchase</h3>
+<p>模型默认 <code>is_purchase: bool = False</code>（cache_reader.py:75）→ <b>live 路径上每一行都是 False</b>，不管金蝶主数据怎么说。Step 1 BOM 行、2a/2b/2c/2d 合成行全部如此。</p>
+</div>
+<div class="arrow">↓<span>带着假的 is_purchase=False 进入路由</span></div>
+<div class="box break">
+<span class="tag">③ 误触发 · _bom_row_to_child:1682（上周 b0e9647 新增分支）</span>
+<h3>类别=外销包材 + is_purchase=False → 自制包材口径</h3>
+<p>该分支是给吸塑/跟型件（真自制包材）修的：material_type=SELF_MADE → 前端只显示生产入库列（=0）+ 领料列；<b>采购订单数量、采购入库数量整列丢弃</b>。真外购的镜盒彩贴们全军覆没。</p>
+</div>
+<div class="arrow">↓<span>两个可见症状</span></div>
+<div class="cols">
+<div class="box">
+<span class="tag">症状 A · 数据归零（03.23.x / 03.45.x）</span>
+<p><span class="chip b">包材</span><span class="chip g">自制</span> 0 订单数量 · 0 入库数量 · 只有领料 · 0% —— 截图 1 的 385-389 行，本地 handler 基线已逐行复现。</p>
+</div>
+<div class="box">
+<span class="tag">症状 B · chip 错标（01.11 莱卡布等）</span>
+<p>副 chip 按 <code>item.is_purchase</code> 渲染（dashboard.html:472）→ live 上永远显示「自制」。莱卡布因类别覆盖被过滤（05bd364 只允许非自制类别覆盖）幸运地走了采购口径，数字对、标签错。</p>
+</div>
+</div>
+</div>
+
+<div class="adm danger">
+<span class="t">为什么上周没发现 · 信任债窗口</span>
+b0e9647（6-04）是在 <b>cache 数据</b>上端到端验证的 —— cache 行有 synced 的 is_purchase，所以验证通过。但默认路径自 Phase 3（5-30 上线）起是 <b>live</b>。live builder 是 Pre-Change Checklist「3 条数据路径」之外的<b>第 4 条路径</b>。症状 A 在 prod 存活 6 天（6-04 → 6-10）；症状 B（chip 全错）自 live 切换起 ~11 天。bug-patterns：Pattern 1 第 6 次 + Pattern 8 振荡下半周期（修自制包材 → 打破外购包材）。
+</div>
+
+<h2>三、修复 — 把已有的值接通（不动路由逻辑、不动前端）</h2>
+<div class="flow">
+<div class="box fix">
+<span class="tag">Fix 1 · client.py</span>
+<p><code>lookup_material_categories</code> 增查 <code>FIsPurchase</code> → 返回 {code: (类别, is_purchase)}。多 org 重复行：任一真即真。</p>
+</div>
+<div class="arrow">↓</div>
+<div class="box fix">
+<span class="tag">Fix 2 · _fetch_live</span>
+<p>拆两个 map：<code>category_by_code</code>（保持现有过滤）+ <code>is_purchase_by_code</code>（全量不过滤）。</p>
+</div>
+<div class="arrow">↓</div>
+<div class="box fix">
+<span class="tag">Fix 3 · _make_row 增加 is_purchase 参数</span>
+<p class="mono">Step 1 BOM 行 ← PPBOM 链 first.is_purchase<br>2a/2c/2d ← is_purchase_by_code.get(code, False)<br>2b ← is_purchase_by_code.get(code, True)（采购单来源，定义即外购）</p>
+</div>
+</div>
+<div class="adm">
+<span class="t">守住上周的修复</span>
+吸塑/跟型件（真自制包材，IsPurchase=False）拿到的还是 False → 仍走生产入库口径，b0e9647 不回退。回归测试两边都加。
+</div>
+
+<div class="signoff">
+<div class="ring">·AMOR·FATI·</div>
+<p>Stamford Bridge · 51.4817°N 0.1910°W · EST 1905</p>
+<p class="meta">probe: /tmp/probe_as2603021_ispurchase.py · baseline: /tmp/baseline_as2603021.py · plan: /tmp/PLAN_fix_live_is_purchase_20260610.md</p>
+</div>
+
+</div>
+</body>
+</html>
